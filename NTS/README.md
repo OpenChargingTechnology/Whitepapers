@@ -4,13 +4,17 @@ White Paper
 
 
 ## Abstract
-This white paper provides a detailed guide for configuring Open Charge Point Protocol (OCPP) v1.6 and v2.x compliant electric vehicle (EV) charging stations to
-implement Network Time Security (NTS), ensuring secure and precise time synchronization critical for compliance with emerging time-based and dynamic tariff regulations.
-It outlines the setup of NTS Key Establishment (NTS-KE) and NTS-protected Network Time Protocol (NTS), supporting multiple prioritized servers with parallel querying
-for optimal performance and reliability. The operational guide presents two implementation strategies: direct access to legal NTS servers (e.g., Germany’s PTB servers)
-including network, firewall, and Network Address Translation (NAT) configurations for private IP networks within the Charge Point Operator’s backend, and integration
-with a local Smart Meter Gateway (SMGW) using NTP-over-TLS, a solution primarily relevant in Germany. The paper concludes with recommended testing parameters to
-validate configurations.
+This white paper offers a technical guide for configuring electric vehicle (EV) charging stations compliant with Open Charge Point Protocol (OCPP) v1.6 and v2.x to
+enable secure and accurate time synchronization — an essential requirement for compliance with emerging time-based and dynamic tariff regulations. Two implementation strategies are detailed:
+- **Direct NTS Integration**: Direct synchronization with legal Network Time Security (NTS) servers—such as those operated by Germany’s PTB—using Network Time
+Security Key Establishment (NTS-KE) and authenticated NTP (NTP+NTS). This approach supports multiple prioritized time sources with parallel querying to ensure high
+performance and resilience.
+- **NTP-over-TLS via SMGW**: A Germany-specific option using NTP-over-TLS in combination with a local Smart Meter Gateway (SMGW), suitable for integration into smart
+metering infrastructures.
+
+The paper also includes operational guidance on configuring internal network components—such as firewalls, NAT, and IP addressing—for secure backend communication
+within Charge Point Operator (CPO) environments. It concludes with test criteria and recommended parameters for validating the correct and compliant implementation
+of time synchronization mechanisms.
 
 
 ## 1. Introduction
