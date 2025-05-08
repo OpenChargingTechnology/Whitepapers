@@ -15,12 +15,22 @@ validate configurations.
 
 ## Introduction
 
-Accurate and secure time synchronization is essential for electric vehicle (EV) charging stations to ensure reliable transaction logging, trustworthy billing, and
-compliance with regulatory standards. Traditionally, Open Charge Point Protocol (OCPP) heartbeats and the Network Time Protocol (NTP) have been used for time
-synchronization in the EV charging infrastructure. However, OCPP heartbeats lack precision, particularly over high-latency mobile networks, and NTP is inherently
-insecure, leaving it vulnerable to attacks such as man-in-the-middle (MITM). Securing NTP with (D)TLS adds latency and jitter, compromising performance. Network Time
-Security (NTS), as defined in RFC 8915, overcomes these limitations by delivering authenticated and encrypted time synchronization with minimal additional delay. This
-white paper details the configuration of OCPP v1.6 and v2.x charging stations to implement NTS, including NTS Key Establishment (NTS-KE) and NTS-protected NTP, with
-support for multiple prioritized servers and an optional extension for signed NTS responses. It also provides operational guidance for Charge Point Operators (CPOs)
-to configure network and firewall settings for accessing legal NTS servers or integrating with a local Smart Meter Gateway (SMGW), alongside recommended testing
-procedures for these implementations.
+Precise and secure time synchronization is vital for electric vehicle (EV) charging stations to ensure accurate transaction logging, reliable billing, and adherence
+to regulatory mandates, particularly with the rise of time-based and dynamic tariff structures. The Open Charge Point Protocol (OCPP) v1.6 and v2.x facilitate
+communication between charging stations and Charging Station Management Systems (CSMS), relying on consistent timekeeping for secure operations, such as validating
+TLS certificates and scheduling smart charging profiles. Traditionally, OCPP heartbeats and the Network Time Protocol (NTP) have been employed for time synchronization.
+However, OCPP heartbeats lack the precision required for high-latency mobile networks, and NTP’s inherent lack of security exposes it to vulnerabilities like
+man-in-the-middle (MITM) attacks. Securing NTP with (D)TLS introduces additional latency and jitter, which can degrade performance in time-sensitive applications.
+
+Network Time Security (NTS), as defined in RFC 8915, addresses these shortcomings by providing authenticated and encrypted time synchronization with minimal delay,
+making it an ideal solution for modern EV charging infrastructure. NTS combines NTS Key Establishment (NTS-KE) for secure key exchange with NTS-protected NTP for robust
+time queries, ensuring both security and accuracy. This white paper provides a comprehensive guide for configuring OCPP v1.6 and v2.x compliant charging stations to
+implement NTS, enabling Charge Point Operators (CPOs) to meet emerging regulatory requirements, such as those for time-based and dynamic tariffs in markets. It details
+the setup of NTS-KE and NTS-protected NTP, including support for multiple prioritized servers with parallel querying to optimize performance and reliability.
+
+Additionally, the paper offers an operational guide outlining two implementation strategies tailored to CPO needs. The first strategy involves direct access to legal
+NTS servers, such as Germany’s Physikalisch-Technische Bundesanstalt (PTB) servers, requiring specific network, firewall, and Network Address Translation (NAT)
+configurations to accommodate private IP networks within the CPO’s backend. The second strategy focuses on integration with a local Smart Meter Gateway (SMGW) using NTS
+or NTP-over-TLS, a solution primarily applicable in Germany to comply with the Mess- und Eichrecht (calibration law). The paper concludes with recommended testing
+parameters to validate these configurations, ensuring robust and compliant time synchronization. By adopting NTS, CPOs can enhance the security, scalability, and
+regulatory compliance of their EV charging networks, paving the way for advanced tariff models and operational efficiency.
