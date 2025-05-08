@@ -1,3 +1,3 @@
 # Whitepapers
 
-- [Network Time Secure](NTS/README.md)
+- [Secure Time Synchronization for OCPP](NTS/README.md)
