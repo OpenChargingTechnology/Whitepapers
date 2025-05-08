@@ -15,10 +15,12 @@ validate configurations.
 
 ## Introduction
 
-Accurate and secure time synchronization is critical for EV charging stations to ensure reliable transaction logging, billing accuracy, and compliance with regulatory
-requirements. Both OCPP heartbeats and the Network Time Protocol (NTP) have traditionally been used for time synchronization, but both lack either accurancy especially
-over high latency mobile networks or inherent security, making NTP vulnerable to attacks such as man-in-the-middle (MITM). Securing NTP via (D)TLS introduces additional
-delay and jitter. Network Time Security (NTS), as defined in RFC 8915, addresses these drawbacks and vulnerabilities by providing authenticated and encrypted time
-synchronization while introducing low additional delays. This white paper outlines how to configure OCPP v1.6 and v2.x charging stations to leverage NTS, including NTS
-Key Establishment (NTS-KE) and NTS-protected NTP, with support for multiple servers and prioritized selection. It also provides operational guidance for Charge Point
-Operators (CPOs) to configure network and firewall settings for accessing legal NTS servers or integrating with a local SMGW and how to test those use cases.
+Accurate and secure time synchronization is essential for electric vehicle (EV) charging stations to ensure reliable transaction logging, trustworthy billing, and
+compliance with regulatory standards. Traditionally, Open Charge Point Protocol (OCPP) heartbeats and the Network Time Protocol (NTP) have been used for time
+synchronization in the EV charging infrastructure. However, OCPP heartbeats lack precision, particularly over high-latency mobile networks, and NTP is inherently
+insecure, leaving it vulnerable to attacks such as man-in-the-middle (MITM). Securing NTP with (D)TLS adds latency and jitter, compromising performance. Network Time
+Security (NTS), as defined in RFC 8915, overcomes these limitations by delivering authenticated and encrypted time synchronization with minimal additional delay. This
+white paper details the configuration of OCPP v1.6 and v2.x charging stations to implement NTS, including NTS Key Establishment (NTS-KE) and NTS-protected NTP, with
+support for multiple prioritized servers and an optional extension for signed NTS responses. It also provides operational guidance for Charge Point Operators (CPOs)
+to configure network and firewall settings for accessing legal NTS servers or integrating with a local Smart Meter Gateway (SMGW), alongside recommended testing
+procedures for these implementations.
