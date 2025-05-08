@@ -1,6 +1,6 @@
 White Paper
 
-# Network Time Security (NTS) for OCPP
+# Secure Time Synchronization for OCPP
 
 
 ## Abstract
@@ -189,5 +189,12 @@ national solution for Germany.
 ### 4.1 Direct Access to Custom or Legal NTS Servers
 
 ### 4.2 Integration with Local Smart Meter Gateways (Germany-Specific)
+
+
+
+
+## 5. NTP-over-TLS
+
+https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11
 
 
