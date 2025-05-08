@@ -140,27 +140,42 @@ Below is an example configuration for a charging station supporting multiple NTS
 
 ```
 # /etc/chrony/chrony.conf
-# Primary servers (priority 1)
-server ptbtime1.ptb.de iburst nts priority 1
-server ptbtime2.ptb.de iburst nts priority 1
-# Secondary servers (priority 2)
-server time.cloudflare.com iburst nts priority 2
-server nts.netnod.se iburst nts priority 2
-# Configuration options
+# Primary servers
+server ptbtime1.ptb.de iburst nts minpoll 6 maxpoll 10 prefer certset 1
+server ptbtime2.ptb.de iburst nts minpoll 6 maxpoll 10 prefer certset 1
+server ptbtime3.ptb.de iburst nts minpoll 6 maxpoll 10 prefer certset 1
 minsources 2
+
+# Secondary servers
+server time.cloudflare.com iburst nts minpoll 6 maxpoll 10 certset 2
+server nts.netnod.se       iburst nts minpoll 6 maxpoll 10 certset 3
+
+# Configuration options
 authselectmode require
 driftfile /var/run/chrony/drift
 ntsdumpdir /var/run/chrony
 makestep 1.0 3
 rtcsync
+
+# Limit NTS certificate verification
+nosystemcert
+ntstrustedcerts 1 /etc/chrony/certs/ptb_ca.pem
+ntstrustedcerts 2 /etc/chrony/certs/cloudflare_ca.pem
+ntstrustedcerts 3 /etc/chrony/certs/netnod_ca.pem
 ```
 
 This configuration:
-- Queries ptbtime1.ptb.de and ptbtime2.ptb.de in parallel (priority 1), selecting the best based on performance metrics.
-- Falls back to secondary servers if primary servers are unavailable.
-- Requires at least two authenticated sources for synchronization.
+- Queries ptbtime1.ptb.de and ptbtime2.ptb.de in parallel, selecting the best based on performance metrics.
+- `minsources 2` tells chronyd to refuse to update the clock until two sources are simultaneously selectable.
 - Enables real-time clock synchronization and step corrections for large time offsets.
 
+More about PTB time servers:
+- https://www.ptb.de/cms/ptb/fachabteilungen/abt9/gruppe-95/ref-952/zeitsynchronisation-von-rechnern-mit-hilfe-des-network-time-protocol-ntp.html
+- https://www.ptb.de/cms/ptb/fachabteilungen/abt4/fb-44/ag-442.html
+- https://www.ptb.de/cms/ptb/fachabteilungen/abt4/fb-44/fragenzurzeit/fragenzurzeit07.html
+- https://www.ptb.de/cms/ptb/fachabteilungen/abt9/gruppe-95/ref-952.html
+- https://www.ptb.de/cms/ptb/fachabteilungen/abt9/gruppe-95/ref-952/zeitsynchronisation-technische-hinweise.html
+- https://uhr.ptb.de/analog
 
 
 ## 4. Operational Guide
