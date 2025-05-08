@@ -12,3 +12,13 @@ including network, firewall, and Network Address Translation (NAT) configuration
 with a local Smart Meter Gateway (SMGW) using NTP-over-TLS, a solution primarily relevant in Germany. The paper concludes with recommended testing parameters to
 validate configurations.
 
+
+## Introduction
+
+Accurate and secure time synchronization is critical for EV charging stations to ensure reliable transaction logging, billing accuracy, and compliance with regulatory
+requirements. Both OCPP heartbeats and the Network Time Protocol (NTP) have traditionally been used for time synchronization, but both lack either accurancy especially
+over high latency mobile networks or inherent security, making NTP vulnerable to attacks such as man-in-the-middle (MITM). Securing NTP via (D)TLS introduces additional
+delay and jitter. Network Time Security (NTS), as defined in RFC 8915, addresses these drawbacks and vulnerabilities by providing authenticated and encrypted time
+synchronization while introducing low additional delays. This white paper outlines how to configure OCPP v1.6 and v2.x charging stations to leverage NTS, including NTS
+Key Establishment (NTS-KE) and NTS-protected NTP, with support for multiple servers and prioritized selection. It also provides operational guidance for Charge Point
+Operators (CPOs) to configure network and firewall settings for accessing legal NTS servers or integrating with a local SMGW and how to test those use cases.
