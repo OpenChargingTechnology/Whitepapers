@@ -13,7 +13,7 @@ with a local Smart Meter Gateway (SMGW) using NTP-over-TLS, a solution primarily
 validate configurations.
 
 
-## Introduction
+## 1. Introduction
 
 Precise and secure time synchronization is vital for electric vehicle (EV) charging stations to ensure accurate transaction logging, reliable billing, and adherence
 to regulatory mandates, particularly with the rise of time-based and dynamic tariff structures. The Open Charge Point Protocol (OCPP) v1.6 and v2.x facilitate
@@ -36,7 +36,7 @@ parameters to validate these configurations, ensuring robust and compliant time 
 regulatory compliance of their EV charging networks, paving the way for advanced tariff models and operational efficiency.
 
 
-## Network Time Security Process Flow
+## 2. Network Time Security Process Flow
 
 Network Time Security (NTS), as specified in RFC 8915, enhances the Network Time Protocol (NTP) by adding authentication and encryption, ensuring secure and accurate
 time synchronization with minimal latency which is not possible with normal TLS connections (TCP+TLS handshakes) or digital signatures using asymmetric cryptography.
@@ -45,7 +45,7 @@ over a TLS-protected TCP connection, and the NTS-protected NTP phase, which uses
 outlines the NTS-KE request and response process, the NTS-protected NTP request and response, and how the client processes the results, providing a clear understanding
 of NTS’s operational mechanics.
 
-### NTS Key Establishment (NTS-KE) Phase
+### 2.1 NTS Key Establishment (NTS-KE) Phase
 
 The NTS-KE phase establishes a secure channel to derive cryptographic keys and parameters for the subsequent NTP communication. This phase uses TLS 1.3 (or higher) over
 TCP port 4460 to ensure confidentiality and authenticity.
@@ -78,7 +78,7 @@ relies purely on the client to store cookies containing key material or referenc
 - The NTS client stores these cookies within a secure storage.
  
 
-### NTS-Protected NTP Phase
+### 2.2 NTS-Protected NTP Phase
 
 The NTS-protected NTP phase uses the keys and cookies obtained from NTS-KE to secure time synchronization queries over UDP port 123, maintaining low latency.
 
@@ -117,4 +117,62 @@ server from its configured pool, leveraging prioritized parallel querying for re
 **Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory
 audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Clock adjustments over 5(???) seconds should be logged as security
 critical event and appended to the metrological log book.
+
+
+## 3. Network Time Security OCPP Configuration
+
+OCPP v1.6 and v2.x are very different in the way a charging station is configured. While OCPP v1.x uses a simple Key-Value-Store for configuration data
+OCPP v2.x provides its own Device Model. At the time of writing this white paper OCPP v1.6 still has by far the largest market share, so we have to
+provide solutions for both.
+
+### 3.1 OCPP v1.6 Configuration
+
+
+### 3.2 OCPP v2.x Configuration
+
+
+### 3.3 Example Configuration Using Chrony
+
+Chrony is an Open Source NTP client compatible with NTS, suitable for e.g. Linux based charging stations and licensed under the GNU General Public License version 2.
+It can be used as an underlying software for rapid prototyping.
+
+Below is an example configuration for a charging station supporting multiple NTS servers with prioritized parallel querying:
+
+```
+# /etc/chrony/chrony.conf
+# Primary servers (priority 1)
+server ptbtime1.ptb.de iburst nts priority 1
+server ptbtime2.ptb.de iburst nts priority 1
+# Secondary servers (priority 2)
+server time.cloudflare.com iburst nts priority 2
+server nts.netnod.se iburst nts priority 2
+# Configuration options
+minsources 2
+authselectmode require
+driftfile /var/run/chrony/drift
+ntsdumpdir /var/run/chrony
+makestep 1.0 3
+rtcsync
+```
+
+This configuration:
+- Queries ptbtime1.ptb.de and ptbtime2.ptb.de in parallel (priority 1), selecting the best based on performance metrics.
+- Falls back to secondary servers if primary servers are unavailable.
+- Requires at least two authenticated sources for synchronization.
+- Enables real-time clock synchronization and step corrections for large time offsets.
+
+
+
+## 4. Operational Guide
+
+CPOs must not only configure their charging stations, but also configure their network infrastructure including private APNs, Virtual Private Networks (VPNs) and#
+private IPv4/v6 subnets and their CSMS to support NTS. Further they have to ensure compliance with local regulations like e.g., using Germany's PTB servers.
+
+Two implementation options are presented: Direct access to custom or legal NTS servers and integration with a local Smart Meter Gateways (SMGWs) as a special
+national solution for Germany.
+
+### 4.1 Direct Access to Custom or Legal NTS Servers
+
+### 4.2 Integration with Local Smart Meter Gateways (Germany-Specific)
+
 
