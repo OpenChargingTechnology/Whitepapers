@@ -34,3 +34,87 @@ configurations to accommodate private IP networks within the CPO’s backend. Th
 or NTP-over-TLS, a solution primarily applicable in Germany to comply with the Mess- und Eichrecht (calibration law). The paper concludes with recommended testing
 parameters to validate these configurations, ensuring robust and compliant time synchronization. By adopting NTS, CPOs can enhance the security, scalability, and
 regulatory compliance of their EV charging networks, paving the way for advanced tariff models and operational efficiency.
+
+
+## Network Time Security Process Flow
+
+Network Time Security (NTS), as specified in RFC 8915, enhances the Network Time Protocol (NTP) by adding authentication and encryption, ensuring secure and accurate
+time synchronization with minimal latency which is not possible with normal TLS connections (TCP+TLS handshakes) or digital signatures using asymmetric cryptography.
+NTS operates in two distinct phases: the NTS Key Establishment (NTS-KE) phase, which securely negotiates cryptographic keys
+over a TLS-protected TCP connection, and the NTS-protected NTP phase, which uses these keys to secure classical time synchronization NTP queries over UDP. This section
+outlines the NTS-KE request and response process, the NTS-protected NTP request and response, and how the client processes the results, providing a clear understanding
+of NTS’s operational mechanics.
+
+### NTS Key Establishment (NTS-KE) Phase
+
+The NTS-KE phase establishes a secure channel to derive cryptographic keys and parameters for the subsequent NTP communication. This phase uses TLS 1.3 (or higher) over
+TCP port 4460 to ensure confidentiality and authenticity.
+
+
+#### NTS-KE Request:
+The client (e.g., an OCPP charging station) initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by validating its certificate,
+mitigating MITM risks.
+
+Then the client sends an NTS-KE request message, which includes:
+- The desired NTP server address for time queries (often the same server or a related one).
+- Supported cryptographic algorithms (e.g., AES-SIV-CMAC for message authentication).
+- A unique client identifier or nonce to prevent replay attacks.
+- Optional parameters, such as a request for an additional digital signed NTP response.
+
+#### Key Derivation
+A set of cryptographic keys for Client-to-Server (C2S) and Server-to-Client (S2C) encryption will be deviated from the key material of the TLS connection and later
+be used to encrypt and authenticate the NTP communication via the Authenticated Encryption with Associated Data (AEAD) algorithm.
+This method is based on TLS 1.3 exporter mechanism, defined in RFC 8446, using `EXPORTER-network-time-security` as constant.
+
+Some NTS-KE servers also support a non-standardized way to generate both keys at the server and include them in the NTS-KE response.
+Supporting this feature can be an option for TLS libraries that do not support the key-exporter functions.
+
+
+#### NTS-KE Response:
+The server responds with:
+- Confirmation of the selected cryptographic algorithm.
+- Multiple opaque NTS-KE cookies, which encapsulates server state as the NTS-KE server discards all state after the TLS session closes and all further communication
+relies purely on the client to store cookies containing key material or references to it.
+- The NTS client stores these cookies within a secure storage.
+ 
+
+### NTS-Protected NTP Phase
+
+The NTS-protected NTP phase uses the keys and cookies obtained from NTS-KE to secure time synchronization queries over UDP port 123, maintaining low latency.
+
+
+#### NTS-Protected NTS Request
+
+The client sends an NTP packet to the specified NTP server, augmented with NTS extensions:
+- The packet includes a standard NTP header with timestamp fields.
+- An unique identifier extensions to prevent replay attacks.
+- An NTS cookie, which allows the server to retrieve session state without maintaining per-client data.
+- An NTS authenticator extension, using the C2S key to compute a message authentication code (MAC) or authenticated encryption (e.g., AES-SIV-CMAC).
+
+
+#### NTS-Protected NTS Response
+
+The server verifies the cookie and the AEAD MAC, ensuring the request’s authenticity and integrity and responds with:
+- A standard NTP response containing timestamps (origin, receive, transmit, and reference).
+- A new cookie to replace the used one, ensuring continued stateless operation.
+- An NTS authenticator extension, using the S2C key to authenticate the response.
+
+
+#### Client Processing of NTS Results
+
+Upon receiving the NTS-protected NTP response, the client performs several steps to validate and utilize the time data:
+- Authentication: The client verifies the response’s MAC using the S2C key, ensuring the response originates from the trusted server and has not been altered.
+- Timestamp Extraction: If authenticated, the client extracts the timestamps to calculate the network delay and clock offset. The standard NTP algorithm
+computes the round-trip time and adjusts the local clock based on the server’s reference time.
+- Cookie Management: The client stores the new cookie from the response, using it for subsequent NTS requests to maintain session continuity without
+repeated NTS-KE negotiations.
+- Clock Adjustment: The client applies the calculated offset to its local clock, either gradually (slewing) for small corrections or immediately (stepping)
+for large discrepancies, depending on configuration (e.g., Chrony’s makestep setting).
+
+**Error Handling**: If the response fails authentication or contains invalid data (e.g., high jitter or stratum), the client discards it and may query another
+server from its configured pool, leveraging prioritized parallel querying for reliability.
+
+**Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory
+audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Clock adjustments over 5(???) seconds should be logged as security
+critical event and appended to the metrological log book.
+
