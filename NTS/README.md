@@ -44,11 +44,14 @@ source does not significantly deviate, even if precise alignment is not guarante
 Additionally, the paper offers an operational guide outlining specific network, firewall, and Network Address Translation (NAT) configurations to accommodate private IP
 networks within the CPO’s backend.
 
-An alternative approach focuses on integration with a local Smart Meter Gateway (SMGW) using NTP-over-TLS, a solution primarily applicable in Germany to comply with the
-Mess- und Eichrecht (calibration law). 
+An alternative approach centers on integrating charging infrastructure with a local Smart Meter Gateway (SMGW) using NTP-over-TLS. This method is particularly relevant
+within the German regulatory framework, where compliance with the Mess- und Eichrecht (calibration law) requires metrologically traceable and verifiable time sources.
+By leveraging the SMGW — which already synchronizes time via trusted channels and is subject to strict regulatory controls — charging stations can obtain a secure and
+regulation-compliant time reference without needing direct access to public NTS servers. However, this approach comes with certain limitations. It introduces a
+single-point-of-failure dependency on the availability and correct configuration of the SMGW, which may not always be feasible in heterogeneous or non-residential
+deployment scenarios. 
 
-The paper concludes with recommended testing parameters to validate these configurations, ensuring robust and compliant time synchronization. By adopting NTS, CPOs can
-enhance the security, scalability, and regulatory compliance of their EV charging networks, paving the way for advanced tariff models and operational efficiency.
+The paper concludes with recommended testing parameters to validate these configurations, ensuring robust and compliant time synchronization.
 
 
 ## 2. Network Time Security Process Flow
