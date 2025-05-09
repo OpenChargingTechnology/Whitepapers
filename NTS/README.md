@@ -32,12 +32,23 @@ time queries, ensuring both security and accuracy. This white paper provides a c
 implement NTS, enabling Charge Point Operators (CPOs) to meet emerging regulatory requirements, such as those for time-based and dynamic tariffs in markets. It details
 the setup of NTS-KE and NTS-protected NTP, including support for multiple prioritized servers with parallel querying to optimize performance and reliability.
 
-Additionally, the paper offers an operational guide outlining two implementation strategies tailored to CPO needs. The first strategy involves direct access to legal
-NTS servers, such as Germany’s Physikalisch-Technische Bundesanstalt (PTB) servers, requiring specific network, firewall, and Network Address Translation (NAT)
-configurations to accommodate private IP networks within the CPO’s backend. The second strategy focuses on integration with a local Smart Meter Gateway (SMGW) using NTS
-or NTP-over-TLS, a solution primarily applicable in Germany to comply with the Mess- und Eichrecht (calibration law). The paper concludes with recommended testing
-parameters to validate these configurations, ensuring robust and compliant time synchronization. By adopting NTS, CPOs can enhance the security, scalability, and
-regulatory compliance of their EV charging networks, paving the way for advanced tariff models and operational efficiency.
+The use of AEAD symmetric encryption complicates the authenticity gurantees of NTS responses, as local attackers with access to the server-to-client crypto keys
+could still fake responses. An optional extension is presented to add a digital signature to a second NTS response. This does not disturb the normal time synchronization
+and provides a digital proof that can be added to the metrological log book whenever a larger time discrepancy was detected and corrected.
+
+When multiple charging stations are colocated at a single charging location, maintaining a consistent time across all units may be more critical — such as for load
+balancing applications — than strict synchronization with legal time sources. To address this, we also present an approach where OCPP local controllers act as auxiliary
+NTS servers. This setup enables charging stations to maintain a highly consistent shared time reference, while still receiving cryptographic proofs that the legal time
+source does not significantly deviate, even if precise alignment is not guaranteed.
+
+Additionally, the paper offers an operational guide outlining specific network, firewall, and Network Address Translation (NAT) configurations to accommodate private IP
+networks within the CPO’s backend.
+
+An alternative approach focuses on integration with a local Smart Meter Gateway (SMGW) using NTP-over-TLS, a solution primarily applicable in Germany to comply with the
+Mess- und Eichrecht (calibration law). 
+
+The paper concludes with recommended testing parameters to validate these configurations, ensuring robust and compliant time synchronization. By adopting NTS, CPOs can
+enhance the security, scalability, and regulatory compliance of their EV charging networks, paving the way for advanced tariff models and operational efficiency.
 
 
 ## 2. Network Time Security Process Flow
