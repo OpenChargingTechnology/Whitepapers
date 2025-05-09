@@ -41,8 +41,11 @@ balancing applications — than strict synchronization with legal time sources. 
 NTS servers. This setup enables charging stations to maintain a highly consistent shared time reference, while still receiving cryptographic proofs that the legal time
 source does not significantly deviate, even if precise alignment is not guaranteed.
 
-Additionally, the paper offers an operational guide outlining specific network, firewall, and Network Address Translation (NAT) configurations to accommodate private IP
-networks within the CPO’s backend.
+Additionally, the paper includes a comprehensive operational guide tailored for network operators, detailing precise configurations required to support secure and
+reliable time synchronization in private IP network environments commonly found in Charge Point Operator (CPO) backends. This includes explicit recommendations for
+firewall rules, port allowances, and protocol whitelisting necessary to enable outbound communication with public NTS time sources, while preserving network segmentation
+and security. Special attention is given to handling stateful firewalls and connection tracking mechanisms, which can interfere with NTS session establishment or
+unexpected NTP packet sizes if improperly configured.
 
 An alternative approach centers on integrating charging infrastructure with a local Smart Meter Gateway (SMGW) using NTP-over-TLS. This method is particularly relevant
 within the German regulatory framework, where compliance with the Mess- und Eichrecht (calibration law) requires metrologically traceable and verifiable time sources.
