@@ -73,11 +73,11 @@ TCP port 4460 to ensure confidentiality and authenticity.
 
 
 #### NTS-KE Request:
-The client (e.g., an OCPP charging station) initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by validating its certificate,
-mitigating MITM risks.
+The client (e.g., an OCPP charging station or an OCPP local controller) initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by
+validating its certificate, mitigating MITM risks. Which root certification authorities (root CAs) are used to validate the server certificate is an configuration
+option. For security reasons this should not be the entire World Wide Web root CA bundle used within web browsers.
 
 Then the client sends an NTS-KE request message, which includes:
-- The desired NTP server address for time queries (often the same server or a related one).
 - Supported cryptographic algorithms (e.g., AES-SIV-CMAC for message authentication).
 - A unique client identifier or nonce to prevent replay attacks.
 - Optional parameters, such as a request for an additional digital signed NTP response.
