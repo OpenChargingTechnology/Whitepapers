@@ -98,15 +98,140 @@ repeated NTS-KE negotiations.
 **Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Clock adjustments over a defined threshold (e.g. 5 seconds) should be logged as security critical event and appended to the metrological log book.
 
 
-## 3. Network Time Security OCPP Configuration
+## 3. Network Time Security OCPP Client Configuration
 
-OCPP v1.6 and v2.x are very different in the way a charging station is configured. While OCPP v1.x uses a simple Key-Value-Store for configuration data OCPP v2.x provides its own Device Model. At the time of writing this white paper OCPP v1.6 still has by far the largest market share, so we have to provide solutions for both.
+OCPP v1.6+SE and v2.x are very different in the way a charging station is configured. While OCPP v1.x uses a simple Key-Value-Store for configuration data OCPP v2.x provides its own Device Model. At the time of writing this white paper OCPP v1.6 still has by far the largest market share, so we have to provide solutions for both.
 
-### 3.1 OCPP vNext Configuration
+Since OCPP time synchronization serves two main use cases: ***legal time*** for billing and ***local time*** for load balancing, many settings are organized around these purposes and can differ significantly. In practice, it is often beneficial to synchronize local time every few seconds, whereas legal time may only need to be synchronized once or twice per hour, or on demand, e.g. shortly before scheduled dynamic tariff changes will be applied.
 
-### 3.2 OCPP v2.x Configuration
+All changes of the NTP/NTS configuration settings and all NTP server certificate changes shall be logged within the default security log.
 
-### 3.3 OCPP v1.6 Configuration
+Changed NTP time sync rootCA certificates have to be logged within the secure metrological log.
+
+
+
+### 3.1 OCPP vNext Client Configuration
+
+### 3.2 OCPP v2.x Client Configuration
+
+### 3.3 OCPP v1.6+SE Client Configuration
+
+#### 3.3.1 Common Configuration Keys
+
+The following table gives an overview how the NTP/NTP client configuration can be mapped onto OCPP v1.6+SE configuration keys and values.
+
+If a CSL (comma separated list) configuration setting is shorter than expected, e.g. the "ntp.ports" list is shorter than the "ntp.servers" list, the last value in the list is applied to all remaining items (here: servers). Empty entries are filled with the previous value, starting from the default value. Lists that are longer than expected will result in an error.
+
+
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
+|---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
+| ntp.enabled   | required |  rw           | Boolean    | false         | -      | -              | Whether NTP/NTS is enabled. |
+| ntp.reboot.allowJumps | optional | rw | Boolean | true | | | Allows immediate correction of large time discrepancies during the first synchronization steps after a reboot. |
+| ntp.reboot.noCertTimeCheck | optional | rw | Boolean | false         | - | - | Whether the *notBefore* and *notAfter* timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+
+
+#### 3.3.1 *Legal Group* Configuration Keys
+
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
+|---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
+| ntp.legal.servers | optional | rw            | CSL String | "" | - | "time1.org, time2.org, time3.org" | Defines a list of legally recognized NTP/NTS servers, which may vary depending on the device’s country or location. |
+| ntp.legal.ports   | optional | rw            | CSL String | "123" | -      | "125, 126"      | NTP/NTS legal server ports |
+| ntp.legal.offset | optional | rw | CSL String | "0" | - | - | These values specifie a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
+| ntp.legal.asymmetry | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
+| ntp.legal.mode    | required |  rw           | String     | nts           | NTPv4 \| NTSv4 \| NTPv4TLS | - | NTP/NTS legal server mode. *NTPv4* may be prohibited unless additional security measures are implemented! |
+| ntp.legal.priority  | optional |  rw           | CSL String | "0"           | -      | 0, 0, 10 | NTP/NTS legal server priority list: Servers with lower values are queried first; servers with the same value are queried in parallel. |
+| ntp.legal.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minmal time span between randomized NTP/NTS time sync requests. |
+| ntp.legal.maxInterval | optional |  rw           | Integer    | 3600          | -      | 3600 (seconds) | The maximal time span between randomized NTP/NTS time sync requests. |
+| ntp.legal.preflight | optional |  rw | CSL String | "60"         |        | "60, 90, 30" | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a *preflight* NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. |
+| ntp.legal.minServers | optional | rw           | Integer    | 1             | -      | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
+| ntp.legal.maxDeviation | optional | rw | Integer | 60 | | 60 (seconds)   | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
+| ntp.legal.errorLogging | optional | rw           | Integer    | 5             | -      | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+| ntp.legal.maxErrors | optional | rw           | Integer    | 10             | -      | 20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+| ntske.legal.servers | optional  |  rw           | CSV String | ""            | -      | time1.org, time2.org, time3.org | NTS-KE server list. When empty the *ntp.legal.servers* setting will be used. |
+| ntske.legal.ports   | optional |  rw           | CSL String | "4460"        | -      | "4461,4462" | NTS-KE server port list. |
+| ntske.legal.rootCAs | optional |  rw           | CSL String | ""            | -      | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | Which rootCA group can be used for NTS-KE server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
+| ntske.legal.noCertTimeCheck | optional | rw | Boolean | false         | - | - | Whether the *notBefore* and *notAfter* timestamp checks of NTS-KE TLS certificates can be skipped on the first NTS-KE request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+| ntske.legal.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.legal.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.legal.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | Authenticated Encryption with Associated Data (AEAD) algorithms enabled for NTS authentication of NTP messages. *(Can be different for different servers.)* |
+| nts.legal.signedResponses | optional |  rw           | Boolean    | false         |        |                | Whether NTS responses shall be digital signed. |
+| ntptls.legal.rootCAs | optional |  rw           | CSL String | ""            | -      | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | Which rootCA group can be used for NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
+
+
+#### 3.3.1 *Local Group* Configuration Keys
+
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
+|---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
+| ntp.local.servers | optional | rw            | CSL String | ""            | -      | "lc1.local, lc2.local" | Defines a list of local NTP/NTS servers, e.g. running on OCPP Local Controllers, that shall be used as a shared local time source for use cases like *local load management*, for which having a consistent local time across devices is more important than having legal time accuracy. |
+| ntp.local.ports   | optional | rw            | CSL String | "123" | -      | "125, 126"      | NTP/NTS local server ports |
+| ntp.local.offset | optional | rw | CSL String | "0" | - | - | These values specifie a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
+| ntp.local.asymmetry | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
+| ntp.local.mode    | required |  rw           | String     | nts           | NTPv4 \| NTSv4 \| NTPv4TLS | - | NTP/NTS local server mode. |
+| ntp.local.priority  | optional |  rw           | CSL String | "0"           | -      | 0, 10 | NTP/NTS local server priority list: Servers with lower values are queried first; servers with the same value are queried in parallel. |
+| ntp.local.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minmal time span between randomized NTP/NTS time sync requests. |
+| ntp.local.maxInterval | optional |  rw           | Integer    | 3600          | -      | 3600 (seconds) | The maximal time span between randomized NTP/NTS time sync requests. |
+| ntp.local.preflight | optional |  rw | CSL String | "60"         |        | "60, 90, 30" | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a *preflight* NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. |
+| ntp.local.minServers | optional | rw           | Integer    | 1             | -      | 2 (servers)    | The minimal number of local servers that are required for a valid measurement. Failed measurements must be logged. |
+| ntp.local.errorLogging | optional | rw           | Integer    | 5             | -      | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
+| ntp.local.maxErrors | optional | rw           | Integer    | 50            | -      | 100 (errors)    | The number of consecutive measurement errors that should lead to a stop of the load management feature and an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
+| ntske.local.servers | optional  |  rw           | CSV String | ""            | -      | "lc1.local, lc2.local" | NTS-KE local server list. When empty the *ntp.local.servers* setting will be used. |
+| ntske.ports   | optional |  rw           | CSL String | "4460"        | -      | "4461,4462" | NTS-KE local server port list. |
+| ntske.local.rootCAs | optional |  rw           | CSL String | ""            | -      | "localTimeCAs" | Which rootCA group can be used for NTS-KE server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
+| ntske.local.noCertTimeCheck | optional | rw | Boolean | false         | - | - | Whether the *notBefore* and *notAfter* timestamp checks of NTS-KE TLS certificates can be skipped on the first NTS-KE request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+| ntske.local.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.local.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.local.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | Authenticated Encryption with Associated Data (AEAD) algorithms enabled for NTS authentication of NTP messages. *(Can be different for different servers.)* |
+| nts.local.signedResponses | optional |  rw           | Boolean    | false         |        |                | Whether NTS responses shall be digital signed. |
+| ntptls.local.rootCAs | optional |  rw           | CSL String | ""            | -      | "localTimeCAs" | Which rootCA group can be used for NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
+
+
+#### 3.3.2 OCPP v1.6+SE Command Extensions
+
+*InstallCertificateRequest*
+
+The following defines a small extension for the *InstallCertificateRequest* defined within the OCPP v1.6 Security Extensions. The *CertificateUseEnumType* had been extended by *"TimeSyncRootCertificate"*. The new *certificateGroup* property allows to group rootCAs of the same *CertificateUseEnumType*. Such a rootCA group can later specify which root CAs should be used to validate the TLS certificate presented by a TLS server configured in the network settings.
+
+Different certificates of the same type and group will be combined into a single set. Duplicate certificates will be silently ignored.
+
+The same certificate can belong to multiple groups, but must be uploaded separately for each group.
+
+```
+{
+  "$schema": "http://json-schema.org/draft-06/schema#",
+  "$id": "urn:OCPP:Cp:1.6:2020:3:InstallCertificate.req",
+  "definitions": {
+    "CertificateUseEnumType": {
+      "type": "string",
+      "additionalProperties": false,
+      "enum": [
+        "CentralSystemRootCertificate",
+        "ManufacturerRootCertificate",
+        "TimeSyncRootCertificate"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "certificateType": {
+      "$ref": "#/definitions/CertificateUseEnumType"
+    },
+    "certificateGroup": {
+      "type": "string",
+      "maxLength": 50
+    },
+    "certificate": {
+      "type": "string",
+      "maxLength": 11000
+    }
+  },
+  "required": [
+    "certificateType",
+    "certificate"
+  ]
+}
+```
+
 
 ### 3.4 Example Configuration Using Chrony
 
@@ -171,18 +296,18 @@ However, the existing requirements in OCPP are intentionally kept abstract and p
 
 This gap is critical in the context of future metrological and cybersecurity regulations. As secure metrological log books become mandatory for charging stations, simply maintaining OCPP-compliant log files will no longer suffice. Manufacturers will be required to extend or harden their logging implementations to meet the demands of both legal metrology (e.g., audit-trail capability, standardized export, non-repudiation) and cybersecurity regulations (e.g., cryptographic signatures, tamper detection, access control).
 
-The specifics of secure metrological log books are beyond the scope of this whitepaper and will be addressed in forthcoming whitepapers.
+The specifics of secure metrological log books are beyond the scope of this whitepaper and will be addressed in a forthcoming whitepaper.
 
 
 ## 5. Communication with Energy Meters
 
 Within the European Union, almost all metrological regulations, specifically the [Measuring instruments (MID) Directive 2014/32/EU](https://single-market-economy.ec.europa.eu/single-market/european-standards/harmonised-standards/measuring-instruments-mid_en), apply primarily to energy meters, not to charging stations themselves. As a result, the requirements for legal metrology, conformity assessment, and data integrity have so far been limited to the meters integrated within or attached to charging infrastructure, but not to the charging stations as complete systems.
 
-This situation may change with the upcoming revision of the MID, which is expected to be adopted by the end of 2025. The revised MID is planned to introduce a new instrument category specifically for electric vehicle charging stations. This will likely extend metrological requirements—such as type approval, conformity assessment, and data security—to the entire charging station, not just to the integrated meter.
+This situation may change with the upcoming revision of the EU MID, which is expected to be adopted by the end of 2025. The revised MID is planned to introduce a new instrument category specifically for electric vehicle charging stations. This will likely extend metrological requirements, such as type approval, conformity assessment, and data security, to the entire charging station, not just to the integrated/attached meter.
 
 Such a regulatory change will have direct consequences for the hardware and system architecture of charging stations. Manufacturers will need to ensure that their devices, including all components relevant for measurement, data processing, and data storage, comply with the new legal metrology requirements. This may necessitate redesigning system boundaries, implementing secure and auditable data paths, and introducing tamper-evident hardware elements to meet both measurement accuracy and regulatory audit-trail standards.
 
-This implies that, in the near future, while the regulatory framework will permit a more flexible interface between charging stations and energy meters, there will still be a strict requirement to extend secure time synchronization — originally implemented between the charging station controller and NTS (Network Time Security) servers — to the energy meter as well. As a consequence, unencrypted protocols such as Modbus/RTU, Modbus/TCP, or plain HTTP for communication between the controller and the meter will no longer be compliant, especially in light of the additional cybersecurity requirements imposed by regulations such as the [EU Radio Equipment Directive (RED)](https://single-market-economy.ec.europa.eu/sectors/electrical-and-electronic-engineering-industries-eei/radio-equipment-directive-red_en) and the [EU Cyber Resilience Act (CRA)](https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act).
+This implies that, in the near future, while the regulatory framework will permit a more flexible interface between charging stations and energy meters, there will still be a strict requirement to extend secure time synchronization (originally implemented between the charging station controller and NTS servers) to the energy meter as well. As a consequence, unencrypted protocols such as Modbus/RTU, Modbus/TCP, or plain HTTP for communication between the controller and the meter will no longer be compliant, especially in light of the additional cybersecurity requirements imposed by regulations such as the [EU Radio Equipment Directive (RED)](https://single-market-economy.ec.europa.eu/sectors/electrical-and-electronic-engineering-industries-eei/radio-equipment-directive-red_en) and the [EU Cyber Resilience Act (CRA)](https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act).
 
 Nevertheless, detailed technical recommendations for securing this communication channel are beyond the scope of this white paper. One possible approach is to require that energy meters natively support NTS, allowing them to synchronize directly with external NTS servers or, alternatively to support at least a subset of NTS to be able to sync with the charging station controller acting as a embedded NTS server. This would ensure cryptographically secure time synchronization and data integrity throughout the measurement chain, thereby fulfilling both metrological and cybersecurity requirements.
 
@@ -219,3 +344,9 @@ national solution for Germany.
 ## References
 
 - [PTB Leaflet: Time server / Time server infrastructure for intelligent measuring systems](https://www.ptb.de/cms/fileadmin/internet/fachabteilungen/abteilung_8/8.5_metrologische_informationstechnik/8.51/PTB-8.51-MB09-ZS-EN-V07.pdf)
+
+
+## Acknowledgements
+
+The initiative to enhance the security and accuracy of time synchronization in EV infrastructure was launched at the "Bonner Eichrechtstage."    
+Special thanks also go to the technical departments of the German PTB for their detailed specification and implementation support.
