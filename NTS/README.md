@@ -118,27 +118,27 @@ Changed NTP time sync rootCA certificates have to be logged within the secure me
 
 The *Instance* of the component is mandatory and is used as *"NTPClientIdentification"*. This will later be used within the "NTP Client Group Controller".
 
-| Variable Name     | req/opt  | Mutability | Data Type  | Default Value | Values List                  | Description |
-|-------------------|----------|------------|------------|---------------|------------------------------|-------------|
-| *Instance*        | required | ro         | String | ""            | -                            | Used as *"NTP Client Identification"*. |
-| ServerURL         | required | rw         | String     | ""            | -                            | The NTP/NTS server URL. May depend on the device’s country or location. |
-| ServerPort        | optional | rw         | UInt16     | ""            | -                            | The optional NTP/NTS server port. |
+| Variable Name     | req/opt  | Mutability | Data Type  | JSON Type     | Default Value | Values List                  | Description |
+|-------------------|----------|------------|------------|---------------|---------------|------------------------------|-------------|
+| *Instance*        | required | ro         | String | String | ""            | -                            | Used as *"NTP Client Identification"*. |
+| ServerURL         | required | rw         | URL | String     | ""            | -                            | The NTP/NTS server URL. May depend on the device’s country or location. |
+| ServerPort        | optional | rw         | UInt16 | Number      | ""            | -                            | The optional NTP/NTS server port. |
 | Mode              | optional | rw         | String     | "NTSv4"       | "NTPv4", "NTSv4", "NTPv4TLS" | The optional NTP/NTS server mode. NTPv4 may be prohibited unless additional security measures are implemented! |
-| DelayAsymmetry    | optional | rw         | Integer    | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). (in milliseconds). |
-| DelayVarAsymmetry | optional | rw         | Float      | - | - | These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
-| Priority          | optional | rw         | Byte       | - | - | The optional priority of the NTP/NTS server. Servers with lower values are queried first. Servers with the same value are queried in parallel. |
-| MinInterval       | optional | rw         | Integer    | - | - | The minimal time span between randomized NTP/NTS time sync requests (in seconds). |
-| MaxInterval       | optional | rw         | Integer    | - | - | The maximal time span between randomized NTP/NTS time sync requests (in seconds). |
-| Preflight         | optional | rw         | Integer    | - | - | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a preflight NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. (in seconds). |
-| ErrorLogging      | optional | rw         | Integer    | - | - | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
-| NTSKEServerURL    | optional | rw         | String     | ""            | - | The optional NTSKE server URL. When empty and the mode is NTSv4, the ServerURL will be used for NTS-KE. |
-| NTSKEServerPort   | optional | rw         | UInt16     | ""            | -                            | The optional NTS-KE server port. |
-| RootCAs           | optional | rw         | String     | "" | - | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of NetworkTimeRootCertificate rootCAs is used and when this list is empty the system default list of rootCAs is used (not recommended)! |
-| NoCertTimeCheckAfterReboot | optional | rw         | Boolean | "" | - | Whether the notBefore and notAfter timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
-| MinRefresh | optional | rw         | Integer    | - | - | Refreshing the NTS keys and cookies should be started after the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
-| MaxRefresh | optional | rw         | Integer    | - | - | Refreshing the NTS keys and cookies must be completed within the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
-| AEADAlgorithm | optional | rw         | String | "AES-SIV-CMAC-256" | "AES-SIV-CMAC-256", "AES-128-GCM-SIV" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. |
-| SignedResponses | optional | rw         | Boolean    | - | - | Whether NTS responses shall be digital signed. |
+| DelayAsymmetry    | optional | rw         | milliseconds | Integer    | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). (in milliseconds). |
+| DelayVarAsymmetry | optional | rw         | Float | Number | - | - | These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
+| Priority          | optional | rw         | Byte | Number | - | - | The optional priority of the NTP/NTS server. Servers with lower values are queried first. Servers with the same value are queried in parallel. |
+| MinInterval       | optional | rw         | seconds | Number | - | - | The minimal time span between randomized NTP/NTS time sync requests (in seconds). |
+| MaxInterval       | optional | rw         | seconds | Number | - | - | The maximal time span between randomized NTP/NTS time sync requests (in seconds). |
+| Preflight         | optional | rw         | Byte | Number | - | - | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a preflight NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. (in seconds). |
+| ErrorLogging      | optional | rw         | UInt16 | Number | - | - | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
+| NTSKEServerURL    | optional | rw         | URL | String | ""            | - | The optional NTSKE server URL. When empty and the mode is NTSv4, the ServerURL will be used for NTS-KE. |
+| NTSKEServerPort   | optional | rw         | UInt16 | Number | ""            | -                            | The optional NTS-KE server port. |
+| RootCAs           | optional | rw         | String | String | "" | - | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of NetworkTimeRootCertificate rootCAs is used and when this list is empty the system default list of rootCAs is used (not recommended)! |
+| NoCertTimeCheckAfterReboot | optional | rw         | Boolean | Boolean | "" | - | Whether the notBefore and notAfter timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+| MinRefresh | optional | rw         | seconds | Number | - | - | Refreshing the NTS keys and cookies should be started after the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
+| MaxRefresh | optional | rw         | seconds | Number | - | - | Refreshing the NTS keys and cookies must be completed within the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
+| AEADAlgorithm | optional | rw         | String | String | "AES-SIV-CMAC-256" | "AES-SIV-CMAC-256", "AES-128-GCM-SIV" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. |
+| SignedResponses | optional | rw         | Boolean | Boolean | - | - | Whether NTS responses shall be digital signed. |
 
 
 #### 3.2.2 NTP Client Group Controller
@@ -146,14 +146,14 @@ The *Instance* of the component is mandatory and is used as *"NTPClientIdentific
 The *Instance* of the component is mandatory and is used as *"NTPClientGroupIdentification"*.    
 Well-known values are: *"legal"* and *"local"*.
 
-| Variable Name     | req/opt  | Mutability | Data Type          | Default Value | Values List                  | Description |
-|-------------------|----------|------------|--------------------|---------------|------------------------------|-------------|
-| *Instance*        | required | ro         | String | ""            | -                            | Used as *"NTP Client Group Identification"*. |
-| Clients           | required | rw         | List&lt;String&gt; | ""            | -                            | The list of *"NTP Client Identifications"*. |
-| MinServers | optional | rw           | Integer    | 1                  | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
-| MaxDeviation | optional | rw | Integer | 60 | 60 (seconds)   | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
-| ErrorLogging | optional | rw           | Integer    | 5                | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
-| MaxErrors | optional | rw           | Integer    | 10             |  20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+| Variable Name     | req/opt  | Mutability | Data Type          | JSON Type          | Default Value | Values List                  | Description |
+|-------------------|----------|------------|--------------------|--------------------|---------------|------------------------------|-------------|
+| *Instance*        | required | ro         | String | String | ""            | -                            | Used as *"NTP Client Group Identification"*. |
+| Clients           | required | rw         | List&lt;String&gt; | String | ""            | -                            | The list of *"NTP Client Identifications"*. |
+| MinServers | optional | rw           | Byte | Number | 1                  | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
+| MaxDeviation | optional | rw | Seconds | Number | 60 | 60 | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
+| ErrorLogging | optional | rw           | UInt16    | Number | 5                | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+| MaxErrors | optional | rw           | UInt16    | Number | 10             |  20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
 
 
 #### 3.2.3 OCPP v2.x Command Extensions
@@ -231,12 +231,11 @@ The same certificate can belong to multiple groups, but must be uploaded separat
 
 ### 3.3 OCPP v1.6+SE Client Configuration
 
-#### 3.3.1 Common Configuration Keys
-
 The following table gives an overview how the NTP/NTP client configuration can be mapped onto OCPP v1.6+SE configuration keys and values.
 
 If a CSL (comma separated list) configuration setting is shorter than expected, e.g. the "ntp.ports" list is shorter than the "ntp.servers" list, the last value in the list is applied to all remaining items (here: servers). Empty entries are filled with the previous value, starting from the default value. Lists that are longer than expected will result in an error.
 
+#### 3.3.1 Common Configuration Keys
 
 | Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
 |---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
