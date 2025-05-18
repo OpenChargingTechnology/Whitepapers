@@ -114,6 +114,121 @@ Changed NTP time sync rootCA certificates have to be logged within the secure me
 
 ### 3.2 OCPP v2.x Client Configuration
 
+#### 3.2.1 NTP Client Controller
+
+The *Instance* of the component is mandatory and is used as *"NTPClientIdentification"*. This will later be used within the "NTP Client Group Controller".
+
+| Variable Name     | req/opt  | Mutability | Data Type  | Default Value | Values List                  | Description |
+|-------------------|----------|------------|------------|---------------|------------------------------|-------------|
+| *Instance*        | required | ro         | String | ""            | -                            | Used as *"NTP Client Identification"*. |
+| ServerURL         | required | rw         | String     | ""            | -                            | The NTP/NTS server URL. May depend on the device’s country or location. |
+| ServerPort        | optional | rw         | UInt16     | ""            | -                            | The optional NTP/NTS server port. |
+| Mode              | optional | rw         | String     | "NTSv4"       | "NTPv4", "NTSv4", "NTPv4TLS" | The optional NTP/NTS server mode. NTPv4 may be prohibited unless additional security measures are implemented! |
+| DelayAsymmetry    | optional | rw         | Integer    | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). (in milliseconds). |
+| DelayVarAsymmetry | optional | rw         | Float      | - | - | These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
+| Priority          | optional | rw         | Byte       | - | - | The optional priority of the NTP/NTS server. Servers with lower values are queried first. Servers with the same value are queried in parallel. |
+| MinInterval       | optional | rw         | Integer    | - | - | The minimal time span between randomized NTP/NTS time sync requests (in seconds). |
+| MaxInterval       | optional | rw         | Integer    | - | - | The maximal time span between randomized NTP/NTS time sync requests (in seconds). |
+| Preflight         | optional | rw         | Integer    | - | - | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a preflight NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. (in seconds). |
+| ErrorLogging      | optional | rw         | Integer    | - | - | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
+| NTSKEServerURL    | optional | rw         | String     | ""            | - | The optional NTSKE server URL. When empty and the mode is NTSv4, the ServerURL will be used for NTS-KE. |
+| NTSKEServerPort   | optional | rw         | UInt16     | ""            | -                            | The optional NTS-KE server port. |
+| RootCAs           | optional | rw         | String     | "" | - | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of NetworkTimeRootCertificate rootCAs is used and when this list is empty the system default list of rootCAs is used (not recommended)! |
+| NoCertTimeCheckAfterReboot | optional | rw         | Boolean | "" | - | Whether the notBefore and notAfter timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+| MinRefresh | optional | rw         | Integer    | - | - | Refreshing the NTS keys and cookies should be started after the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
+| MaxRefresh | optional | rw         | Integer    | - | - | Refreshing the NTS keys and cookies must be completed within the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
+| AEADAlgorithm | optional | rw         | String | "AES-SIV-CMAC-256" | "AES-SIV-CMAC-256", "AES-128-GCM-SIV" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. |
+| SignedResponses | optional | rw         | Boolean    | - | - | Whether NTS responses shall be digital signed. |
+
+
+#### 3.2.2 NTP Client Group Controller
+
+The *Instance* of the component is mandatory and is used as *"NTPClientGroupIdentification"*.    
+Well-known values are: *"legal"* and *"local"*.
+
+| Variable Name     | req/opt  | Mutability | Data Type          | Default Value | Values List                  | Description |
+|-------------------|----------|------------|--------------------|---------------|------------------------------|-------------|
+| *Instance*        | required | ro         | String | ""            | -                            | Used as *"NTP Client Group Identification"*. |
+| Clients           | required | rw         | List&lt;String&gt; | ""            | -                            | The list of *"NTP Client Identifications"*. |
+| MinServers | optional | rw           | Integer    | 1                  | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
+| MaxDeviation | optional | rw | Integer | 60 | 60 (seconds)   | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
+| ErrorLogging | optional | rw           | Integer    | 5                | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+| MaxErrors | optional | rw           | Integer    | 10             |  20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+
+
+#### 3.2.3 OCPP v2.x Command Extensions
+
+*InstallCertificateRequest*
+
+The following defines a small extension for the *InstallCertificateRequest*. The *CertificateUseEnumType* had been extended by *"NetworkTimeRootCertificate"*. The new *certificateGroup* property allows to group rootCAs of the same *CertificateUseEnumType*. Such a rootCA group can later specify which root CAs should be used to validate the TLS certificate presented by a TLS server configured in the network settings.
+
+Different certificates of the same type and group will be combined into a single set. Duplicate certificates will be silently ignored.
+
+The same certificate can belong to multiple groups, but must be uploaded separately for each group.
+
+```
+{
+    "$schema": "http://json-schema.org/draft-06/schema#",
+    "$id": "urn:OCPP:Cp:2:2025:1:InstallCertificateRequest",
+    "comment": "OCPP 2.1 Edition 1 (c) OCA, Creative Commons Attribution-NoDerivatives 4.0 International Public License",
+    "definitions": {
+        "InstallCertificateUseEnumType": {
+            "description": "Indicates the certificate type that is sent.",
+            "javaType": "InstallCertificateUseEnum",
+            "type": "string",
+            "additionalProperties": false,
+            "enum": [
+                "V2GRootCertificate",
+                "MORootCertificate",
+                "ManufacturerRootCertificate",
+                "CSMSRootCertificate",
+                "OEMRootCertificate",
+                "NetworkTimeRootCertificate"
+            ]
+        },
+        "CustomDataType": {
+            "description": "This class does not get 'AdditionalProperties = false' in the schema generation, so it can be extended with arbitrary JSON properties to allow adding custom data.",
+            "javaType": "CustomData",
+            "type": "object",
+            "properties": {
+                "vendorId": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            },
+            "required": [
+                "vendorId"
+            ]
+        }
+    },
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "certificateType": {
+            "$ref": "#/definitions/InstallCertificateUseEnumType"
+        },
+        "certificateGroup": {
+          "description": "A X.509 certificate group.",
+          "type": "string",
+          "maxLength": 50
+        },
+        "certificate": {
+            "description": "A PEM encoded X.509 certificate.",
+            "type": "string",
+            "maxLength": 11000
+        },
+        "customData": {
+            "$ref": "#/definitions/CustomDataType"
+        }
+    },
+    "required": [
+        "certificateType",
+        "certificate"
+    ]
+}
+```
+
+
 ### 3.3 OCPP v1.6+SE Client Configuration
 
 #### 3.3.1 Common Configuration Keys
@@ -136,26 +251,24 @@ If a CSL (comma separated list) configuration setting is shorter than expected, 
 |---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
 | ntp.legal.servers | optional | rw            | CSL String | "" | - | "time1.org, time2.org, time3.org" | Defines a list of legally recognized NTP/NTS servers, which may vary depending on the device’s country or location. |
 | ntp.legal.ports   | optional | rw            | CSL String | "123" | -      | "125, 126"      | NTP/NTS legal server ports |
-| ntp.legal.offset | optional | rw | CSL String | "0" | - | - | These values specifie a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
-| ntp.legal.asymmetry | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
+| ntp.legal.delayAsym | optional | rw | CSL String | "0" | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
+| ntp.legal.delayVarAsym | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
 | ntp.legal.mode    | required |  rw           | String     | nts           | NTPv4 \| NTSv4 \| NTPv4TLS | - | NTP/NTS legal server mode. *NTPv4* may be prohibited unless additional security measures are implemented! |
 | ntp.legal.priority  | optional |  rw           | CSL String | "0"           | -      | 0, 0, 10 | NTP/NTS legal server priority list: Servers with lower values are queried first; servers with the same value are queried in parallel. |
-| ntp.legal.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minmal time span between randomized NTP/NTS time sync requests. |
+| ntp.legal.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minimal time span between randomized NTP/NTS time sync requests. |
 | ntp.legal.maxInterval | optional |  rw           | Integer    | 3600          | -      | 3600 (seconds) | The maximal time span between randomized NTP/NTS time sync requests. |
 | ntp.legal.preflight | optional |  rw | CSL String | "60"         |        | "60, 90, 30" | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a *preflight* NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. |
 | ntp.legal.minServers | optional | rw           | Integer    | 1             | -      | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
 | ntp.legal.maxDeviation | optional | rw | Integer | 60 | | 60 (seconds)   | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
 | ntp.legal.errorLogging | optional | rw           | Integer    | 5             | -      | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
 | ntp.legal.maxErrors | optional | rw           | Integer    | 10             | -      | 20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
-| ntske.legal.servers | optional  |  rw           | CSV String | ""            | -      | time1.org, time2.org, time3.org | NTS-KE server list. When empty the *ntp.legal.servers* setting will be used. |
+| ntske.legal.servers | optional  |  rw           | CSV String | ""            | -      | time1.org, time2.org, time3.org | NTS-KE server list. When empty and the mode is NTSv4, the *ntp.legal.servers* setting will be used. |
 | ntske.legal.ports   | optional |  rw           | CSL String | "4460"        | -      | "4461,4462" | NTS-KE server port list. |
-| ntske.legal.rootCAs | optional |  rw           | CSL String | ""            | -      | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | Which rootCA group can be used for NTS-KE server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
-| ntske.legal.noCertTimeCheck | optional | rw | Boolean | false         | - | - | Whether the *notBefore* and *notAfter* timestamp checks of NTS-KE TLS certificates can be skipped on the first NTS-KE request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
-| ntske.legal.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.legal.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.legal.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | Authenticated Encryption with Associated Data (AEAD) algorithms enabled for NTS authentication of NTP messages. *(Can be different for different servers.)* |
+| ntp.legal.rootCAs | optional |  rw           | CSL String | ""            | -      | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of *NetworkTimeRootCertificate* rootCAs is used and when this list is empty the system default list of rootCAs is used *(not recommended)*! |
+| ntske.legal.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.legal.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.legal.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. *(Can be different for different servers.)* |
 | nts.legal.signedResponses | optional |  rw           | Boolean    | false         |        |                | Whether NTS responses shall be digital signed. |
-| ntptls.legal.rootCAs | optional |  rw           | CSL String | ""            | -      | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | Which rootCA group can be used for NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
 
 
 #### 3.3.1 *Local Group* Configuration Keys
@@ -164,32 +277,40 @@ If a CSL (comma separated list) configuration setting is shorter than expected, 
 |---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
 | ntp.local.servers | optional | rw            | CSL String | ""            | -      | "lc1.local, lc2.local" | Defines a list of local NTP/NTS servers, e.g. running on OCPP Local Controllers, that shall be used as a shared local time source for use cases like *local load management*, for which having a consistent local time across devices is more important than having legal time accuracy. |
 | ntp.local.ports   | optional | rw            | CSL String | "123" | -      | "125, 126"      | NTP/NTS local server ports |
-| ntp.local.offset | optional | rw | CSL String | "0" | - | - | These values specifie a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
-| ntp.local.asymmetry | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
+| ntp.local.delayAsym | optional | rw | CSL String | "0" | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
+| ntp.local.delayVarAsym | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
 | ntp.local.mode    | required |  rw           | String     | nts           | NTPv4 \| NTSv4 \| NTPv4TLS | - | NTP/NTS local server mode. |
 | ntp.local.priority  | optional |  rw           | CSL String | "0"           | -      | 0, 10 | NTP/NTS local server priority list: Servers with lower values are queried first; servers with the same value are queried in parallel. |
-| ntp.local.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minmal time span between randomized NTP/NTS time sync requests. |
+| ntp.local.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minimal time span between randomized NTP/NTS time sync requests. |
 | ntp.local.maxInterval | optional |  rw           | Integer    | 3600          | -      | 3600 (seconds) | The maximal time span between randomized NTP/NTS time sync requests. |
 | ntp.local.preflight | optional |  rw | CSL String | "60"         |        | "60, 90, 30" | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a *preflight* NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. |
 | ntp.local.minServers | optional | rw           | Integer    | 1             | -      | 2 (servers)    | The minimal number of local servers that are required for a valid measurement. Failed measurements must be logged. |
 | ntp.local.errorLogging | optional | rw           | Integer    | 5             | -      | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
 | ntp.local.maxErrors | optional | rw           | Integer    | 50            | -      | 100 (errors)    | The number of consecutive measurement errors that should lead to a stop of the load management feature and an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
-| ntske.local.servers | optional  |  rw           | CSV String | ""            | -      | "lc1.local, lc2.local" | NTS-KE local server list. When empty the *ntp.local.servers* setting will be used. |
+| ntske.local.servers | optional  |  rw           | CSV String | ""            | -      | "lc1.local, lc2.local" | NTS-KE local server list. When empty and the mode is NTSv4, the *ntp.local.servers* setting will be used. |
 | ntske.ports   | optional |  rw           | CSL String | "4460"        | -      | "4461,4462" | NTS-KE local server port list. |
-| ntske.local.rootCAs | optional |  rw           | CSL String | ""            | -      | "localTimeCAs" | Which rootCA group can be used for NTS-KE server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
-| ntske.local.noCertTimeCheck | optional | rw | Boolean | false         | - | - | Whether the *notBefore* and *notAfter* timestamp checks of NTS-KE TLS certificates can be skipped on the first NTS-KE request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
-| ntske.local.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.local.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time spans (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.local.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | Authenticated Encryption with Associated Data (AEAD) algorithms enabled for NTS authentication of NTP messages. *(Can be different for different servers.)* |
+| ntp.local.rootCAs | optional |  rw           | CSL String | ""            | -      | "localTimeCAs" | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of *NetworkTimeRootCertificate* rootCAs is used and when this list is empty the system default list of rootCAs is used *(not recommended)*! |
+| ntske.local.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.local.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
+| ntske.local.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. *(Can be different for different servers.)* |
 | nts.local.signedResponses | optional |  rw           | Boolean    | false         |        |                | Whether NTS responses shall be digital signed. |
-| ntptls.local.rootCAs | optional |  rw           | CSL String | ""            | -      | "localTimeCAs" | Which rootCA group can be used for NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of rootCAs is used *(not recommended)*! |
 
 
-#### 3.3.2 OCPP v1.6+SE Command Extensions
+#### 3.3.2 OCPP v1.6+SE Minimal Example
+
+```
+ntp.legal.servers     = "ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de"
+ntp.legal.mode        = "NTSv4"
+ntp.legal.rootCAs     = "legalTimeCA"
+ntp.legal.minServers  =  2
+```
+
+
+#### 3.3.3 OCPP v1.6+SE Command Extensions
 
 *InstallCertificateRequest*
 
-The following defines a small extension for the *InstallCertificateRequest* defined within the OCPP v1.6 Security Extensions. The *CertificateUseEnumType* had been extended by *"TimeSyncRootCertificate"*. The new *certificateGroup* property allows to group rootCAs of the same *CertificateUseEnumType*. Such a rootCA group can later specify which root CAs should be used to validate the TLS certificate presented by a TLS server configured in the network settings.
+The following defines a small extension for the *InstallCertificateRequest* defined within the OCPP v1.6 Security Extensions. The *CertificateUseEnumType* had been extended by *"NetworkTimeRootCertificate"*. The new *certificateGroup* property allows to group rootCAs of the same *CertificateUseEnumType*. Such a rootCA group can later specify which root CAs should be used to validate the TLS certificate presented by a TLS server configured in the network settings.
 
 Different certificates of the same type and group will be combined into a single set. Duplicate certificates will be silently ignored.
 
@@ -201,12 +322,13 @@ The same certificate can belong to multiple groups, but must be uploaded separat
   "$id": "urn:OCPP:Cp:1.6:2020:3:InstallCertificate.req",
   "definitions": {
     "CertificateUseEnumType": {
+      "description": "Indicates the certificate type that is sent.",
       "type": "string",
       "additionalProperties": false,
       "enum": [
         "CentralSystemRootCertificate",
         "ManufacturerRootCertificate",
-        "TimeSyncRootCertificate"
+        "NetworkTimeRootCertificate"
       ]
     }
   },
@@ -217,10 +339,12 @@ The same certificate can belong to multiple groups, but must be uploaded separat
       "$ref": "#/definitions/CertificateUseEnumType"
     },
     "certificateGroup": {
+      "description": "A X.509 certificate group.",
       "type": "string",
       "maxLength": 50
     },
     "certificate": {
+      "description": "A PEM encoded X.509 certificate.",
       "type": "string",
       "maxLength": 11000
     }
