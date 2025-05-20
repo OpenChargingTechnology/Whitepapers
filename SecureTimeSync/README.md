@@ -138,6 +138,8 @@ The *Instance* of the component is mandatory and is used as *"NTPClientIdentific
 | AEADAlgorithm | optional | rw         | String | String | "AES-SIV-CMAC-256" | "AES-SIV-CMAC-256", "AES-128-GCM-SIV" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. |
 | SignedResponses | optional | rw         | Boolean | Boolean | - | - | Whether NTS responses shall be digital signed. |
 
+See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Components/Logical/NTPClientController.cs)
+
 
 #### 3.2.2 NTP Client Group Controller
 
@@ -152,6 +154,8 @@ Well-known values are: *"legal"* and *"local"*.
 | MaxDeviation | optional | rw | Seconds | Number | 60 | 60 | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
 | ErrorLogging | optional | rw           | UInt16    | Number | 5                | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
 | MaxErrors | optional | rw           | UInt16    | Number | 10             |  20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+
+See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Components/Logical/NTPClientGroupController.cs)
 
 
 #### 3.2.3 OCPP v2.x Command Extensions
@@ -225,6 +229,8 @@ The same certificate can belong to multiple groups, but must be uploaded separat
     ]
 }
 ```
+
+See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Messages/Certificates/InstallCertificateRequest.cs)
 
 
 ### 3.3 OCPP v1.6+SE Client Configuration
@@ -352,6 +358,8 @@ The same certificate can belong to multiple groups, but must be uploaded separat
   ]
 }
 ```
+
+See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv1.6/Messages/Certificates/InstallCertificateRequest.cs)
 
 
 ### 3.4 Example Configuration Using Chrony
