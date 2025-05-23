@@ -95,6 +95,12 @@ repeated NTS-KE negotiations.
 
 **Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Clock adjustments over a defined threshold (e.g. 5 seconds) should be logged as security critical event and appended to the metrological log book.
 
+**Notes**
+- Am 8. Februar 2036 beginnt die NTP Ära "1". Hier ist Aufmerksamkeit bei der Konvertierung in die Systemzeit und umgekehrt notwendig.
+- Am 19. Januar 2038 um 3:14:08 Uhr UTC sind Implementierungen, die vorzeichenbehaftete 32 bit UTC Counter verwenden, von einem Überlauf betroffen.
+- Falls Schaltsekunden-Ankündigungen bei der Konvertierung in die Systemzeit ausgewertet werden, sollte der Synchronisation mit der Systemzeit besondere Aufmerksamkeit geschenkt werden.
+- [RFC5905] Annex A.5.1 und A.5.1.1 geben Hinweise zur Plausibilisierung empfangener Nachrichten, bevor diese zur Zeitsynchronisation verwendet werden.
+
 
 ## 3. Network Time Security OCPP Client Configuration
 
@@ -443,10 +449,25 @@ Nevertheless, detailed technical recommendations for securing this communication
 
 ## 6. NTP-over-TLS
 
-https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11
+Chapter 7 of the [Technical Guideline (BSI TR-03109-5)](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11) of the German [Federal Office for Information Security](https://www.bsi.bund.de) describes how NTPv4 can be used in a proprietary ***NTP-over-TLS*** mode. Hereby the NTP client sends a normal NTPv4 request, but instead of using UDP transport it is sent within a TLS connection.
+
+- TLS-Port: 443 or other
+- The SMGW uses a TLS certificate using the X.509 v3 Extended Key Usage: [Time Stamping (OID 1.3.6.1.5.5.7.3.8)](https://oidref.com/1.3.6.1.5.5.7.3.8)
+- Certificate Requirements of the Smart Metering PKI: [TLS nach TR-03116-4 Checkliste für Diensteanbieter](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03116/TLS-Checkliste.pdf?__blob=publicationFile&v=5)
+- [Certificate Policy](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/PKI_Certificate_Policy.pdf?__blob=publicationFile&v=8) of the Smart Metering PKI
+- List of all registered [SmartMeter-SubCAs](https://www.bsi.bund.de/DE/Themen/Unternehmen-und-Organisationen/Standards-und-Zertifizierung/Smart-metering/Smart-Meterin-PKI/Registrierte_Sub-CAs/registrierte_sub_cas_node.html)
+
+- The client exposes the following information towards the charging station application:
+  - Current Time (UTC)
+  - Timestamp of last successful time synchronization
+  - Maximum error (difference of system time from root time): `rootdelay/2 + rootdisp`
+  - Estimated precision: `dispersion / jitter`
 
 
-
+- [Network Time Protocol Best Current Practices](
+https://datatracker.ietf.org/doc/rfc8633/)
+  - Clients should respect rate-limit responses.
+  - Vendors of embedded devices SHOULD include the ability to update the list of NTP servers.
 
 
 
