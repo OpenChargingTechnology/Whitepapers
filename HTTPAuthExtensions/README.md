@@ -45,3 +45,25 @@ WWW-Authenticate: Basic  realm="example"
 WWW-Authenticate: Bearer realm="example", error="invalid_token"
 WWW-Authenticate: Digest realm="example", nonce="abc123"
 ```
+
+## CSMS Requirements
+
+A charging station operator should support to **include *WWW-Authenticate* headers into *401 Unauthorized* responses** whenever a successful authentication based on this information seems possible. The only reason not to include this additional information might be reasons other than the correct usage of *HTTP Authentication methods*, e.g. *application level IP filter rules* when a request was send from an unknown IP address or subnet.
+
+A charging station operator should **support the configuration of *HTTP Authentication Methods* per charging station or charging station groups**, so that only the methods supported by at least the charging station model/firmware and allowed by the operator cybersecurity policy are returned. Other criteria like e.g. the current firmware version or the current IP subnet of the client could also influence the list of allowed methods.
+
+In order to prevent ***Downgrade Attacks*** the charging station operator **must enforce** the correct use of *HTTP Authentication Methods*. Is *HTTP Basic Auth* is not within the *WWW-Authenticate* method list the CSMS must always return *401 Unauthorized*, even when the request was sent using a valid password for this charging station. .
+
+
+## Charging Station Requirements
+
+The charging station should support multiple *HTTP Authentication Methods*. For this it must store a list of available methods ordered by their priority. For backards compatibility the **default value** of this list is just ***Basic Auth***.
+
+When an authentication fails the charging station should compare its list with the list of methods provided by the CSMS and **select a shared method having the highest priority**.
+
+When a method fails multiple times (default: 3 times) the charging station should switch to the 2nd best method... then to the 3rd best...
+
+Once an authentication succeded the charging station should store the method as ***negotiated method*** for this network configuration. This variable must be read-only for normal OCPP configuration operations by operators. A renegotiation is triggered by the next *HTTP 401 Unauthorized* response received.
+
+When there are no shared methods the current authentication process fails finally and the charging station must log this as a reason why no further authentication was tried. As this kind of authentication failures can also be caused by rare software problems at the CSMS, the charging station may retry the authentication process after a longer waiting period. The intended time span of 1-2 hours (+-30 minutes) might be larger than the normal retry periods caused by random network errors (minutes).
+
