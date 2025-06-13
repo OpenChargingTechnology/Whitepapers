@@ -46,16 +46,26 @@ WWW-Authenticate: Bearer realm="example", error="invalid_token"
 WWW-Authenticate: Digest realm="example", nonce="abc123"
 ```
 
-## CSMS Requirements
+## Configuration
+
+### CSMS Configuration
 
 A charging station operator should support to **include *WWW-Authenticate* headers into *401 Unauthorized* responses** whenever a successful authentication based on this information seems possible. The only reason not to include this additional information might be reasons other than the correct usage of *HTTP Authentication methods*, e.g. *application level IP filter rules* when a request was send from an unknown IP address or subnet.
 
 A charging station operator should **support the configuration of *HTTP Authentication Methods* per charging station or charging station groups**, so that only the methods supported by at least the charging station model/firmware and allowed by the operator cybersecurity policy are returned. Other criteria like e.g. the current firmware version or the current IP subnet of the client could also influence the list of allowed methods.
 
-In order to prevent ***Downgrade Attacks*** the charging station operator **must enforce** the correct use of *HTTP Authentication Methods*. Is *HTTP Basic Auth* is not within the *WWW-Authenticate* method list the CSMS must always return *401 Unauthorized*, even when the request was sent using a valid password for this charging station. .
+In order to prevent ***Downgrade Attacks*** the charging station operator **must enforce** the correct use of *HTTP Authentication Methods*. Is *HTTP Basic Auth* is not within the *WWW-Authenticate* method list the CSMS must always return *401 Unauthorized*, even when the request was sent using a valid password for this charging station.
+
+*ToDo: What about the realm?* 
+
+*ToDo:* The CSMS must maintain a list of supported HTTP Auth methods for a charging station. This list might be inherited from the charging station model and the installed firmware.
+
+*ToDo:* The CSMS must maintain a list of allowed HTTP Auth methods for a charging station. This list might be inherited from charging station groups and further security policies.
 
 
-## Charging Station Requirements
+
+
+### Charging Station Configuration
 
 The charging station should support multiple *HTTP Authentication Methods*. For this it must store a list of available methods ordered by their priority. For backards compatibility the **default value** of this list is just ***Basic Auth***.
 
@@ -66,4 +76,182 @@ When a method fails multiple times (default: 3 times) the charging station shoul
 Once an authentication succeded the charging station should store the method as ***negotiated method*** for this network configuration. This variable must be read-only for normal OCPP configuration operations by operators. A renegotiation is triggered by the next *HTTP 401 Unauthorized* response received.
 
 When there are no shared methods the current authentication process fails finally and the charging station must log this as a reason why no further authentication was tried. As this kind of authentication failures can also be caused by rare software problems at the CSMS, the charging station may retry the authentication process after a longer waiting period. The intended time span of 1-2 hours (+-30 minutes) might be larger than the normal retry periods caused by random network errors (minutes).
+
+
+*ToDo:* A charging station must maintain a read-only list of available HTTP Auth methods.
+
+*ToDo:* A charging station must maintain an list of configured HTTP Auth methods ordered by their priority.
+
+#### OCPP vNext
+
+...
+
+#### OCPP v2.x
+
+...
+
+#### OCPP v1.6
+
+...
+
+
+### HTTP Basic Auth
+
+The username/login is defined as *charging station name* per OCPP specificiation. This white paper allows also to use different usernames/logins to improve the privacy of the EV infrastructure. The CSMS can easily adopt this by adding a mapping table from usernames/logins to real charging station names.
+
+Support of HTTP Basic Auth is **mandatory**.
+
+#### OCPP vNext
+
+...
+
+#### OCPP v2.x
+
+...
+
+#### OCPP v1.6
+
+...
+
+
+### HTTP Token Auth
+
+HTTP Token Authentication can be seen as simplified version of Basic Auth. A token is just a random string and the mapping from this random string to a charging station can easily be done via a mapping table within the CSMS. At least 128 characters should be supported. There is no security benefit over HTTP Basic Auth, but some privacy benefit.
+
+Support of HTTP Basic Auth is **optional**.
+
+#### OCPP vNext
+
+...
+
+#### OCPP v2.x
+
+...
+
+#### OCPP v1.6
+
+...
+
+
+### HTTP Digest Auth
+
+HTTP Digest Auth uses challenge-response authentication to avoid sending a clear-text password over the wire. The authentication flow is different to HTTP Basic Auth, as first the charging station must send a request without any authentication in order to get a response including a *challenge* parameter which will be used in a 2nd request to authenticate. This means, that this method is *not* a simple replacement for HTTP Basic Auth.
+
+Support of HTTP Digest Auth is **optional**.
+
+#### OCPP vNext
+
+...
+
+#### OCPP v2.x
+
+...
+
+#### OCPP v1.6
+
+...
+
+
+### HTTP TOTP Auth
+
+HTTP TOTP Auth uses Time-Based One-Time-Passwords to generate tokens for authentication what will change every couple of minutes. By this it combines the simplicity of HTTP Basic Auth with an improved security close the HTTP Digest Auth and is already used for Web Payments in OCPP v2.1.
+
+Support of HTTP TOTP Auth is **optional**.
+
+#### OCPP vNext
+
+...
+
+#### OCPP v2.x
+
+...
+
+#### OCPP v1.6
+
+...
+
+
+
+
+## Diagnostics
+
+The charging station should provide an ***optional*** diagnostics tool that allows to simulate a HTTP WebSocket connection establishment using different HTTP Authentication methods.
+
+**Input**: All required HTTP parameters shall be configurable via tool parameters including the URL, login (default: charging station name), password, shared keys, ...
+
+**Output**: The tool shall record all HTTP headers and bodies and return then with additional sent and received timestamps.
+
+***Side-Effects***: The tool should operate without causing side-effects on the charging station and CSMS. This means the tools work independently from the normal charging station HTTP WebSocket connection logic. To avoid conflicts on the CSMS side, the tool must require an additional "--force" parameter when it detects, that the exact same URL, login, password and user-agent as the current WebSocket connection shall be used. The tool shall provide a configuration parameter to set the *HTTP User-Agent* to help the CSMS to distinguish a real connection from diagnostic connections and to avoid closing the main WebSocket connection by mistake.
+
+
+## Test-Cases
+
+### Server-Side (CSMS)
+
+- CSMS-1: 401 Response Without Authorization
+  - Test: Request a protected resource without any Authorization header.
+  - Expect: 401 Unauthorized with maybe multiple methods
+- CSMS-2: 401 Response With Only Basic Credentials
+  - Test: Send a request with an invalid or malformed Basic Auth header.
+  - Expect: 401 Unauthorized with both WWW-Authenticate headers.
+- CSMS-3: 401 Response With Only Token Credentials
+  - Test: Send a request with an invalid or malformed Token Auth header.
+  - Expect: 401 Unauthorized with both WWW-Authenticate headers.
+- CSMS-4: 401 Response With Both Auth Headers Present (Mixed)
+  - Test: Send a request with both an invalid Basic and invalid Token header.
+  - Expect: 401 Unauthorized with both WWW-Authenticate headers.
+- CSMS-5: Missing Scheme
+   - Test: Send an Authorization header with an unsupported scheme (e.g., Foo ...).
+   - Expect: 401 Unauthorized with both WWW-Authenticate headers.
+- CSMS-6: Realm Consistency
+  - Test: Realms in WWW-Authenticate are correct, descriptive, and consistent.
+- CSMS-8: Case-Insensitive Methods
+  - Test: Send back list of methods having random casing, e.g. "BASic"
+  - Expect: Client parses the method case-insensitive
+- CSMS-7: Case-Insensitive Methods RFC vs. Reality
+  - Test: Check whether random variants of a method are still accepted by the server, e.g. "BASIC" or "basic". RFC defines it as case-insensitive, but many implementations are case-sensitive.
+- CSMS-8: Extra Whitespaces
+  - Test: Authorization header with extra spaces at the start, in the middle and at the end of a header line.
+  - Expect: Server should trim and still correctly parse.
+- CSMS-9: Incorrect Base64 encoding
+  - Test: Send Basic Auth with invalid Base64 encoding
+- CSMS-10: Extra header data
+  - Test: Send `Authorization: Basic Y3MxOnRvdGFsLXMzY3VyMyE= randomdata`
+  - Expect: HTTP 400 Bad Request
+- CSMS-11: Login too short
+  - Test: Send a 1 character login
+  - Expect: HTTP 400 Bad Request
+- CSMS-11: Password too short
+  - Test: Send a 1 character password
+  - Expect: HTTP 400 Bad Request
+- CSMS-12: Long Headers / Buffer Overflow
+  - Test: Oversized or malformed Authorization headers.
+  - Expect: HTTP 400 Bad Request
+
+
+### Client-Side (Charging Station)
+
+- CS-1: Select Basic If Both Offered
+  - Test: On 401 with both WWW-Authenticate: Basic ... and Token ..., verify the client can select Basic, add correct header
+  - Expect: 200 OK if credentials are valid.
+- CS-2: Select Token If Both Offered
+  - Test: On 401 with both WWW-Authenticate: Basic ... and Token ..., verify the client can select Token, add correct header
+  - Expect: 200 OK if credentials are valid.
+- CS-3: Fallback Behavior
+  - Test: If the first attempt fails with one scheme...
+  - Expect: The client retries with the alternative scheme.
+- CS-4: Case-Insensitive Methods RFC vs. Reality
+  - Test: Check whether the client uses the normative spelling of the methods, e.g. "Basic", not "BASIC". RFC defines it as case-insensitive, but many implementations are case-sensitive.
+- CS-5: Extra Whitespaces
+  - Test: Authorization header with extra spaces.
+  - Expect: Client should still correctly parse.
+- CS-6: Switching methods
+  - Test: Client authenticates with Basic Auth. Reauthentication fails. Basic Auth is no longer supported.
+  - Expect: Client switches to Token Auth.
+- CS-7: TOTP Auth unaligned clocks (previous TOTP)
+  - Test: The client sends a TOTP of the privious time span
+  - Expect: The server accepts the authentication
+- CS-8: TOTP Auth unaligned clocks (next TOTP)
+  - Test: The client sends a TOTP of the next time span
+  - Expect: The server accepts the authentication
 
