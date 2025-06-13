@@ -43,7 +43,7 @@ The current OCPP specification does not demand any more details about why the re
 HTTP/1.1 401 Unauthorized
 WWW-Authenticate: Basic  realm="example"
 WWW-Authenticate: Bearer realm="example", error="invalid_token"
-WWW-Authenticate: Digest realm="example", nonce="abc123"
+WWW-Authenticate: Digest realm="example", nonce="abc123", qop="auth", algorithm=SHA-256
 ```
 
 ## Configuration
@@ -97,9 +97,19 @@ When there are no shared methods the current authentication process fails finall
 
 ### HTTP Basic Auth
 
-The username/login is defined as *charging station name* per OCPP specificiation. This white paper allows also to use different usernames/logins to improve the privacy of the EV infrastructure. The CSMS can easily adopt this by adding a mapping table from usernames/logins to real charging station names.
+HTTP Basic Auth as defined in [RFC 7617](https://datatracker.ietf.org/doc/html/rfc7617) is **mandatory** for all versions of OCPP. It defines a simple authentication mechanism using a username and a password.
 
-Support of HTTP Basic Auth is **mandatory**.
+```
+Authorization: Basic {base64(username:password)}
+```
+
+Within OCPP the username is normally defined as *charging station name*. This white paper relaxes this strict definition and also allows to use different usernames/logins to avoid information leakage and to improve the privacy of the EV infrastructure. The CSMS can easily adopt this by adding a mapping table from (multiple) logins to real charging station names. Supporting multiple logins per charging station is also a simple work-around to apply different run-time configuration settings to the WebSocket connection or to the further OCPP protocol processing.
+
+The main **cybersecurity risk** of *Basic Auth* are that the login and password will be send in cleartext over the communication channel. Therefore the use of an **authenticated and encrypted underlying transport channel is mandatory**. Nevertheless passwords might easily end up in logfiles or when TLS is secured poorly end up in 3rd party systems. When OCPP Local Controllers are used passwords can easily be collected at this *single-point-of-abuse*. The username offers additional privacy risks. The charging station manufacturer also has to provide evidence, that the password is at least not stored in cleartext on the device.
+
+Some of those risks can be solved operationally by changing passwords regularly. Nevertheless the reality shows us, that charging station operators rarely change passwords, as the passwords changes always offer the risk of mistakes and erros leading to offline charging stations and high service costs.
+
+Charging Station Operators are strongly encuraged to use password hashing techniques when storing HTTP Basic Auth passwords within databases and provide masqing techniques so that passwords do not end up in logfiles or data analytic platforms, where they can be found and stolen by attackers.
 
 #### OCPP vNext
 
@@ -116,9 +126,15 @@ Support of HTTP Basic Auth is **mandatory**.
 
 ### HTTP Token Auth
 
-HTTP Token Authentication can be seen as simplified version of Basic Auth. A token is just a random string and the mapping from this random string to a charging station can easily be done via a mapping table within the CSMS. At least 128 characters should be supported. There is no security benefit over HTTP Basic Auth, but some privacy benefit.
+HTTP Token Auth is not defined by RFCs, but quite popular in IT. Therefore this method is **optional**. It defines a simple authentication mechanism using an application defined opaque token.
 
-Support of HTTP Basic Auth is **optional**.
+```
+Authorization: Token aabbccdd...
+```
+
+HTTP Token Authentication can be seen as simplified version of Basic Auth. A token can easily be mapped to a charging station within the CSMS. Also multiple token can exist for the same charging station. Tokens should use at least 20 characters and at least 128 characters should be supported by all clients and servers.
+
+There are **no security benefits over HTTP Basic Auth**, but some privacy benefits exists, as Token Auth does not have a seperate *username* field.
 
 #### OCPP vNext
 
@@ -135,9 +151,20 @@ Support of HTTP Basic Auth is **optional**.
 
 ### HTTP Digest Auth
 
-HTTP Digest Auth uses challenge-response authentication to avoid sending a clear-text password over the wire. The authentication flow is different to HTTP Basic Auth, as first the charging station must send a request without any authentication in order to get a response including a *challenge* parameter which will be used in a 2nd request to authenticate. This means, that this method is *not* a simple replacement for HTTP Basic Auth.
+HTTP Digest Auth as defined in [RFC 7616](https://datatracker.ietf.org/doc/html/rfc7616) is **optional** for all versions of OCPP. It defines a challenge-response authentication mechanism to avoid sending a clear-text password over the wire.
 
-Support of HTTP Digest Auth is **optional**.
+```
+Authorization: Digest username="user",
+                      realm="example.com",
+                      nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",
+                      uri="/resource",
+                      response="6629fae49393a05397450978507c4ef1",
+                      algorithm=SHA-256
+```
+
+The authentication flow is different to HTTP Basic Auth, as first the charging station must send a request without any authentication in order to get a response including a *challenge* parameter and a *nonce* which will be used in a second authentication request. This means, that this method is **not a simple replacement** for HTTP Basic Auth.
+
+The Digest Authentication method also offers additional configuration parameters which have to be taken into account. The `algorithm` parameter allows the CSMS to define the HMAC hashing algorithm that should be used. For OCPP `SHA-256` must be used as default algorithm. When client and server both are 64 bit systems `SHA-512-256` should be considered, as it is faster and more secure on those systems. As `SHA-384` and `SHA-512` are very common in e-mobility CSMSs should support them, while they stay optional for charging stations. Algorithmic variants like `SHA-256-sess` are more secure, but as they introduce additional complexity and todays library support is weak, they are optional. `MD5`, `SHA-1` and any variant are not allowed for OCPP.
 
 #### OCPP vNext
 
@@ -154,9 +181,11 @@ Support of HTTP Digest Auth is **optional**.
 
 ### HTTP TOTP Auth
 
-HTTP TOTP Auth uses Time-Based One-Time-Passwords to generate tokens for authentication what will change every couple of minutes. By this it combines the simplicity of HTTP Basic Auth with an improved security close the HTTP Digest Auth and is already used for Web Payments in OCPP v2.1.
+HTTP TOTP Auth uses **Time-Based One-Time-Passwords** to generate tokens for authentication what will change e.g. every couple of seconds. This technique is already used for *Web Payments* in OCPP v2.1. This method combines the simplicity of HTTP Basic Auth with an improved security close the HTTP Digest Auth. Support of HTTP TOTP Auth is **optional**.
 
-Support of HTTP TOTP Auth is **optional**.
+```
+Authorization: TOTP {login} {totp(timestamp, shared_secret, ...)}
+```
 
 #### OCPP vNext
 
