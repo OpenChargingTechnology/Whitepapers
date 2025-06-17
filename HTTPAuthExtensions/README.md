@@ -86,8 +86,17 @@ When there are no shared methods the current authentication process fails finall
 
 ...
 
-#### OCPP v2.x
+#### OCPP v2.1
 
+*SetNetworkProfileRequest*
+
+*NetworkConfiguration Component*
+
+...
+
+#### OCPP v2.0.1
+
+*SetNetworkProfileRequest*
 ...
 
 #### OCPP v1.6
@@ -199,6 +208,10 @@ Authorization: TOTP {login} {totp(timestamp, shared_secret, ...)}
 
 ...
 
+
+## Reconnections
+
+*ToDo:* New OCPP request to reconnect instead of reboot. Important especially when there are *local controllers* or *gateways* between the CSMS and the charging station.
 
 
 
