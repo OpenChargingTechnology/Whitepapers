@@ -19,7 +19,11 @@ The Objectives of this paper are:
 
 #### Introduction
 
-...
+CSMS optionally sends a NotifyWebPaymentStartedRequest message with evseId and
+timeout to notify Charging Station of the event.
+
+Charging Station displays feedback to EV Driver and prevents that a transaction is started locally on the EVSE in evseId for as long as timeout seconds, or until the RequestStartTransactionRequest from CSMS is received.
+
 
 #### Data Structures
 
@@ -28,7 +32,7 @@ The Objectives of this paper are:
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |evseId|M|EVSE Id|Integer, 0 ⇐ val|EVSE id for which transaction is requested.|
-|timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed.|
+|timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed. Should be <= 5 minutes.|
 |customData|O|-|Object||
 
 ##### NotifyWebPaymentStartedResponse
@@ -39,6 +43,8 @@ The Objectives of this paper are:
 
 
 #### OCPP v2.1
+
+OCPP v2.1 has native support for NotifyWebPaymentStartedRequests and -responses. Request errors are signaled via the normal *CALLERROR* response. Response errors can use the new *CALLRESULTERROR* message.
 
 *NotifyWebPaymentStartedRequest:*
 ```
@@ -55,6 +61,37 @@ The Objectives of this paper are:
     "customData":  null
 }
 ```
+Request Error Handling:
+
+|Error|Response|
+|-|-|
+|**evseId** is missing or *null*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `OccurrenceConstraintViolation` and an optional **ErrorDescription** ~= `"Missing 'evseId' value!"`.|
+|**evseId** is not an *Integer*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `TypeConstraintViolation` and an optional **ErrorDescription** ~=`"Property 'evseId' must be of type Integer!"`.|
+|**evseId** is not between *0 < evseId <= MaxEVSEId*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `PropertyConstraintViolation` and an optional **ErrorDescription** ~=`"Invalid value '{value}' for property 'evseId'!"`.|
+|**timeout** is missing or *null*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `OccurrenceConstraintViolation` and an optional **ErrorDescription** ~= `"Missing 'timeout' value!"`.|
+|**timeout** is not an *Integer*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `TypeConstraintViolation` and an optional **ErrorDescription** ~=`"Property 'timeout' must be of type Integer!"`.|
+|**timeout** is not between *0 < timeout <= 300 seconds*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `PropertyConstraintViolation` and an optional **ErrorDescription** ~=`"The 'timeout' must be >0 and <= 300 seconds!"`.|
+
+The **ErrorDetails** should contain an optinal JSON object consiting of *property*, *value* and a copy of the entire received *NotifyWebPaymentStartedRequest*.
+
+*CALLERROR:*
+```
+[
+     4,
+    "162376037",
+    "PropertyConstraintViolation",
+    "Invalid value '999999999' for property 'timeout'!",
+    {
+        "property":   "timeout",
+        "value":      999999999,
+        "request":    {
+           "evseId":      1,
+           "timeout":     999999999
+           "customData":  null
+        }
+    }
+]
+```
 
 
 #### OCPP v2.0.1
@@ -69,20 +106,41 @@ For OCPP v2.0.1 the NotifyWebPaymentStartedRequest/-Response will be serialized 
     "data":        {
                      "evseId":  1,
                      "timeout": 60
-                   },
-    "customData":  null
+                   }
 }
 ```
 
 *DataTransfer.conf:*
 ```
 {
-    "status":      "Accepted",  // DataTransferStatus
+    "status":      "Accepted",
     "data":         null,
-    "statusInfo":   null,
-    "customData":   null
+    "statusInfo":   null
 }
 ```
+
+Request Error Handling:
+
+|Error|Response|
+|-|-|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
+|The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
+|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidTimeout"` and an optional data.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
+|data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidTimeout"` and an optional data.**additionalInfo** ~= `"Invalid 'timeout' value!"`.|
+
+```
+{
+    "status":      "Rejected",
+    "statusInfo":  {
+                      "reasonCode":     "invalidTimeout",
+                      "additionalInfo": "Invalid 'timeout' value!"
+                   }
+}
+```
+
+
+
+
 
 #### OCPP v1.6
 
@@ -94,20 +152,35 @@ For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as
     "vendorId":   "cloud.charging.open",
     "messageId":  "NotifyWebPaymentStarted",
     "data":       "{
-                     "evseId":  1,
-                     "timeout": 60
+                     \"evseId\":  1,
+                     \"timeout\": 60
                   }"
 }
 ```
 
 *DataTransfer.conf:*
+
 ```
 {
-    "status":      "Accepted",  // DataTransferStatus
-    "data":         null
+    "status":  "Accepted"
 }
 ```
 
+Request Error Handling:
+
+|Error|Response|
+|-|-|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
+|The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
+|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'evseId' value!"`.|
+|data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'timeout' value!"`.|
+
+```
+{
+    "status":  "Rejected",
+    "data":    "{ \"message\": \"Invalid 'timeout' value!\" }"
+}
+```
 
 #### Diagnostic Tools
 
