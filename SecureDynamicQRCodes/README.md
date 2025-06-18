@@ -8,17 +8,108 @@ Support for *Secure Dynamic QR Codes* is already specified in ***Open Charge Poi
 
 The Objectives of this paper are:
 1. Detailed **technical description** of the Secure Dynamic QR-Code mechanism, including security properties, data structure, and display update logic.
-2. Proposal for a **backwards-compatible** extension to **OCPP v1.6** that enables the same Secure Dynamic QR-Code functionality on legacy charging stations.
+2. Proposal for **backwards-compatible** extensions to **OCPP v1.6** that enables the same Secure Dynamic QR-Code functionality for legacy charging stations.
 3. Specification how to use the exact same QR-Code-URL via alternative technologies like **Bluetooth LE** or **Near Field Communication** for supporting charging stations without a display.
 4. Discussion of future-proof enhancements, potentially for inclusion in OCPP v2.2+ or beyond.
-
 
 
 ------------
 
 *ToDo's:*
 
-#### Diagnostic Toools
+#### Introduction
+
+...
+
+#### Data Structures
+
+##### NotifyWebPaymentStartedRequest
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|evseId|M|EVSE Id|Integer, 0 ⇐ val|EVSE id for which transaction is requested.|
+|timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed.|
+|customData|O|-|Object||
+
+##### NotifyWebPaymentStartedResponse
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|customData|O|-|Object||
+
+
+#### OCPP v2.1
+
+*NotifyWebPaymentStartedRequest:*
+```
+{
+    "evseId":      1,
+    "timeout":     60
+    "customData":  null
+}
+```
+
+*NotifyWebPaymentStartedResponse:*
+```
+{
+    "customData":  null
+}
+```
+
+
+#### OCPP v2.0.1
+
+For OCPP v2.0.1 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message:
+
+*DataTransfer.req:*
+```
+{
+    "vendorId":    "cloud.charging.open",
+    "messageId":   "NotifyWebPaymentStarted",
+    "data":        {
+                     "evseId":  1,
+                     "timeout": 60
+                   },
+    "customData":  null
+}
+```
+
+*DataTransfer.conf:*
+```
+{
+    "status":      "Accepted",  // DataTransferStatus
+    "data":         null,
+    "statusInfo":   null,
+    "customData":   null
+}
+```
+
+#### OCPP v1.6
+
+For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message. Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured object!
+
+*DataTransfer.req:*
+```
+{
+    "vendorId":   "cloud.charging.open",
+    "messageId":  "NotifyWebPaymentStarted",
+    "data":       "{
+                     "evseId":  1,
+                     "timeout": 60
+                  }"
+}
+```
+
+*DataTransfer.conf:*
+```
+{
+    "status":      "Accepted",  // DataTransferStatus
+    "data":         null
+}
+```
+
+
+#### Diagnostic Tools
 
 ...
 
@@ -26,4 +117,10 @@ The Objectives of this paper are:
 #### Test Cases
 
 ...
+
+
+#### Implementations
+
+- https://github.com/OpenChargingCloud/DynamicQRCodes/
+- https://github.com/OpenChargingCloud/DynamicQRCodes.Android
 
