@@ -53,10 +53,18 @@ Information about how to track this asynchronous process.
 
 
 
+## Metrological Transparency Software
 
-## Backward Compatibility
+**Metrological regulation** like the ***German Eichrecht*** requires a so called ***Transparency Software*** which enables EV drivers to validate the metrological and billing aspects of a charging session via an independent application on their own computers or smartphones. **This software is legal part of the charging station** and has dependencies with othere firmware components. Even when this software is never installed onto the charging station itself, it should be part of the *Firmware Components List* provided by a charging station. By this the Charging Station Operator can easily track the correct version and provide this information to the EV driver, e.g print it onto the invoice.
+
+
+## Migration
+
+The update of an existing monolithic firmware image can result in a firmware supporting software separation. It is not assumed, that this will have any side effects.
+
+
+## Backwards Compatibility
 
 The current monolithic firmware of a charging station will always be identified as `default` firmware component. ***Default*** implies, that there are **no other firmware components**. Therefore this firmware component name must not be used when there is more than one firmware component.
 
-When the old firmware update requests are used, a charging station should always respont with ***Rejected*** and explain that the new requests must be used.
-
+When the old firmware update requests are used and more than just the *default* firmware exists, a charging station should respont with ***Rejected*** and explain that the new requests must be used.
