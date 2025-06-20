@@ -55,7 +55,11 @@ Information about how to track this asynchronous process.
 
 ## Metrological Transparency Software
 
-**Metrological regulation** like the ***German Eichrecht*** requires a so called ***Transparency Software*** which enables EV drivers to validate the metrological and billing aspects of a charging session via an independent application on their own computers or smartphones. **This software is legal part of the charging station** and has dependencies with othere firmware components. Even when this software is never installed onto the charging station itself, it should be part of the *Firmware Components List* provided by a charging station. By this the Charging Station Operator can easily track the correct version and provide this information to the EV driver, e.g print it onto the invoice.
+**Metrological regulation** like the ***German Eichrecht*** requires a so called ***Transparency Software*** which enables EV drivers to validate the metrological and billing aspects of a charging session via an independent application on their own computers or smartphones. **This software is legal part of the charging station** and has dependencies with othere firmware components. Even when this software is never installed onto the charging station itself, it should be part of the *Firmware Components List* provided by the charging station. By this the *Charging Station Operator* can easily track its correct version and provide this information to the EV driver, e.g. by showing this information within an app and by printing it onto the invoice.
+
+For EV roaming use cases it is expected, that the *Charging Station Operator* will forward this information to all *EV Roaming Networks* and *E-Mobility Service Providers (EMPs/EMSPs)*.
+
+On request, the manufacturer should also provide a link to the correct transparency software version, e.g. as QR-Code on the display of the charging station.
 
 
 ## Migration
