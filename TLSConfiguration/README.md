@@ -30,3 +30,13 @@ A client should be able to configure its internal buffer size for cryptographic 
 - TLS Session Tickets
 - TLS Session Timeouts
 - TLS Certificate Checks
+- Look at wget CLI
+- Look at curl CLI
+- Look at libcurl
+- Look at mbedtls
+- RootCA groups like within the *Network Time Secure* paper
+- Configurable warnings when certificates/public keys change?
+- Pinning of server certificates?
+  - How to release a "pined" server certificate?
+- Pinning of intermediate certificates?
+  - How to release a "pined" intermediate certificate?
