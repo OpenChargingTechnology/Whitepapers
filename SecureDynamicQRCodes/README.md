@@ -43,7 +43,8 @@ The following variables are specified.
 |-|-|-|-|
 | chargingStationId | M | String | Charging Station Identity |
 | evse | M | Integer | The EVSE for which the payment is requested |
-| roamingEVSE | O | String | The EVSE for which the payment is requested |
+| roamingCSId | O | String | The charging station for which the payment is requested (Format: ISO 15118 like) |
+| roamingEVSEId | O | String | The EVSE for which the payment is requested (Format: ISO 15118) |
 | totp | M | String | The calculated time-based one-time password |
 | version | M | String | The version of the time-based one-time password algorithm |
 | maxEnergy | O | Integer | Maximum energy in Wh |
