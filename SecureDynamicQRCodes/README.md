@@ -9,23 +9,31 @@ Support for *Secure Dynamic QR Codes* is already specified in ***Open Charge Poi
 The Objectives of this paper are:
 1. Detailed **technical description** of the Secure Dynamic QR-Code mechanism, including security properties, data structure, and display update logic.
 2. Proposal for **backwards-compatible** extensions to **OCPP v1.6** that enables the same Secure Dynamic QR-Code functionality for legacy charging stations.
-3. Specification how to use the exact same QR-Code-URL via alternative technologies like **Bluetooth LE** or **Near Field Communication** for supporting charging stations without a display.
-4. Discussion of future-proof enhancements, potentially for inclusion in OCPP v2.2+ or beyond.
+3. Discussion of future-proof enhancements, potentially for inclusion in OCPP v2.2+ or beyond.
+4. (Specification how to use the exact same QR-Code-URL via alternative technologies like **Bluetooth LE** or **Near Field Communication** for supporting charging stations without a display.)
 
 
 ------------
 
 *ToDo's:*
 
-#### Introduction
+## Introduction
+
+
+
+### Device Model Information
+
+
+
+
+### Requests/Respones
+
+#### NotifyWebPaymentStarted
 
 CSMS optionally sends a NotifyWebPaymentStartedRequest message with evseId and
 timeout to notify Charging Station of the event.
 
 Charging Station displays feedback to EV Driver and prevents that a transaction is started locally on the EVSE in evseId for as long as timeout seconds, or until the RequestStartTransactionRequest from CSMS is received.
-
-
-#### Data Structures
 
 ##### NotifyWebPaymentStartedRequest
 
