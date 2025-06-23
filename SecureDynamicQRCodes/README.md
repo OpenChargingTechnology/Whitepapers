@@ -95,21 +95,54 @@ The TOTP in the URL (URL-TOTP) is considered valid if it equals the TOTP calcula
 If URL-TOTP and Backend-TOTP still do not match in any of these cases, then Backend shall consider the URL as invalid.
 
 
-### Device Model Information
+## Device Model Information
 
 
 
 
-### Requests/Respones
+## Requests/Respones
 
-#### NotifyWebPaymentStarted
+### NotifyWebPaymentStarted
 
-CSMS optionally sends a NotifyWebPaymentStartedRequest message with evseId and
-timeout to notify Charging Station of the event.
+With the *NotifyWebPaymentStarted* request the QR code backend can inform the CSMS and by this the charging station about a just started *web payment process* at a given *EVSE identification* and block concurrent processes for a given timeout. The request can be sent multiple times, e.g. to update the timeout. A timeout value of `0` can be seen as a silent revocation of a previous request.
 
-Charging Station displays feedback to EV Driver and prevents that a transaction is started locally on the EVSE in evseId for as long as timeout seconds, or until the RequestStartTransactionRequest from CSMS is received.
 
-##### NotifyWebPaymentStartedRequest
+#### OCPI NotifyWebPaymentStarted
+
+The QR Code backend sends an optional NotifyWebPaymentStarted command including the EVSE identification and a timeout to the **OCPI command module of the CSMS** in order to inform the CPO about a started web payment process. This command is similar to its OCPP counterpart with the only difference, that the *EVSE Identifcation* will use the ISO 15118 (eMI3) EV Roaming data format like e.g.: `DE*GEF*E12345678*1`. Optionally the command can also use the OCPI `location_id` and `evse_uid` for legacy use cases. The `rquest_url` is optional, as in most cases there will be no interesting response from the CSMS and charging station.
+
+For improved compatibility with OCPP v2.x this OCPI request/response also allows a *CustomData* JSON object.
+
+**OCPI NotifyWebPaymentStarted Command**
+
+```
+POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_STARTED
+```
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|response_url|O|URL|String|URL that the CommandResult POST should be sent to. This URL might contain a unique Id to be able to distinguish between NotifyWebPaymentStarted commands.
+|evse_id|M|EVSE Id|String|EVSE Identification for which transaction is requested (ISO 15118 format).|
+|location_id|O|Location Id|String|OCPI Location Identification for which transaction is requested.|
+|evse_uid|O|EVSE UId|String|OCPI EVSE Unique Identification for which transaction is requested.|
+|timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed. Should be <= 5 minutes.|
+|customData|O|-|Object||
+
+**OCPI NotifyWebPaymentStarted Command Result**
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|customData|O|-|Object||
+
+
+
+#### OCPP NotifyWebPaymentStarted
+
+The CSMS sends an optional NotifyWebPaymentStarted request including the EVSE identification and a timeout to the charging station in order to inform the station about a started web payment process.
+
+Charging Station displays feedback to EV Driver and prevents that a concurrent charging session is started locally on the given EVSE for the given timeout, or until the RequestStartTransaction request from CSMS was received.
+
+**NotifyWebPaymentStartedRequest**
 
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
@@ -117,14 +150,14 @@ Charging Station displays feedback to EV Driver and prevents that a transaction 
 |timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed. Should be <= 5 minutes.|
 |customData|O|-|Object||
 
-##### NotifyWebPaymentStartedResponse
+**NotifyWebPaymentStartedResponse**
 
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |customData|O|-|Object||
 
 
-#### OCPP v2.1
+##### OCPP v2.1
 
 OCPP v2.1 has native support for NotifyWebPaymentStartedRequests and -responses. Request errors are signaled via the normal *CALLERROR* response. Response errors can use the new *CALLRESULTERROR* message.
 
@@ -176,7 +209,7 @@ The **ErrorDetails** should contain an optinal JSON object consiting of *propert
 ```
 
 
-#### OCPP v2.0.1
+##### OCPP v2.0.1
 
 For OCPP v2.0.1 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message:
 
@@ -221,10 +254,7 @@ Request Error Handling:
 ```
 
 
-
-
-
-#### OCPP v1.6
+##### OCPP v1.6
 
 For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message. Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured object!
 
@@ -264,22 +294,23 @@ Request Error Handling:
 }
 ```
 
-#### NotifyWebPaymentFailed
+
+### NotifyWebPaymentFailed
 
 *ToDo: Do we need this?*
 
 
-#### Diagnostic Tools
+## Diagnostic Tools
 
 ...
 
 
-#### Test Cases
+## Test Cases
 
 ...
 
 
-#### Implementations
+## Implementations
 
 - https://github.com/OpenChargingCloud/DynamicQRCodes/
 - https://github.com/OpenChargingCloud/DynamicQRCodes.Android
