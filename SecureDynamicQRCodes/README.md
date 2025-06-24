@@ -109,9 +109,9 @@ With the *NotifyWebPaymentStarted* request the QR code backend can inform the CS
 
 #### OCPI NotifyWebPaymentStarted
 
-The QR Code backend sends an optional NotifyWebPaymentStarted command including the EVSE identification and a timeout to the **OCPI command module of the CSMS** in order to inform the CPO about a started web payment process. This command is similar to its OCPP counterpart with the only difference, that the *EVSE Identifcation* will use the ISO 15118 (eMI3) EV Roaming data format like e.g.: `DE*GEF*E12345678*1`. Optionally the command can also use the OCPI `location_id` and `evse_uid` for legacy use cases. The `rquest_url` is optional, as in most cases there will be no interesting response from the CSMS and charging station.
+The QR Code backend sends an optional NotifyWebPaymentStarted command including the EVSE identification and a timeout to the **OCPI command module of the CSMS** in order to inform the CPO about a started web payment process. This command is similar to its OCPP counterpart with the only difference, that the *EVSE Identifcation* will use the ISO 15118 (eMI3) EV Roaming data format like e.g.: `DE*GEF*E12345678*1` as default. Optionally the command can also use the OCPI `location_id` and `evse_uid` for legacy use cases. The `rquest_url` is optional, as in most cases there will be no interesting response from the CSMS and/or charging station back to the QR code backend.
 
-For improved compatibility with OCPP v2.x this OCPI request/response also allows a *CustomData* JSON object.
+For improved compatibility with OCPP v2.x this OCPI request/response also allows a *CustomData* JSON object. This field should be forwarded as it is from the CSMS to the charging station and vice versa.
 
 **OCPI NotifyWebPaymentStarted Command**
 
@@ -138,9 +138,7 @@ POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_STARTED
 
 #### OCPP NotifyWebPaymentStarted
 
-The CSMS sends an optional NotifyWebPaymentStarted request including the EVSE identification and a timeout to the charging station in order to inform the station about a started web payment process.
-
-Charging Station displays feedback to EV Driver and prevents that a concurrent charging session is started locally on the given EVSE for the given timeout, or until the RequestStartTransaction request from CSMS was received.
+The CSMS sends an optional NotifyWebPaymentStarted request including the EVSE identification and a timeout to the charging station in order to inform the station about a started web payment process. Charging Station now prevents that a concurrent charging session is started locally on the given EVSE for the given timeout and displays some sort of feedback to EV Driver indicating, that his web payment process started successfully. It does so until the RequestStartTransaction request or a NotifyWebPaymentFailed from CSMS was received, or the timeout was reached.
 
 **NotifyWebPaymentStartedRequest**
 
@@ -256,7 +254,7 @@ Request Error Handling:
 
 ##### OCPP v1.6
 
-For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message. Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured object!
+For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message. Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured JSON object!
 
 *DataTransfer.req:*
 ```
@@ -297,17 +295,200 @@ Request Error Handling:
 
 ### NotifyWebPaymentFailed
 
-*ToDo: Do we need this?*
+With the *NotifyWebPaymentFailed* request the QR code backend can inform the CSMS and by this the charging station about a canceled or failed *web payment process*. The intention is to release the blocking of the EVSE done previously by a *NotifyWebPaymentStarted* request. While you could also just send a NotifyWebPaymentStarted with a timeout of `0` seconds, this optional request allows you to send an additional multi-language error message.
+
+#### OCPI NotifyWebPaymentFailed
+
+The QR Code backend sends an optional NotifyWebPaymentFailed command including the EVSE identification and an additional multi-language error message to the **OCPI command module of the CSMS** in order to inform the CPO about a canceled or failed web payment process. This command is similar to its OCPP counterpart with the only difference, that the *EVSE Identifcation* will use the ISO 15118 (eMI3) EV Roaming data format like e.g.: `DE*GEF*E12345678*1` as default. Optionally the command can also use the OCPI `location_id` and `evse_uid` for legacy use cases. The `rquest_url` is optional, as in most cases there will be no interesting response from the CSMS and/or charging station back to the QR code backend.
+
+For improved compatibility with OCPP v2.x this OCPI request/response also allows a *CustomData* JSON object. This field should be forwarded as it is from the CSMS to the charging station and vice versa.
+
+**OCPI NotifyWebPaymentFailed Command**
+
+```
+POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_FAILED
+```
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|response_url|O|URL|String|URL that the CommandResult POST should be sent to. This URL might contain a unique Id to be able to distinguish between NotifyWebPaymentStarted commands.
+|evse_id|M|EVSE Id|String|EVSE Identification for which transaction is requested (ISO 15118 format).|
+|location_id|O|Location Id|String|OCPI Location Identification for which transaction is requested.|
+|evse_uid|O|EVSE UId|String|OCPI EVSE Unique Identification for which transaction is requested.|
+|error_message|O|DisplayText[]|Array&lt;Object&gt;|An error message why the process was aborted or failed.|
+|customData|O|-|Object||
+
+**OCPI NotifyWebPaymentFailed Command Result**
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|customData|O|-|Object||
+
+
+#### OCPP NotifyWebPaymentFailed
+
+The CSMS sends an optional NotifyWebPaymentFailed request including the EVSE identification and an additional multi-language error message to the charging station in order to inform the station about a canceled or failed web payment process. The intention is to release the blocking of the EVSE done previously by a *NotifyWebPaymentStarted* request. While you could also just send a NotifyWebPaymentStarted with a timeout of `0` seconds, this optional request allows you to send an additional multi-language error message.
+
+**NotifyWebPaymentFailedRequest**
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|evseId|M|EVSE Id|Integer, 0 ⇐ val|EVSE id for which transaction is requested.|
+|errorMessage|M|I18NText|Array&lt;I18NString&gt;|An error message why the process was aborted or failed.|
+|customData|O|-|Object||
+
+**NotifyWebPaymentFailedResponse**
+
+|Property Name|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|customData|O|-|Object||
+
+
+##### OCPP vNext
+
+OCPP vNext might have native support for NotifyWebPaymentStartedRequests and -responses and a simplified way to communicate multi-language text. Request errors are signaled via the normal *CALLERROR* response. Response errors can use the *CALLRESULTERROR* message.
+
+
+
+*NotifyWebPaymentFailedRequest:*
+```
+{
+    "evseId":        1,
+    "errorMessage":  {
+                         "en": "Payment network unreachable!"
+                     },
+    "customData":    null
+}
+```
+
+*NotifyWebPaymentFailedResponse:*
+```
+{
+    "customData":  null
+}
+```
+Request Error Handling:
+
+|Error|Response|
+|-|-|
+|**evseId** is missing or *null*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `OccurrenceConstraintViolation` and an optional **ErrorDescription** ~= `"Missing 'evseId' value!"`.|
+|**evseId** is not an *Integer*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `TypeConstraintViolation` and an optional **ErrorDescription** ~=`"Property 'evseId' must be of type Integer!"`.|
+|**evseId** is not between *0 < evseId <= MaxEVSEId*.|The charging station SHALL return a *CALLERROR* with **errorCode** = `PropertyConstraintViolation` and an optional **ErrorDescription** ~=`"Invalid value '{value}' for property 'evseId'!"`.|
+|**errorMessage** is invalid.|The charging station SHALL return a *CALLERROR* with an **errorCode** indicating the exact problem.|
+
+The **ErrorDetails** should contain an optinal JSON object consiting of *property*, *value* and a copy of the entire received *NotifyWebPaymentStartedRequest*.
+
+*CALLERROR:*
+```
+[
+     4,
+    "162376037",
+    "PropertyConstraintViolation",
+    "Invalid language value 'xx'!",
+    {
+        "property":   "timeout",
+        "value":      999999999,
+        "request":    {
+           "evseId":        1,
+           "errorMessage":  {
+                                "xx": "Payment network unreachable!"
+                            },
+           "customData":    null
+        }
+    }
+]
+```
+
+##### OCPP v2.0.1 - v2.1
+
+For OCPP v2.1 and OCPP v2.0.1 the NotifyWebPaymentFailedRequest/-Response will be serialized as a `DataTransfer` message. Multi-language text will be serialized as `Array<MessageContent>`:
+
+*DataTransfer.req:*
+```
+{
+    "vendorId":    "cloud.charging.open",
+    "messageId":   "NotifyWebPaymentFailed",
+    "data":        {
+                     "evseId":        1,
+                     "errorMessage":  [
+                                          {
+                                              "format":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }
+                                      ]
+                   }
+}
+```
+
+*DataTransfer.conf:*
+```
+{
+    "status":      "Accepted",
+    "data":         null,
+    "statusInfo":   null
+}
+```
+
+Request Error Handling:
+
+|Error|Response|
+|-|-|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
+|The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
+|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidTimeout"` and an optional data.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
+|data.**errorMessage** is invalid.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidMessageContent"` and an optional data.**additionalInfo** ~= `"Invalid format '{propertyKey}' for the message content!"`.|
+
+```
+{
+    "status":      "Rejected",
+    "statusInfo":  {
+                      "reasonCode":     "invalidMessageContent",
+                      "additionalInfo": "Invalid format 'UTFx' for the message content!"
+                   }
+}
+```
+
+
+##### OCPP v1.6
+
+For OCPP v1.6 the NotifyWebPaymentFailedRequest/-Response will be serialized in the same way as in OCPP 2.0.1 - v2.1 as a `DataTransfer` message. Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured JSON object!
+
+*DataTransfer.req:*
+```
+{
+    "vendorId":   "cloud.charging.open",
+    "messageId":  "NotifyWebPaymentStarted",
+    "data":       "{
+                     \"evseId\":        1,
+                     \"errorMessage\":  [
+                                            {
+                                                \"format\":   \"UTF8\",
+                                                \"language\": \"en\",
+                                                \"content\":  \"Payment network unreachable!\"
+                                            }
+                                        ]
+                  }"
+}
+```
+
+*DataTransfer.conf:*
+
+```
+{
+    "status":  "Accepted"
+}
+```
 
 
 ## Diagnostic Tools
 
-...
+tba.
 
 
 ## Test Cases
 
-...
+tba.
 
 
 ## Implementations
