@@ -1,6 +1,6 @@
 # Ad hoc Payments via Secure Dynamic QR-Codes for OCPP and OCPI
 
-The [EU Alternative Fuels Infrastructure Regulation (AFIR)](https://transport.ec.europa.eu/transport-themes/clean-transport/alternative-fuels-sustainable-mobility-europe/alternative-fuels-infrastructure_en) mandates a **secure and user-friendly ad hoc payment process** for **publicly accessible electric vehicle charging stations**. A critical vulnerability in the current system arises from the widespread use of *Static QR-Code Stickers*, which are often affixed to the housing of the charging station. These static codes are trivial to counterfeit, replace, or obscure. This poses a significant security and trust risk for EV drivers and operators.
+The [EU Alternative Fuels Infrastructure Regulation (AFIR)](https://transport.ec.europa.eu/transport-themes/clean-transport/alternative-fuels-sustainable-mobility-europe/alternative-fuels-infrastructure_en) mandates a **secure and user-friendly ad hoc payment process** for **publicly accessible electric vehicle charging stations**. A *critical vulnerability* in the current system arises from the widespread use of *static QR-Code Stickers*, which are often sticked to the housing of the charging station. These static codes are trivial to counterfeit, replace, or obscure. This poses a significant security and trust risk for EV drivers and operators.
 
 To mitigate this risk, a more robust solution is to use ***Secure Dynamic QR Codes***, rendered in real-time ***on the display of the charging station*** itself. These dynamic codes are time-limited, are context-aware, use shared secrets and cryptographic algorithms, and could in the future even be cryptographically signed, thus eliminating any possibility of fraudulent redirection of EV drivers.
 
@@ -43,8 +43,8 @@ The following variables are specified.
 |-|-|-|-|
 | chargingStationId | M | String | Charging Station Identity |
 | evse | M | Integer | The EVSE for which the payment is requested |
-| roamingCSId | O | String | The charging station for which the payment is requested (Format: ISO 15118 like) |
-| roamingEVSEId | O | String | The EVSE for which the payment is requested (Format: ISO 15118) |
+| roamingCSId | O | String | The charging station for which the payment is requested<br>*(Format: ISO 15118 like, e.g. DE\*GEF\*S12345678)*|
+| roamingEVSEId | O | String | The EVSE for which the payment is requested<br>*(Format: ISO 15118, e.g. DE\*GEF\*E12345678\*1)*|
 | totp | M | String | The calculated time-based one-time password |
 | version | M | String | The version of the time-based one-time password algorithm |
 | maxEnergy | O | Integer | Maximum energy in Wh |
@@ -95,7 +95,48 @@ The TOTP in the URL (URL-TOTP) is considered valid if it equals the TOTP calcula
 If URL-TOTP and Backend-TOTP still do not match in any of these cases, then Backend shall consider the URL as invalid.
 
 
-## Device Model Information
+## Device Model Information / Configuration
+
+The configuration mechanisms in OCPP 1.6 and OCPP 2.x differ fundamentally in structure and semantics. To ensure compatibility and clarity, both approaches are explicitly described in the following sections.
+
+In OCPP 1.6, configuration is handled via the GetConfiguration and ChangeConfiguration messages, operating on flat key-value pairs. Each configuration key is predefined, and their names and behavior are mostly implementation-specific beyond the OCPP core specification.
+
+In contrast, OCPP 2.x introduces a hierarchical structured configuration model. It uses the GetVariables, SetVariables, and GetBaseReport messages, in conjunction with component-variable pairs and optional attribute types (Actual, Target, MinSet, etc.). Configuration items are semantically grouped into components, with detailed metadata about mutability, persistence, and applicability, allowing fine-grained control, validation, and introspection.
+
+Because of these architectural differences, any implementation or specification that aims to support both versions must define separate handling logic and configuration schemas tailored to the respective protocol version. The next sections outline the corresponding configuration methods and expected data structures for both OCPP 1.6 and OCPP 2.x in detail.
+
+### OCPP 2.x
+
+The OCPP 2.x Device Model introduces the **Web Payments Controller** *(WebPaymentsCtrlr)* as a dedicated component for managing the generation of **Time-Based One-Time Password** and for configuring additional **QR-Code rendering parameters** related to web-based payment flows.
+
+The controller supports **instantiation per EVSE**, enabling charging stations with multiple EVSEs to render independent web payment QR codes, each with its own configuration parameters. This facilitates parallel and isolated payment flows per connector. However, it is equally possible to configure a single shared QR code for all EVSEs. In this case, the specific EVSE (Id) can be selected either directly on the charging station’s display before initiating the payment process or later on the web payment web site.
+
+|Variable|M/O|Type|JSON Type|RW/RO|Description|
+|-|-|-|-|-|-|
+|URLTemplate  |M|URL       |String|RW|The URL Template|
+|URLParameters|O|MemberList|Array |RO|List of supported URL template parameters: *"maxTime"*, *"maxEnergy"* and *"maxCost"*.<br><br>valuesList: *"maxTime"*, *"maxEnergy"*, *"maxCost"*. When absent, none of these are supported.|
+|TOTPVersion|M|OptionList|Array|RW|The version of the TOTP algorithm to use.|
+|RoamingEvseId|O|15118 EVSE Id|String|RW|Roaming EVSE Id (ISO 15118 format) to be used when URL is pointing to an external party.|
+|ValidityTime|M|TimeSpan|Integer|RW|Validity of a one-time password in seconds. Acceptable range between 6 seconds up to 3600 seconds.|
+|SharedSecret|M|String|String|RW|A *random text* initialized to a random value on first boot. Must be >16 characters.|
+|Length|M|Unsigned Integer|Integer|RW|Length of the TOTP. Must be >16 characters.|
+|QRCodeQuality|O|OptionList|Array|RO/RW|The QR Code error correction level: *Low*, *Medium*, *Quartile*, *High*|
+
+
+### OCPP v1.6
+
+The OCPP 2.x Device Model is backported to the OCPP v1.6 Key-Value-Pair configuration settings. It uses the following *prefix* to distinguish between multiple *connectors*.
+
+```
+webPaymentsCtrlr.{ConnectorId}.{Setting}
+```
+
+ The *settings* are the same as for OCPP v2.x. The following would define the **URL Template** for the **first connector**:
+
+```
+webPaymentsCtrlr.1.URLTemplate
+```
+
 
 
 
@@ -262,8 +303,8 @@ For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as
     "vendorId":   "cloud.charging.open",
     "messageId":  "NotifyWebPaymentStarted",
     "data":       "{
-                     \"evseId\":  1,
-                     \"timeout\": 60
+                     \"connectorId\":  1,
+                     \"timeout\":     60
                   }"
 }
 ```
@@ -282,7 +323,7 @@ Request Error Handling:
 |-|-|
 |The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
 |The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
-|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'evseId' value!"`.|
+|data.**connectorId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'connectorId' value!"`.|
 |data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'timeout' value!"`.|
 
 ```
@@ -460,7 +501,7 @@ For OCPP v1.6 the NotifyWebPaymentFailedRequest/-Response will be serialized in 
     "vendorId":   "cloud.charging.open",
     "messageId":  "NotifyWebPaymentStarted",
     "data":       "{
-                     \"evseId\":        1,
+                     \"connectorId\":   1,
                      \"errorMessage\":  [
                                             {
                                                 \"format\":   \"UTF8\",
