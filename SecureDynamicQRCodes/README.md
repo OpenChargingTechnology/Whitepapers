@@ -113,6 +113,7 @@ The controller supports **instantiation per EVSE**, enabling charging stations w
 
 |Variable|M/O|Type|JSON Type|RW/RO|Description|
 |-|-|-|-|-|-|
+|Enabled|M|Boolean|Boolean|RW||
 |URLTemplate  |M|URL       |String|RW|The URL Template|
 |URLParameters|O|MemberList|Array |RO|List of supported URL template parameters: *"maxTime"*, *"maxEnergy"* and *"maxCost"*.<br><br>valuesList: *"maxTime"*, *"maxEnergy"*, *"maxCost"*. When absent, none of these are supported.|
 |TOTPVersion|M|OptionList|Array|RW|The version of the TOTP algorithm to use.|
@@ -120,6 +121,8 @@ The controller supports **instantiation per EVSE**, enabling charging stations w
 |ValidityTime|M|TimeSpan|Integer|RW|Validity of a one-time password in seconds. Acceptable range between 6 seconds up to 3600 seconds.|
 |SharedSecret|M|String|String|RW|A *random text* initialized to a random value on first boot. Must be >16 characters.|
 |Length|M|Unsigned Integer|Integer|RW|Length of the TOTP. Must be >16 characters.|
+|HashAlgorithm|O|OptionList|Array|RO/RW|The hash algorithm to use: *HMACSHA256*, *HMACSHA512*, ...
+|Encoding|O|String|String|RO/RW|The alphabet used for encoding the TOTP, e.g. all charachters of *[a-zA-Z0-9]*|
 |QRCodeQuality|O|OptionList|Array|RO/RW|The QR Code error correction level: *Low*, *Medium*, *Quartile*, *High*|
 
 
@@ -134,7 +137,7 @@ webPaymentsCtrlr.{ConnectorId}.{Setting}
  The *settings* are the same as for OCPP v2.x. The following would define the **URL Template** for the **first connector**:
 
 ```
-webPaymentsCtrlr.1.URLTemplate
+webPaymentsCtrlr.1.URLTemplate = „https://qr-pay.example.org/v1/fe9jv39X9x2A9Bsv/{evseId}“
 ```
 
 
@@ -163,11 +166,11 @@ POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_STARTED
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |response_url|O|URL|String|URL that the CommandResult POST should be sent to. This URL might contain a unique Id to be able to distinguish between NotifyWebPaymentStarted commands.
-|evse_id|M|EVSE Id|String|EVSE Identification for which transaction is requested (ISO 15118 format).|
+|evse_id|M|EVSE Id|String|EVSE Identification for which transaction is requested *(ISO 15118 format, e.g. DE\*GEF\*E12345678\*1)*.|
 |location_id|O|Location Id|String|OCPI Location Identification for which transaction is requested.|
 |evse_uid|O|EVSE UId|String|OCPI EVSE Unique Identification for which transaction is requested.|
 |timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed. Should be <= 5 minutes.|
-|customData|O|-|Object||
+|customData|O|-|Object|To be forwarded to the charging station.|
 
 **OCPI NotifyWebPaymentStarted Command Result**
 
@@ -295,7 +298,7 @@ Request Error Handling:
 
 ##### OCPP v1.6
 
-For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message. Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured JSON object!
+For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as a `DataTransfer` message. When *customData* is available, then it will also be added to the `data` property! Please be cautious, that the `data` property within OCPP v1.6 DataTransfer messages is of **type** ***String***, not a structured JSON object!
 
 *DataTransfer.req:*
 ```
@@ -304,8 +307,9 @@ For OCPP v1.6 the NotifyWebPaymentStartedRequest/-Response will be serialized as
     "messageId":  "NotifyWebPaymentStarted",
     "data":       "{
                      \"connectorId\":  1,
-                     \"timeout\":     60
-                  }"
+                     \"timeout\":     60,
+                     \"customData\":  null
+                   }"
 }
 ```
 
@@ -329,7 +333,10 @@ Request Error Handling:
 ```
 {
     "status":  "Rejected",
-    "data":    "{ \"message\": \"Invalid 'timeout' value!\" }"
+    "data":    "{
+                  \"reasonCode\":    \"invalidTimeout\",
+                  \"additionalInfo": \"Invalid 'timeout' value!\"
+                }"
 }
 ```
 
