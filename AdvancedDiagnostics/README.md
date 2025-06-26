@@ -14,7 +14,7 @@ This subchapter provides a differentiation between various diagnostic test types
 
 | Test Type | Support | Role and Description | Example |
 |------------------|--|----------------------------------|----------------------------------|
-| Diagnostic Control | yes | A normal OCPP request sent to read or set internal state or simulate interactions that are out-of-scope of the normal OCPP communication. | Simulate the swipping of a RFID card for starting an authorization and charging process. |
+| Diagnostic Control | yes | A normal OCPP request sent to read or set internal state or simulate interactions that are out-of-scope of the normal OCPP communication. | Simulate the swiping of a RFID card for starting an authorization and charging process. |
 | Self Test          | yes | A test executed locally and autonomously by the charging station to verify the integrity and correct functioning of its internal hardware and software components, independent of external systems. Self-tests can be triggered on demand, scheduled, or during startup, and provide detailed diagnostic results on the internal health status of the device. | Testing the reachability of the internal energy meter connected via RS485 and Modbus/RTU. |
 | Integration Test   | yes | A test performed by the charging station to verify the correct operation and connectivity of external interfaces, dependencies, and services such as backends, network infrastructure, or peripheral devices. Integration tests ensure the station is correctly embedded in its operational environment and can communicate as expected. | Testing the reachability and rootCAs of *Network Time Secure* legal servers. |
 | Health Check       | yes | A lightweight, often automated status assessment that provides a quick, aggregated indicator of the station’s general operational state. Health checks may combine results from self-tests and integration tests but are not intended to replace detailed diagnostics. Typically used for monitoring or liveness endpoints. | Enough RAM, flash storage and free CPU cycles to start new charging sessions. |
@@ -119,6 +119,8 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |IdTag|M|IdTag|String|The identification tag, e.g. of the RFID card to be swiped.|
+|ReaderId|O|ConnectorId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one connector and therefore more than one RFID reader or an additional user interface process to select a specific connector before or after swiping the RFID card (0 > ReaderId ≤ MaxConnectorId).| 
+|SimulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
 |ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
@@ -127,6 +129,8 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |IdToken|M|IdToken|Object|The identification token, e.g. of the RFID card to be swiped.|
+|ReaderId|O|EVSEId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one EVSE and therefore more than one RFID reader or an additional user interface process to select a specific EVSE/connector before or after swiping the RFID card (0 > ReaderId ≤ MaxEVSEId).|
+|SimulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
 |ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
