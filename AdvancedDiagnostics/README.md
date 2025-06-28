@@ -110,6 +110,65 @@ To improve safety in such contexts, this extension introduces **conditional upda
 Such conditional updates reduce the risk of unintended overwrites, support optimistic concurrency control, and enable reliable configuration workflows in asynchronous and multi-actor environments.
 
 
+### PlugCable
+
+This request simulates the connection of a charging cable, either attached (tethered) or detached (socketed), to the charging station.
+
+For **detached cables**, the request may include a Control Pilot (PP) resistor value, which represents the cable’s maximum permissible current according to IEC 61851-1 and IEC 62196-2. This resistor is physically located in the plug and enables the charging station to detect and enforce current limits for user-provided cables.
+
+In contrast, for **attached cables**, the station already knows the cable properties (e.g. current rating, number of phases), so no additional resistor information is required.
+
+The simulation supports different plug-in sequences and may trigger subsequent detection events, such as:
+- Proximity signal activation, once the vehicle is connected
+- Cable locking, where applicable (typically required for detached Mode 3 charging)
+- Transition to charging state, depending on EV interaction via CP
+
+This allows testing of realistic workflows and safety logic in accordance with standard-compliant AC charging behavior.
+
+
+
+
+
+In IEC 61851-1, the Control Pilot (CP) line uses a voltage divider to detect the maximum allowed current of the detached AC charging cable. The EVSE places a voltage on the CP pin, and depending on the resistor in the cable’s plug, the EVSE can infer the allowed current.
+
+|CP Resistor|Max Current|Tolerance|
+|-|-|-|
+|680 Ω|13 A|±5%|
+|220 Ω|32 A|±5%|
+|100 Ω|63 A|±5%|
+|1500 Ω|Cable not connected / EV unplugged|-|
+|Other|Invalid / undefined|-|
+
+*Note:* With or without CP = "Vehicle Present"?
+
+#### OCPP v1.6
+
+|Property|M/O|Type|JSON Type|Default|Description|
+|-|-|-|-|-|-|
+|ConnectorId|O|ConnectorId|Number (Integer)|1|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).| 
+|CPResistor|O|Ohm|Number|-|An optional resistor value used for **detached cables** to indicate the cable's maximum permissible current.|
+|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+|Property|M/O|Type|JSON Type|Default|Description|
+|-|-|-|-|-|-|
+|EVSEId|M|EVSEId|Number (Integer)|1|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).| 
+|ConnectorId|O|ConnectorId|Number (Integer)|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1| 
+|CPResistor|O|Ohm|Number|-|An optional resistor value used for **detached cables** to indicate the cable's maximum permissible current.|
+|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+
+### SetCPState
+
+|State|Description|Reaction|
+|-|-|-|
+|A|Nothing|-|
+|B|Vehicle Present|-|
+|C|Charging|Lock cable on EVSE side|
+
+
+
 ### SwipeRFIDCard
 
 This request simulates the **swiping of an RFID card** triggering RFID UID detection, authorization, and maybe the start of a charging session without requiring physical presence or hardware interaction. The same mechanism can also be used to terminate an active charging session, either by simulating the swipe of the same RFID card used to initiate the session, or by simulating a swipe of another card that belongs to the same authorization group.
@@ -120,7 +179,7 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 |-|-|-|-|-|
 |IdTag|M|IdTag|String|The identification tag, e.g. of the RFID card to be swiped.|
 |ReaderId|O|ConnectorId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one connector and therefore more than one RFID reader or an additional user interface process to select a specific connector before or after swiping the RFID card (0 > ReaderId ≤ MaxConnectorId).| 
-|SimulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|SimulationMode|O|IdTagSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
 |ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
