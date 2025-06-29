@@ -6,6 +6,13 @@ We actively encourage your collaboration and contributions. Whether you found a 
 
 Let’s advance the future of interoperable, secure, and open electric vehicle infrastructure... together.
 
+#### WWCP Related
+
+*Upcoming:*
+
+- [EV Infrastructure Unified Transport](UnifiedTransport/README.md)
+
+
 #### Open Charge Point Protocol (OCPP) related:
 
 - [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
@@ -15,7 +22,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [Ad hoc Payments via Secure Dynamic QR-Codes for OCPP and OCPI](SecureDynamicQRCodes/README.md) (EU AFIR, EU RED/CRA)
 - [OCPP 2.x Firmware Updates with Software Separation](FirmwareUpdateSeparation/README.md) (EU RED/CRA, EU MID)
 
-Upcoming:
+*Upcoming:*
 
 - [Open Charge Context Protocol (OCCP)](OCCP)
 - [Safe OCPP v2.x Device Model Updates](OCPPDeviceModelSafety)
@@ -23,22 +30,26 @@ Upcoming:
 - [Ad hoc payments via Near Field Communication (NFC)](AdHocPaymentsNFC/README.md)
 
 
+#### EV Communication Related
+
+*Upcoming:*
+
+- [ISO 15118-Computer Science Edition](ISO15118-CSE/README.md)
+
+
 #### EV Roaming Related
 
-Upcoming:
+*Upcoming:*
 
 - [WWCP/POI Data Model](WWCP-POI-Datamodel/README.md)
+- [WWCP/POI Transport Protocols](WWCP-POI-TransportProtocols/README.md)
+- [WWCP/Roaming Protocol](WWCP-Roaming-Protocol/README.md)
 
 
 #### OpenADR Related
 
-Upcoming:
+*Upcoming:*
 
 - [OpenADR and OCPP v2.1 Interoperability](OpenADR-OCPPv2.1/README.md)
 
 
-#### WWCP Related
-
-Upcoming:
-
-- [EV Unified Transport](UnifiedTransport/README.md)

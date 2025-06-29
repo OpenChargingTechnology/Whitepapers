@@ -110,70 +110,130 @@ To improve safety in such contexts, this extension introduces **conditional upda
 Such conditional updates reduce the risk of unintended overwrites, support optimistic concurrency control, and enable reliable configuration workflows in asynchronous and multi-actor environments.
 
 
-### PlugCable
+### AttachCable
 
-This request simulates the connection of a charging cable, either attached (tethered) or detached (socketed), to the charging station.
+This request simulates the connection of a detached charging cable to the EVSE socket of an AC charging station.
 
-For **detached cables**, the request may include a Control Pilot (PP) resistor value, which represents the cable’s maximum permissible current according to IEC 61851-1 and IEC 62196-2. This resistor is physically located in the plug and enables the charging station to detect and enforce current limits for user-provided cables.
+The request includes a **Proximity Pilot (PP) resistor value**, which represents the EV driver's ***AC charging cable maximum permissible current*** according to IEC 61851-1 and IEC 62196-2. This resistor is physically located within the plug between PP and PE. The EVSE uses a voltage divider to detect the maximum allowed current of the cable by placing a voltage (typically +5 V) on the PP line via a pull-up resistor. The EVSE then reads the resulting voltage and infers the PP resistor value. The following lookup table translates the resistor value to the maximum allowed current.
 
-In contrast, for **attached cables**, the station already knows the cable properties (e.g. current rating, number of phases), so no additional resistor information is required.
+|PP Resistor|Max Current|Voltage at PP|Tolerance|
+|-|-|-|-|
+| ∞ Ω | *Cable not connected<br>EV unplugged* | +5.0 V | — |
+| 1500 Ω | 13 A | +2.0 V  | ±5% |
+|  680 Ω | 20 A | +1.8 V  | ±5% |
+|  220 Ω | 32 A | +0.9 V  | ±5% |
+|  100 Ω | 63 A | +0.45 V | ±5% |
+| Other / Out-of-spec | *Invalid / undefined* | < 0.25 V or unrecognized value | — |
 
-The simulation supports different plug-in sequences and may trigger subsequent detection events, such as:
-- Proximity signal activation, once the vehicle is connected
-- Cable locking, where applicable (typically required for detached Mode 3 charging)
-- Transition to charging state, depending on EV interaction via CP
-
-This allows testing of realistic workflows and safety logic in accordance with standard-compliant AC charging behavior.
-
-
-
-
-
-In IEC 61851-1, the Control Pilot (CP) line uses a voltage divider to detect the maximum allowed current of the detached AC charging cable. The EVSE places a voltage on the CP pin, and depending on the resistor in the cable’s plug, the EVSE can infer the allowed current.
-
-|CP Resistor|Max Current|Tolerance|
-|-|-|-|
-|680 Ω|13 A|±5%|
-|220 Ω|32 A|±5%|
-|100 Ω|63 A|±5%|
-|1500 Ω|Cable not connected / EV unplugged|-|
-|Other|Invalid / undefined|-|
-
-*Note:* With or without CP = "Vehicle Present"?
+Even when to charging cable is first connected to the EV and afterwards to an EVSE socket of a charging station, the attachment of this cable does not imply that an EV will be detected. 
 
 #### OCPP v1.6
 
-|Property|M/O|Type|JSON Type|Default|Description|
-|-|-|-|-|-|-|
-|ConnectorId|O|ConnectorId|Number (Integer)|1|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).| 
-|CPResistor|O|Ohm|Number|-|An optional resistor value used for **detached cables** to indicate the cable's maximum permissible current.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|ConnectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).| 
+|ResistorValue|M|Ohm|Number *(Double)*|The resistor value to indicate the cable's maximum permissible current.|
+|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 #### OCPP v2.x
 
 |Property|M/O|Type|JSON Type|Default|Description|
 |-|-|-|-|-|-|
-|EVSEId|M|EVSEId|Number (Integer)|1|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).| 
-|ConnectorId|O|ConnectorId|Number (Integer)|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1| 
-|CPResistor|O|Ohm|Number|-|An optional resistor value used for **detached cables** to indicate the cable's maximum permissible current.|
+|EVSEId|M|EVSEId|Number *(Integer)*|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).| 
+|ConnectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1| 
+|ResistorValue|M|Ohm|Number *(Double)*|-|A resistor value to indicate the cable's maximum permissible current.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
 
-### SetCPState
+### SetCPVoltage
 
-|State|Description|Reaction|
+*IEC 61851-1* defines charging states called: A, B, C, D, E, F. They indicate whether the vehicle is connected, ready to charge, charging, or in a fault state.
+
+The EV communicates its charging intend to the EVSE by modifying the voltage on the **Control Pilot (CP)** pin. *Voltages* are measured between the CP line and protective earth (PE) with a typical ±0.5 V tolerance.
+
+For AC charging a **Pulse Width Modulation (PWM) signal** within the states B, C, and D indicates the maximum current the EVSE can supply. The duty cycle of the PWM correlates to the available current.
+
+DC charging a **high-level digital communication** according to *DIN 70121*, *ISO 15118-2* or *ISO 15118-20* is used.
+
+|CP Voltage|State|PWM|EV Condition|Notes|
+|-|-|-|-|-|
+|+12 V|A|-|Not connected|No EV present|
+|+9 V|B|PWM|Connected, not requesting energy|EV connected, ready for negotiation, not charging|
+|+6 V|C|PWM|Connected and ready to charge|EV requests charging, internal contactor closed. Locked cable on EV side|
+|+3 V|D|PWM|Charging with ventilation required (rare)|EV requests charging, requires external ventilation (e.g. battery gas exhaust)|
+0 V|E|-|Error, CP short to PE or GND|Fault or disconnected EVSE|
+|< 0 V|F|-|Error, reverse polarity or other fault|Communication fault / Invalid voltage detected|
+|>12 V|-|-|Error, overvoltage fault|Out-of-specification error / Invalid voltage detected|
+
+The following table shows all legal transitions between EV *Charge Pilot* states.
+
+|State Transition|Allowed|Description|
 |-|-|-|
-|A|Nothing|-|
-|B|Vehicle Present|-|
-|C|Charging|Lock cable on EVSE side|
+|A → B|✅|EV plugged in. EVSE detects vehicle, prepares for charging. No power is supplied yet.|
+|A → C|❌|GoTo B first!|
+|A → D|❌|GoTo B first!|
+|A → E|⚠️|Implies hard fault (e.g., CP shorted to PE or GND), likely due to broken cable or EV.|
+|A → F|⚠️|Illegal CP signaling (e.g., negative voltage); could indicate reverse wiring or short.|
+|B → A|✅|EV unplugged.|
+|B → C|✅|EV ready to charge, closes internal contactor. EVSE maybe locks detached charging cable, supplies power to the vehicle.|
+|B → D|✅|Like state `C`, but EV requires ventilation (rare, obsolete in most modern EVs). EVSE activates ventilation.|
+|B → E|⚠️|Possible fault if CP pulled to GND unexpectedly.|
+|B → F|⚠️|Illegal CP voltage (e.g. < 0 V); wiring fault or hardware defect.|
+|C → A|❌|Direct transitions from charging to disconnected are not possible without passing through B, as unplugging during charging is detected as a fault (→ E).|
+|C → B|✅|EV pauses charging, e.g. due to *State-of-Charge (SoC)* or thermal reasons.|
+|C → D|⚠️|Direct switching between ventilation and non-ventilation charging states is not standard; the EV typically returns to state B first!|
+|C → E|⚠️|Implies unexpected CP fault during active charging – possibly unplugged during charge. EVSE stops power supply.|
+|C → F|⚠️|Implies invalid signal level during charge – usually treated as fault. EVSE stops power supply or can no longer supply energy.|
+|D → A|❌|Direct transitions from charging to disconnected are not possible without passing through B, as unplugging during charging is detected as a fault (→ E).|
+|D → B|✅|Ventilation no longer required.|
+|D → C|⚠️|Direct switching between ventilation and non-ventilation charging states is not standard; the EV typically returns to state B first!|
+|D → E|⚠️|Implies CP pulled to GND during ventilation-required charging. Fault condition. EVSE stops power supply.|
+|D → F|⚠️|Implies invalid signal level during charge – usually treated as fault. EVSE stops power supply or can no longer supply energy.|
+|E → A|✅|Error resolved. EV unplugged.|
+|E → B|✅|Error resolved. EV still connected.|
+|E → C|⚠️|Error state requires resolution (often returning to A or B) before charging can resume.|
+|E → D|⚠️|Error state requires resolution (often returning to A or B) before charging can resume.|
+|E → F|⚠️|Usually irrelevant but can occur during unstable or cascading errors and faults.|
+|F → A|✅|EVSE fault resolved. EV unplugged.|
+|F → B|✅|EVSE fault resolved. EV still connected.|
+|F → C|⚠️|Fault state requires resolution (often returning to A or B) before charging can resume.|
+|F → D|⚠️|Fault state requires resolution (often returning to A or B) before charging can resume.|
+|F → E|⚠️|Usually irrelevant but can occur during unstable or cascading errors and faults.|
+
+```
+  +-----+     Plug-In      +-----+    Contactor Close    +-----+
+  |  A  | ---------------> |  B  | --------------------> | C/D |
+  +-----+                  +-----+     Supply Energy     +-----+
+     ^                       | ^                            |
+     |        Unplug         | |      Pause Charging        |
+     +-----------------------+ +----------------------------+
+```
+
+#### OCPP v1.6 / 2.x
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|Voltage|M|Volt|Number (Double)|The voltage on the *Charge Pilot*.|
+|VoltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behaviour.|
+|TransitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change  over the given time span, instead of instantaneous jumps, to simulate real-world analog behaviour.|
+|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
+### GetPWMValue
+
+*ToDo:* Read/poll PWM value. OCPP v2.x might prefer setting up a Device Model reporting.
+
+### SendEVRequest
+
+*ToDo:* Send some IDO 15118 data structures. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
 
 ### SwipeRFIDCard
 
 This request simulates the **swiping of an RFID card** triggering RFID UID detection, authorization, and maybe the start of a charging session without requiring physical presence or hardware interaction. The same mechanism can also be used to terminate an active charging session, either by simulating the swipe of the same RFID card used to initiate the session, or by simulating a swipe of another card that belongs to the same authorization group.
 
 #### OCPP v1.6
+
+*SwipeRFIDCardRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
@@ -184,6 +244,8 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 #### OCPP v2.x
+
+*SwipeRFIDCardRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
