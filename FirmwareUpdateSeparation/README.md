@@ -72,3 +72,46 @@ The update of an existing monolithic firmware image can result in a firmware sup
 The current monolithic firmware of a charging station will always be identified as `default` firmware component. ***Default*** implies, that there are **no other firmware components**. Therefore this firmware component name must not be used when there is more than one firmware component.
 
 When the old firmware update requests are used and more than just the *default* firmware exists, a charging station should respont with ***Rejected*** and explain that the new requests must be used.
+
+
+
+
+##### ToDo's
+
+Some of those ToDo's are "just" related and might later be part of other specifications!
+
+- How to specify the PKI for the firmware download process?
+- Firmware upload via binary OCPP channels.
+- Declaration which services run per firmware component as "save default"
+- Support of multiple "safe default"-configurations for different CPO use cases
+- Is the Bootloader an (updateable) "OCPP firmware component"? Can it be updated independently?
+- How to update certificates for booting?
+- Declaration whether downgrading is allowed and/or to which extend.
+- How to add 3rd party certificates for booting?
+- Declaration whether alternative firmware trees and 3rd party firmware can be installed.
+- Send hash and validate it against cert chains, before sending the entire software update?!
+- How to support in-place firmware updates (including a 2nd partition) ((Bianry) streaming required).
+- How to support "public" vs. "personalized" firmware images?
+- How to support automatic scheduled updates? Is this configurable?
+- Link to risk assesment / threat modelling documentation.
+- Declaration whether the disc provides encryption (EU CRA)
+- Declaration whether the disc provides integrity guarantees/resilience against bit and burst errors? (EU CRA)
+- Declaration about the quality of the hardware random number generator.
+- Declaration what sensitive data is and how it is protected and stored (tamper protected storage?).
+- SBOM or signed link to SBOM
+- Deep links to firmware update informations/Where to find new versions automatically.
+- Links/description how to report errors and which workflow can be expected
+- Links/description how to report vulnerabilities and which workflow can be expected
+- Compact export of hardware infos, firmware infos and configuration to support backups, error and vulnerability reports
+- Digital Declaration/Certification of Conformity
+- Digital Declaration/Certification of Calibration
+- Is there a default password? Is it required to be changed during commissioning?
+- Are there passwords unique per device?
+- Is there a unique root public key per device? Where can the private key be found (QR-Code et.al)?
+- How can all TLS parameters be cryptoagil?
+- Is there a manufacturer telemetry service? What does it do? How to review it? How to disable it?
+- How is "Reset to factory defaults" implemented in case of multiple "safe default configurations".
+- How is "remove all privacy sensitive data (after XX days)" achievable?
+- Guidance on how to check whether the device is securely set up and maintained in a secure state.
+- Provide clear and transparent information about what personal data is processed and for what purposes, by whom, and for how long, also for associated services (CPOs, EV Roaming, EMPs, ...).
+- How is "constent" to privacy relevant data processing recorded?

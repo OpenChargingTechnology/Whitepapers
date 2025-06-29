@@ -37,13 +37,14 @@ https://qr.mycsms.com/{chargingStationId}/{evse}/{totp}?v={version}
 
 The URL may contain additional parameters that are filled in by the charging station e.g. based upon EV driver input. This would allow an EV driver to specify, for example, a maximum amount of energy to charge. By this the maximum energy/time/cost request is also communicated towards the payment provider which might include this information into its payment process metadata and final payment invoice.
 
-The following variables are specified. 
+The following variables are specified.
+Comparisons shall be performed case-insensitively.
 
 | Variable | M/O | Type | Description |
 |-|-|-|-|
 | chargingStationId | M | String | Charging Station Identity |
 | evse | M | Integer | The EVSE for which the payment is requested |
-| roamingCSId | O | String | The charging station for which the payment is requested<br>*(Format: ISO 15118 like, e.g. DE\*GEF\*S12345678)*|
+| roamingCSId | O | String | The charging station for which the payment is requested<br>*(Format: ISO 15118-like, e.g. DE\*GEF\*S12345678)*|
 | roamingEVSEId | O | String | The EVSE for which the payment is requested<br>*(Format: ISO 15118, e.g. DE\*GEF\*E12345678\*1)*|
 | totp | M | String | The calculated time-based one-time password |
 | version | M | String | The version of the time-based one-time password algorithm |
@@ -117,7 +118,8 @@ The controller supports **instantiation per EVSE**, enabling charging stations w
 |URLTemplate  |M|URL       |String|RW|The URL Template|
 |URLParameters|O|MemberList|Array |RO|List of supported URL template parameters: *"maxTime"*, *"maxEnergy"* and *"maxCost"*.<br><br>valuesList: *"maxTime"*, *"maxEnergy"*, *"maxCost"*. When absent, none of these are supported.|
 |TOTPVersion|M|OptionList|Array|RW|The version of the TOTP algorithm to use.|
-|RoamingEvseId|O|15118 EVSE Id|String|RW|Roaming EVSE Id (ISO 15118 format) to be used when URL is pointing to an external party.|
+|RoamingCSId|O|15118 Charging Station Id|String|RW|Roaming Charging Station Id (ISO 15118-like format) to be used when URL is pointing to an external party.<br>*(Format: ISO 15118-like, e.g. DE\*GEF\*S12345678)*|
+|RoamingEvseId|O|15118 EVSE Id|String|RW|Roaming EVSE Id to be used when URL is pointing to an external party.<br>*(Format: ISO 15118, e.g. DE\*GEF\*E12345678\*1)*|
 |ValidityTime|M|TimeSpan|Integer|RW|Validity of a one-time password in seconds. Acceptable range between 6 seconds up to 3600 seconds.|
 |SharedSecret|M|String|String|RW|A *random text* initialized to a random value on first boot. Must be >16 characters.|
 |Length|M|Unsigned Integer|Integer|RW|Length of the TOTP. Must be >16 characters.|
