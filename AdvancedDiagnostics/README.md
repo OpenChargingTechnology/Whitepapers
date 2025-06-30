@@ -131,7 +131,7 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|ConnectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).| 
+|ConnectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
 |ResistorValue|M|Ohm|Number *(Double)*|The resistor value to indicate the cable's maximum permissible current.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
@@ -140,7 +140,7 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 |Property|M/O|Type|JSON Type|Default|Description|
 |-|-|-|-|-|-|
 |EVSEId|M|EVSEId|Number *(Integer)*|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).| 
-|ConnectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1| 
+|ConnectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1|
 |ResistorValue|M|Ohm|Number *(Double)*|-|A resistor value to indicate the cable's maximum permissible current.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
@@ -214,18 +214,49 @@ The following table shows all legal transitions between EV *Charge Pilot* states
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |Voltage|M|Volt|Number (Double)|The voltage on the *Charge Pilot*.|
-|VoltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behaviour.|
-|TransitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change  over the given time span, instead of instantaneous jumps, to simulate real-world analog behaviour.|
+|VoltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
+|TransitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+### SetErrorState
+
+This request simulates an **Error State** within the entire charging station or within one of its EVSEs. When the charging station for example detects an *upstream grid supply anomaly* like ***undervoltage***, ***overvoltage***, or a ***phase failure***, is must log, report and propagate this error state to one or more of its EVSEs. These EVSEs can then enter a *PowerQualityError* or *GridFault* state and signal the reduced-availability or fault indication via the *Control Pilot (CP)* to the EV. As a consequence, the charging process may be paused, limited, or aborted, depending on the error severity and the EV's response strategy.
+
+#### OCPP v1.6
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|FaultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
+|ConnectorId|O|ConnectorId|Number *(Integer)*|The optional connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
+|ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|Duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
+|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|FaultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
+|EVSE|O|EVSE|Object|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|Duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
+|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
 
 
 ### GetPWMValue
 
 *ToDo:* Read/poll PWM value. OCPP v2.x might prefer setting up a Device Model reporting.
 
+
+
 ### SendEVRequest
 
 *ToDo:* Send some IDO 15118 data structures. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
+
+
 
 ### SwipeRFIDCard
 
