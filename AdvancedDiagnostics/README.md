@@ -132,7 +132,7 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |ConnectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).| 
-|ResistorValue|M|Ohm|Number *(Double)*|The resistor value to indicate the cable's maximum permissible current.|
+|ResistorValue|M|Ohm|Number *(Double)*|The resistor value >0 to indicate the cable's maximum permissible current.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 #### OCPP v2.x
@@ -141,7 +141,7 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 |-|-|-|-|-|-|
 |EVSEId|M|EVSEId|Number *(Integer)*|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).| 
 |ConnectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1| 
-|ResistorValue|M|Ohm|Number *(Double)*|-|A resistor value to indicate the cable's maximum permissible current.|
+|ResistorValue|M|Ohm|Number *(Double)*|-|A resistor value >0 to indicate the cable's maximum permissible current.|
 |Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
 
@@ -225,7 +225,7 @@ The following table shows all legal transitions between EV *Charge Pilot* states
 
 ### SendEVRequest
 
-*ToDo:* Send some IDO 15118 data structures. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
+*ToDo:* Send some ISO 15118 data structures. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
 
 ### SwipeRFIDCard
 
