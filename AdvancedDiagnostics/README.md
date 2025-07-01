@@ -99,6 +99,32 @@ Unlike traditional OCPP requests, Diagnostic Control requests are not part of th
 This cryptographic enforcement ensures that only authorized diagnostic tools or operators can issue such requests. As a result, it is considered safe and compliant to keep this interface **active even in production environments**, since misuse by unauthorized parties is effectively prevented through cryptographic validation.
 
 
+### GetExecutingEnvironment
+
+This request returns information about the executing environment of the software under test. Especially when an embedded software is run within an emulator or a multi-user operating system and it hangs within an endless loop or crashed in unexpected ways, it is usefull to find out more details about its executing environment. By this for example the *process identifiction* might be retrieved to be able to `kill -9` and to restart the process. Also alternative ways to initiate a hard restart or to download a memory image might be exposed.
+
+#### OCPP v1.6 / v2.x
+
+*GetExecutingEnvironmentRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+*GetExecutingEnvironmentResponse:*
+
+The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|processId|O|ProcessId|Number *(Integer)*|The process identification of the main application process.|
+|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*|
+|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
+|*...any...*|O|...|...|...|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
 ### SetVariables *(extended)*
 
 This request extends the existing *SetVariables* request functionality by adding support for structured, **recursive transactions**. It allows multiple individual SetVariable operations to be grouped into a single atomic unit, with clearly defined semantics for **concurrent execution**, **dependency ordering**, and **error handling**.
@@ -129,20 +155,24 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 
 #### OCPP v1.6
 
+*AttachCableRequest:*
+
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|ConnectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).| 
-|ResistorValue|M|Ohm|Number *(Double)*|The resistor value >0 to indicate the cable's maximum permissible current.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+|connectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
+|resistorValue|M|Ohm|Number *(Double)*|The resistor value >0 to indicate the cable's maximum permissible current.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 #### OCPP v2.x
 
+*AttachCableRequest:*
+
 |Property|M/O|Type|JSON Type|Default|Description|
 |-|-|-|-|-|-|
-|EVSEId|M|EVSEId|Number *(Integer)*|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).| 
-|ConnectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1|
-|ResistorValue|M|Ohm|Number *(Double)*|-|A resistor value >0 to indicate the cable's maximum permissible current.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+|evseId|M|EVSEId|Number *(Integer)*|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).|
+|connectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1|
+|resistorValue|M|Ohm|Number *(Double)*|-|A resistor value >0 to indicate the cable's maximum permissible current.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
 
 ### SetCPVoltage
@@ -211,12 +241,14 @@ The following table shows all legal transitions between EV *Charge Pilot* states
 
 #### OCPP v1.6 / 2.x
 
+*SetErrorStateRequest:*
+
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|Voltage|M|Volt|Number (Double)|The voltage on the *Charge Pilot*.|
-|VoltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
-|TransitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+|voltage|M|Volt|Number (Double)|The voltage on the *Charge Pilot*.|
+|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
+|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
 
@@ -226,23 +258,27 @@ This request simulates an **Error State** within the entire charging station or 
 
 #### OCPP v1.6
 
+*SetCPVoltageRequest:*
+
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|FaultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
-|ConnectorId|O|ConnectorId|Number *(Integer)*|The optional connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
-|ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|Duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+|faultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
+|connectorId|O|ConnectorId|Number *(Integer)*|The optional connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 #### OCPP v2.x
 
+*SetCPVoltageRequest:*
+
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|FaultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
-|EVSE|O|EVSE|Object|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
-|ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|Duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+|faultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
+|evse|O|EVSE|Object|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
 
 
@@ -266,11 +302,11 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|IdTag|M|IdTag|String|The identification tag, e.g. of the RFID card to be swiped.|
-|ReaderId|O|ConnectorId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one connector and therefore more than one RFID reader or an additional user interface process to select a specific connector before or after swiping the RFID card (0 > ReaderId ≤ MaxConnectorId).| 
-|SimulationMode|O|IdTagSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
-|ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+|idTag|M|IdTag|String|The identification tag, e.g. of the RFID card to be swiped.|
+|readerId|O|ConnectorId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one connector and therefore more than one RFID reader or an additional user interface process to select a specific connector before or after swiping the RFID card (0 > ReaderId ≤ MaxConnectorId).|
+|simulationMode|O|IdTagSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 #### OCPP v2.x
 
@@ -278,11 +314,11 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|IdToken|M|IdToken|Object|The identification token, e.g. of the RFID card to be swiped.|
-|ReaderId|O|EVSEId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one EVSE and therefore more than one RFID reader or an additional user interface process to select a specific EVSE/connector before or after swiping the RFID card (0 > ReaderId ≤ MaxEVSEId).|
-|SimulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
-|ProcessingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|Signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+|idToken|M|IdToken|Object|The identification token, e.g. of the RFID card to be swiped.|
+|readerId|O|EVSEId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one EVSE and therefore more than one RFID reader or an additional user interface process to select a specific EVSE/connector before or after swiping the RFID card (0 > ReaderId ≤ MaxEVSEId).|
+|simulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
 ### AdjustTimeScale
