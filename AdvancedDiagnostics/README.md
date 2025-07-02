@@ -99,41 +99,47 @@ Unlike traditional OCPP requests, Diagnostic Control requests are not part of th
 This cryptographic enforcement ensures that only authorized diagnostic tools or operators can issue such requests. As a result, it is considered safe and compliant to keep this interface **active even in production environments**, since misuse by unauthorized parties is effectively prevented through cryptographic validation.
 
 
-### GetExecutingEnvironment
+### AdjustTimeScale
 
-This request returns information about the executing environment of the software under test. Especially when an embedded software is run within an emulator or a multi-user operating system and it hangs within an endless loop or crashed in unexpected ways, it is usefull to find out more details about its executing environment. By this for example the *process identifiction* might be retrieved to be able to `kill -9` and to restart the process. Also alternative ways to initiate a hard restart or to download a memory image might be exposed.
+This request is a diagnostic extension to OCPP that enables external test tools or validation frameworks to temporarily **alter the rate at which simulated time progresses** within a charging station or associated components. This feature is particularly valuable in testing scenarios that depend on elapsed time, such as the automatic stop of a charging session after a specified duration, authorization timeouts, or inactivity handling. By accelerating or decelerating the passage of time for internal logic, **long-running tests can be executed significantly faster**, or timers can be frozen for controlled debugging.
 
-#### OCPP v1.6 / v2.x
+The request specifies a timeScale value, which is a positive decimal number representing the multiplier applied to simulated time. A value of 1.0 indicates normal time progression, while a value of 2.0 causes internal time to progress twice as fast as real time. A value of 0.5 slows time down by half, and a value of 0.0 effectively pauses all time-based logic in the affected domain. To prevent unintended permanent changes, the request may optionally include a duration parameter (in seconds), after which the time scale automatically reverts to the normal value of 1.0.
 
-*GetExecutingEnvironmentRequest:*
+This request is intended solely for testing and validation purposes in non-production environments. Charging stations operating in production mode may reject this request unless explicitly configured to permit it under controlled conditions. The response to such a request includes a status field indicating whether the operation was accepted, rejected, or not supported, and may optionally return the actually applied time scale, which might be capped or adjusted internally for implementation or safety reasons.
 
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+#### OCPP v1.6
 
-
-*GetExecutingEnvironmentResponse:*
-
-The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
+*AdjustTimeScaleRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|processId|O|ProcessId|Number *(Integer)*|The process identification of the main application process.|
-|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*|
-|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
-|*...any...*|O|...|...|...|
+|scale|M|Double|Number *(Double)*|The time scale.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
+*AdjustTimeScaleResponse:*
 
-### SetVariables *(extended)*
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-This request extends the existing *SetVariables* request functionality by adding support for structured, **recursive transactions**. It allows multiple individual SetVariable operations to be grouped into a single atomic unit, with clearly defined semantics for **concurrent execution**, **dependency ordering**, and **error handling**.
+#### OCPP v2.x
 
-In addition, the extension addresses a critical limitation of the current SetVariable operation: In standard OCPP, **variables are unconditionally overwritten**, regardless of their previous state. While this is acceptable in centralized or single-writer environments, it poses risks in modern distributed or concurrent control architectures, where multiple systems (e.g., CSMS, local controllers, or operator tools) may attempt to update the same variable concurrently.
+*AdjustTimeScaleRequest:*
 
-To improve safety in such contexts, this extension introduces **conditional update semantics**. A SetVariable entry may optionally specify the expected current value, and the update is only applied if the value on the target system matches this expectation at the time of execution. This mechanism is conceptually equivalent to *HTTP constraint-based updates* using *If-Match* headers or *Compare-and-Swap (CAS)* operations in distributed systems.
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|scale|M|Double|Number *(Double)*|The time scale.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-Such conditional updates reduce the risk of unintended overwrites, support optimistic concurrency control, and enable reliable configuration workflows in asynchronous and multi-actor environments.
+*AdjustTimeScaleResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
 
 
 ### AttachCable
@@ -163,6 +169,13 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 |resistorValue|M|Ohm|Number *(Double)*|The resistor value >0 to indicate the cable's maximum permissible current.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
+*AttachCableResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
 #### OCPP v2.x
 
 *AttachCableRequest:*
@@ -173,6 +186,108 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 |connectorId|O|ConnectorId|Number *(Integer)*|1|The optional connector identification, when the charging station has more than one connector on the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)). Default: 1|
 |resistorValue|M|Ohm|Number *(Double)*|-|A resistor value >0 to indicate the cable's maximum permissible current.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+*AttachCableResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+### GetExecutingEnvironment
+
+This request returns information about the executing environment of the software under test. Especially when an embedded software is run within an emulator or a multi-user operating system and it hangs within an endless loop or crashed in unexpected ways, it is usefull to find out more details about its executing environment. By this for example the *process identifiction* might be retrieved to be able to `kill -9` and to restart the process. Also alternative ways to initiate a hard restart or to download a memory image might be exposed.
+
+#### OCPP v1.6
+
+*GetExecutingEnvironmentRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+*GetExecutingEnvironmentResponse:*
+
+The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|processId|O|ProcessId|Number *(Integer > 0)*|The process identification of the main application process.|
+|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*.|
+|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
+|*...any...*|O|...|...|...|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+*GetExecutingEnvironmentRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+*GetExecutingEnvironmentResponse:*
+
+The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|processId|O|ProcessId|Number *(Integer > 0)*|The process identification of the main application process.|
+|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*.|
+|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
+|*...any...*|O|...|...|...|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+### GetPWMValue
+
+This request retrieves the current value of the *Pulse Width Modulation (PWM)* signal generated by the EVSE's *Control Pilot*. The PWM duty cycle represents the **maximum allowable charging current** as defined by IEC 61851-1 and is used by the EV to determine the upper limit of the energy it may draw from the EVSE. Reading this value allows diagnostic systems to verify the dynamic current limits being communicated by the charging station to the vehicle in real-time, which is essential for safe and standards-compliant operation.
+
+#### OCPP v1.6
+
+*GetPWMValueRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|connectorId|M|ConnectorId|Number *(Integer)*|The connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*GetPWMValueResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+ OCPP v2.x might prefer setting up a Device Model reporting.
+
+*GetPWMValueRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|evseId|M|EVSEId|Number *(Integer)*|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*GetPWMValueResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
 
 
 ### SetCPVoltage
@@ -239,15 +354,43 @@ The following table shows all legal transitions between EV *Charge Pilot* states
      +-----------------------+ +----------------------------+
 ```
 
-#### OCPP v1.6 / 2.x
+#### OCPP v1.6
 
-*SetErrorStateRequest:*
+*SetCPVoltageRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |voltage|M|Volt|Number (Double)|The voltage on the *Charge Pilot*.|
 |voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
 |transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SetCPVoltageResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP 2.x
+
+*SetCPVoltageRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|voltage|M|Volt|Number (Double)|The voltage on the *Charge Pilot*.|
+|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SetCPVoltageResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
@@ -258,7 +401,7 @@ This request simulates an **Error State** within the entire charging station or 
 
 #### OCPP v1.6
 
-*SetCPVoltageRequest:*
+*SetErrorStateRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
@@ -268,9 +411,16 @@ This request simulates an **Error State** within the entire charging station or 
 |duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
+*SetErrorStateResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
 #### OCPP v2.x
 
-*SetCPVoltageRequest:*
+*SetErrorStateRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
@@ -280,17 +430,24 @@ This request simulates an **Error State** within the entire charging station or 
 |duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
+*SetErrorStateResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
-### GetPWMValue
-
-*ToDo:* Read/poll PWM value. OCPP v2.x might prefer setting up a Device Model reporting.
 
 
 
 ### SendEVRequest
 
 *ToDo:* Send some ISO 15118 data structures. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
+
+
+
 
 ### SwipeRFIDCard
 
@@ -308,6 +465,13 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 |processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
+*SwipeRFIDCardResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
 #### OCPP v2.x
 
 *SwipeRFIDCardRequest:*
@@ -320,14 +484,15 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 |processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
+*SwipeRFIDCardResponse:*
 
-### AdjustTimeScale
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-This request is a diagnostic extension to OCPP that enables external test tools or validation frameworks to temporarily **alter the rate at which simulated time progresses** within a charging station or associated components. This feature is particularly valuable in testing scenarios that depend on elapsed time, such as the automatic stop of a charging session after a specified duration, authorization timeouts, or inactivity handling. By accelerating or decelerating the passage of time for internal logic, **long-running tests can be executed significantly faster**, or timers can be frozen for controlled debugging.
 
-The request specifies a timeScale value, which is a positive decimal number representing the multiplier applied to simulated time. A value of 1.0 indicates normal time progression, while a value of 2.0 causes internal time to progress twice as fast as real time. A value of 0.5 slows time down by half, and a value of 0.0 effectively pauses all time-based logic in the affected domain. To prevent unintended permanent changes, the request may optionally include a duration parameter (in seconds), after which the time scale automatically reverts to the normal value of 1.0.
-
-This request is intended solely for testing and validation purposes in non-production environments. Charging stations operating in production mode may reject this request unless explicitly configured to permit it under controlled conditions. The response to such a request includes a status field indicating whether the operation was accepted, rejected, or not supported, and may optionally return the actually applied time scale, which might be capped or adjusted internally for implementation or safety reasons.
 
 
 ### TimeTravel
@@ -335,3 +500,36 @@ This request is intended solely for testing and validation purposes in non-produ
 This request enables controlled manipulation of the system clock on a charging station or related component. Unlike the *AdjustTimeScale* request, which affects only the relative flow of internal time, *TimeTravel* allows the system to temporarily **jump forward or backward in time**, for example to simulate behavior under certificate expiration, daylight saving changes, authorization token expiry, **dynamic tariff changes**, or to validate metrological timestamp boundaries. Optionally, it may also define a duration, after which the system clock reverts to the original (real) time source. If no duration is specified, the simulated time remains active until explicitly reset or overridden by a subsequent request.
 
 This request is intended solely for testing and validation purposes in non-production environments. Charging stations operating in production mode may reject this request unless explicitly configured to permit it under controlled conditions. 
+
+#### OCPP v1.6
+
+*TimeTravelRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|timestamp|M|Timestamp|String *(ISO8601)*|The timestamp to travel to *(UTC or with time zone offset)*.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*TimeTravelResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+*TimeTravelRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|timestamp|M|Timestamp|String *(ISO8601)*|The timestamp to travel to *(UTC or with time zone offset)*.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*TimeTravelResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|

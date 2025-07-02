@@ -24,8 +24,8 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 *Upcoming:*
 
-- [Open Charge Context Protocol (OCCP)](OCCP)
-- [Safe OCPP v2.x Device Model Updates](OCPPDeviceModelSafety)
+- [Open Charge Context Protocol (OCCP)](OCCP/README.md)
+- [Safe & Secure OCPP v2.x Device Model Updates](SafeAndSecureDeviceModelUpdates/README.md)
 - [Ad hoc payments via Bluetooth LE (BLE)](AdHocPaymentsBLE/README.md)
 - [Ad hoc payments via Near Field Communication (NFC)](AdHocPaymentsNFC/README.md)
 
