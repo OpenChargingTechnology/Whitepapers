@@ -442,9 +442,39 @@ This request simulates an **Error State** within the entire charging station or 
 
 
 
-### SendEVRequest
+### SendEVMessage
 
-*ToDo:* Send some ISO 15118 data structures. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
+This message sends an ISO 15118 data structure, as if they would be send by an electric vehicle. The ISO 15118 data can be encoded as JSON, when only the processing of the messages shall be tested, or as *Efficient XML(EXI)* or even *Ethernet frames*, when lower layer parsing shall also be tested.
+
+This method uses the **OCPP v2.1** ***SEND*** **message type**, therefore there will be no direct response to this message. Nevertheless, when the the charging station can not parse this message, an error message might be send.
+
+*SendEVMessage (text):*
+
+|Property|M/O|Type|JSON Type|Default|Description|
+|-|-|-|-|-|-|
+|evse|O|EVSE|Object|-|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|processingDelay|O|TimeSpan|Number (ms)|-|An optional processing delay before the request is processed by the charging station.|
+|message|M|JSON Object or encoded binary data as a *text*|Object or String|-|The *ISO 15118 EV message*. Either as a JSON object **or** an encoded string representation of the EXI format.|
+|messageType|O/M|ISO15118SimulationContentType|String|-|The content type of the *ISO 15118 EV message* when it is a string, e.g. *EXI*, *EthernetFrame*, ...|
+|messageEncoding|O/M|ISO15118SimulationEncoding|String|BASE64|When the *ISO 15118 EV message* is e.g. encoded as EXI (binary), which additional encoding was used to transform it into a string.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+
+*SendEVMessage (binary):*
+
+|Property|Type|Binary Type|Default|Description|
+|-|-|-|-|-|
+|type|BinaryDataMessageType|UInt32|-|`0x00000100`|
+|evseId|EVSEId|Byte|`0x00`|The optional EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).|
+|connectorId|ConnectorId|Byte|`0x00`|The optional connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|processingDelay|TimeSpan|UInt32 *(ms)*|`0x00000000`|An optional processing delay before the request is processed by the charging station.|
+|messageType|ISO15118SimulationContentType|Byte|-|The content type of the *ISO 15118 EV message* when it is a string, e.g. *EXI*, *EthernetFrame*, ...|
+|messageLength|Integer|UInt32|-|The length of the serialized *ISO 15118 EV message*|
+|message|Array&lt;Byte&gt;|Array&lt;Byte&gt;|-|The *ISO 15118 EV message* as array of bytes.|
+|signatureCount|Integer|Byte|`0x00`|Number of signatures|
+|signatures|Array&lt;Signature&gt;|Array&lt;Byte&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+
 
 
 
@@ -533,3 +563,42 @@ This request is intended solely for testing and validation purposes in non-produ
 |status|M|GenericStatus|String|The response status.|
 |statusInfo|O|StatusInfo|Object|Optional extended status information.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+
+## Diagnostic Monitoring
+
+***WIP!!!***
+
+### SetupISO15118Monitor
+
+This message sends some ISO 15118 data structure as if they would be send by an electric vehicle. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
+
+#### OCPP v2.x
+
+*SetupISO15118MonitorRequest:*
+
+*ToDo: It might be beneficial to use binary web socket frames as an alternative.*
+
+|Property|M/O|Type|JSON Type|Default|Description|
+|-|-|-|-|-|-|
+|data|M|JSON Object or BASE64 encoded binary data *(String)*|Object or String|-|The *ISO 15118 EV message*. Either as a JSON object **or** an encoded string representation of the EXI format.|
+|encoding|O|ISO15118SimulationEncoding|String|BASE64|When the *ISO 15118 EV message* is encoded as EXI (binary), which additional encoding was used to transform it into a string.|
+|evse|O|EVSE|Object|-|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|simulationMode|O|ISO15118SimulationMode|String|-|An optional simulation mode: `Software\|Hardware\|...`|
+|processingDelay|O|TimeSpan|Number (ms)|-|An optional processing delay before the request is processed by the charging station.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+*SetupISO15118MonitorResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+### DisableISO15118Monitor
+
+
