@@ -656,3 +656,28 @@ This message sends some ISO 15118 data structure as if they would be send by an 
 |status|M|GenericStatus|String|The response status.|
 |statusInfo|O|StatusInfo|Object|Optional extended status information.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+## Diagnostic Tools
+
+Diagnostic Tools are small asynchronous applications running e.g. on the charging station for testing and diagnoses. They follow the concept of AI applications using the *Model Context Protocol (MCP)* and thus might not only return a single response, but also multiple intermediary responses or status updates.
+
+### Ping
+
+Send one or multiple ICMP echo request to the specified DNS name or IP address. Optional with the *Record Route* extension.
+
+### Traceroute
+
+Trace the IP route to the specified DNS name or IP address using the traceroute approach.
+
+### TestCSMSNetworking
+
+This tool will test whether the network configuration to access a CSMS is complete, free of contradictions, report TLS parameters and test whether the tools can successfully log into the (new) CSMS. This will in particular avoid costly downtimes caused by CSMS migrations which often fail because of unexpected configuration or network issues.
+
+### TestNetworkTimeSecure
+
+This tool will test whether the configured *Network Time Secure* time server are configured correctly (complete, free of contradictions) and the time server can be reached. The last response will also include the *NTP/NTS* time information received.
+
+
+
