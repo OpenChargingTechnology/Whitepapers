@@ -1,4 +1,4 @@
-# Whitepapers on ICT for EV Infrastructure
+# EV Infrastructure ICT Whitepapers
 
 All white papers presented here are published under the [Creative Commons Attribution Share Alike 4.0 International (CC-BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/). This means you are free to share, adapt, and build upon the content, even for commercial purposes, as long as you give appropriate credit and distribute your work and contributions under the same license.
 

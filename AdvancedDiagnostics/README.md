@@ -661,7 +661,9 @@ This message sends some ISO 15118 data structure as if they would be send by an 
 
 ## Diagnostic Tools
 
-Diagnostic Tools are small asynchronous applications running e.g. on the charging station for testing and diagnoses. They follow the concept of AI applications using the *Model Context Protocol (MCP)* and thus might not only return a single response, but also multiple intermediary responses or status updates.
+Diagnostic Tools are small asynchronous applications running e.g. on the charging station for **self-** and **integration testing** and **diagnoses**. They follow the concept of AI applications using the *Model Context Protocol (MCP)* and thus might not only return a single response, but also multiple intermediary responses or status updates.
+
+These tools might be very vendor specific and AI agents should be able to consume then without requiring external tool specifications. Therefore all tools provide their own extensive meta data about their input and output data formats.
 
 ### Ping
 
