@@ -444,9 +444,13 @@ This request simulates an **Error State** within the entire charging station or 
 
 ### SendEVMessage
 
-This message sends an ISO 15118 data structure, as if they would be send by an electric vehicle. The ISO 15118 data can be encoded as JSON, when only the processing of the messages shall be tested, or as *Efficient XML(EXI)* or even *Ethernet frames*, when lower layer parsing shall also be tested.
+This message sends an ISO 15118 data structure, as if they would be send by an electric vehicle.
 
 This method uses the **OCPP v2.1** ***SEND*** **message type**, therefore there will be no direct response to this message. Nevertheless, when the the charging station can not parse this message, an error message might be send.
+
+#### Text Message Format
+
+The ISO 15118 message can be encoded as JSON, when only the processing of the messages shall be tested, or as *Efficient XML(EXI)* or even *Ethernet frames*, when lower layer parsing shall also be tested.
 
 *SendEVMessage (text):*
 
@@ -459,6 +463,9 @@ This method uses the **OCPP v2.1** ***SEND*** **message type**, therefore there 
 |messageEncoding|O/M|ISO15118SimulationEncoding|String|BASE64|When the *ISO 15118 EV message* is e.g. encoded as EXI (binary), which additional encoding was used to transform it into a string.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
+#### Binary Message Format
+
+A more efficient way of sending binary data is to make use of HTTP WebSocket binary frames. 
 
 *SendEVMessage (binary):*
 
@@ -569,36 +576,83 @@ This request is intended solely for testing and validation purposes in non-produ
 
 ## Diagnostic Monitoring
 
-***WIP!!!***
+Diagnostic Monitoring shall allow e.g. CPOs to monitor the communication of for example a charging station with internal and external connected devices like the electric vehicle (ISO 15118 communication), energy meters (Modbus RTU/TCP/UDP), time servers (NTP/NTS) and so on.
 
-### SetupISO15118Monitor
+Important for efficient monitoring and to avoid an overload of the charging station to CSMS connection are **monitoring filters** and the ability to support more than one monitor for each device or communciation flow. 
+
+
+### GetDiagnosticMonitorDevices
+
+This request will return a list of all devices or communication flows, that support *Diagnostic Monitoring* and their mandatory and optional configuration parameters.
+
+*GetDiagnosticMonitorDevicesRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|match|O|String|String|An optional include filter for string matching monitor names or descriptions.|
+|evseId|O|EVSEId|String|The optional EVSE Id filter (0 > EVSEId ≤ MaxEVSEId)|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+*GetDiagnosticMonitorDevicesResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|devices|M|Array&lt;MonitoringDevice&gt;|Array&lt;Object&gt;|The list of all matching *Diagnostic Monitor Devices*.|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+*MonitoringDevice:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|id|M|MonitoringDeviceId|String|The identification/name of the *Diagnostic Monitor Devices*.|
+|description|O|I18NString|Array&lt;String&gt;|A multi-language description of the device.|
+|filters|O|Array&lt;MonitoringDeviceFilter&gt;|Array&lt;Object&gt;|An optional list of available filters.|
+|maxInstances|O|UInt16|Number *(Integer)*|Maximum number of concurrent monitors of this type.|
+|runningInstances|O|UInt16|Number *(Integer)*|Current number of running monitors of this type.|
+
+
+*ToDo: Would a mapping to the device model make sense?*
+
+### SetupDiagnosticMonitor
 
 This message sends some ISO 15118 data structure as if they would be send by an electric vehicle. Maybe JSON encoding, as this is for testing anyway. Maybe also EXI when also lower layer decoding shall be tested.
 
-#### OCPP v2.x
-
-*SetupISO15118MonitorRequest:*
-
-*ToDo: It might be beneficial to use binary web socket frames as an alternative.*
+*SetupDiagnosticMonitorRequest:*
 
 |Property|M/O|Type|JSON Type|Default|Description|
 |-|-|-|-|-|-|
-|data|M|JSON Object or BASE64 encoded binary data *(String)*|Object or String|-|The *ISO 15118 EV message*. Either as a JSON object **or** an encoded string representation of the EXI format.|
-|encoding|O|ISO15118SimulationEncoding|String|BASE64|When the *ISO 15118 EV message* is encoded as EXI (binary), which additional encoding was used to transform it into a string.|
+|monitoringDeviceId|M|MonitoringDeviceId|String|-|The identification/name of the *Diagnostic Monitor Devices*.|
 |evse|O|EVSE|Object|-|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
-|simulationMode|O|ISO15118SimulationMode|String|-|An optional simulation mode: `Software\|Hardware\|...`|
-|processingDelay|O|TimeSpan|Number (ms)|-|An optional processing delay before the request is processed by the charging station.|
+|format|O|DiagnosticMonitoringStreamFormat|String|`JSON` \| `BINARY`|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
 
-*SetupISO15118MonitorResponse:*
+*SetupDiagnosticMonitorResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|diagnosticMonitorId|M|DiagnosticMonitorId|String|The identification of the *Diagnostic Monitor* instance.|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+### DisableDiagnosticMonitor
+
+*DisableDiagnosticMonitorRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|monitoringDeviceId|M|MonitoringDeviceId|String|The identification/name of the *Diagnostic Monitor Devices*.|
+|diagnosticMonitorId|M|DiagnosticMonitorId|String|The identification of the *Diagnostic Monitor* instance.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*DisableDiagnosticMonitorResponse:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |status|M|GenericStatus|String|The response status.|
 |statusInfo|O|StatusInfo|Object|Optional extended status information.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-
-### DisableISO15118Monitor
-
-
