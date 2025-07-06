@@ -149,7 +149,6 @@ The response can contain any data the executing environment wants to share with 
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
-
 ### AdjustTimeScale
 
 This request is a diagnostic extension to OCPP that enables external test tools or validation frameworks to temporarily **alter the rate at which simulated time progresses** within a charging station or associated components. This feature is particularly valuable in testing scenarios that depend on elapsed time, such as the automatic stop of a charging session after a specified duration, authorization timeouts, or inactivity handling. By accelerating or decelerating the passage of time for internal logic, **long-running tests can be executed significantly faster**, or timers can be frozen for controlled debugging.
@@ -585,13 +584,13 @@ A more efficient way of sending binary data is to make use of HTTP WebSocket bin
 
 The following messages define diagnostics for the *Megawatt Charging System (MCS)*.
 
+The Megawatt Charging System is conceptually similar to the old *Combined Charging System (CCS)*, but instead of *Pulse Wide Modulation (PWM)* and *Power LAN Communication (PLC)* it uses ***Single-Pair Ethernet*** *(Multi-Drop 10BASE-T1S, IEEE 802.3cg / IEEE 802.3-2022)* to communicate with the EV (*ISO 15118-10*) and possible other auxiliary devices between EVSE and EV. Those devices can be e.g. micro controllers, temperature, and coolant flow sensors within the charging plug and cable.
+
 ### SetCEVoltage
 
-- Die Methode basiert auf IEC 61851-23-3, ISO 15118-20, und SAE J3271.
-- IEC 61851-23-3 definiert die Zustände für MCS, die ähnlich wie bei CCS (A, B, C, D, E, F) strukturiert sind, aber auf die spezifischen Anforderungen von MCS (hohe Ströme, flüssigkeitsgekühlte Kabel, 10BASE-T1S-Kommunikation) angepasst wurden.
-- Der Charge Enable (CE) Pin ersetzt den CP und verwendet diskrete Spannungspegel um den Ladezustand zu signalisieren. Die Spannungen werden zwischen CE und dem Schutzleiter (PE) gemessen, mit einer typischen Toleranz von ±0.5 V.
-- Der Insertion Detection (ID) Pin erkennt, ob ein Stecker eingesteckt ist, ähnlich wie der PP bei CCS.
-- Sicherheitsaspekte: MCS erfordert eine strengere Überwachung von Fehlerzuständen (E, F) aufgrund der hohen Leistungen. Tests sollten Szenarien wie Kühlflüssigkeitslecks oder plötzliches Abstecken umfassen.
+The *Charge Enable (CE)* pin replaces the *Charge Pilot (CP)* pin of *CCS*, but has a similar approach to signal the current charging state (A, B, C, D, E, F) of the electric vehicle via discrete voltage levels. The voltage is measured between *Charge Enable* and the *Protective Earth (PE)*, with a typical tolerance of ±0.5 volt.
+
+Because of the high voltages and currents *IEC 61851-23-3* and *SAE J3271* require a strict monitoring of errors (state E) and faults (state F). Tests should explicitly verify the behaviour when the liquid cooling fails or the cable is unplugged unexpectedly.
 
 | CE Voltage | State | 10BASE-T1S | EV Condition | Notes |
 |------------|-------|------------|--------------|-------|
@@ -604,13 +603,7 @@ The following messages define diagnostics for the *Megawatt Charging System (MCS
 | >12 V      | -     | -          | Error, overvoltage fault | Voltage out of specification. |
 
 
-
-
 The following table shows all legal transitions between EV *Charge Enable* states.
-
-Below is the "Allowed State Transitions" table for the **Megawatt Charging System (MCS)** in English, formatted as Markdown, based on the standards **IEC 61851-23-3**, **ISO 15118-20**, and **SAE J3271**.
-
-
 
 | State Transition | Allowed | Description |
 |------------------|---------|-------------|
@@ -644,7 +637,6 @@ Below is the "Allowed State Transitions" table for the **Megawatt Charging Syste
 | F → C            | ⚠️      | Fault state requires resolution (usually return to A or B) before charging can resume. |
 | F → D            | ⚠️      | Fault state requires resolution (usually return to A or B) before charging can resume. |
 | F → E            | ⚠️      | Irrelevant, may occur during unstable or cascading faults. |
-
 
 
 ```
@@ -697,53 +689,91 @@ Below is the "Allowed State Transitions" table for the **Megawatt Charging Syste
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
-
-
 ### SetIDVoltage
 
-*Insertion Detection*
+The *Insertion Detection (ID)* pin detects, whether a cable is plugged into an electric vehicle or not. The exact voltage levels are not standardized, just a value range is specified. Most implementations use +5V or +12V.
 
-- Can be `null` meaning not connected
-- Can be a `double` meaning connected.
-- Should be +5V/+12V
-- 0V == short to PE => *Error State (E)*!
-- Every other voltage indicates some *Wiring Fault (F)*.
-- Ensure the simulation aligns with IEC 61851-23-3 for ID-Pin voltage levels and ISO 15118-20 for interaction with 10BASE-T1S communication.
+| Voltage | Description    | Action          |
+|---------|----------------|-----------------|
+| `null`  | Not connected  |                 |
+| > 0V    | Connected      |                 |
+| 0V      | *Short to PE*  | Error State (E) |
+| < 0V.   | *Wiring Fault* | Fault State (F) |
+
+#### OCPP v1.6
+
+*SetIDVoltageRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|voltage|M|Volt|Number (Double)|The voltage on the *Insertion Detection* pin.|
+|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SetIDVoltageResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP 2.x
+
+*SetIDVoltageRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|voltage|M|Volt|Number (Double)|The voltage on the *Insertion Detection* pin.|
+|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SetIDVoltageResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
-### SendBusMessage
 
-This message sends an ISO 15118 or IEC 61851-23-3 data structure, as if they would be send by the embedded electronics of a charging cable.
+### SendSPEMessage
 
-*Context:* After the ID-Pin confirms the EVSE-to-EV connection and the EV signals state B via the *Charge Enable*-Pin, the EVSE sends a discovery message via 10BASE-T1S to identify connected devices: *EV* and *charging cable*. The EVSE provides the auxiliary power to the cable’s communication module. The microcontroller does not proactively send data without a prompt from the EVSE. Instead, it responds to ISO 15118-20 messages, such as a discovery or query request from the EVSE’s Supply Equipment Communication Controller (SECC).
+This message sends an ISO 15118 or IEC 61851-23-3 data structure over the *Single-Pair Ethernet (10BASE-T1S)*, as if they would be send by the electric vehicle or other embedded electronics, e.g. within the charging cable. As multi-drop 10BASE-T1S is a half-duplex protocol the EVSE is specified as dedicated "bus master" which coordinates the *Physical Layer Collision Avoidance (PLCA)* on the communication bus.
 
-- *10BASE-T1S is a half-duplex protocol with the EVSE (Node Id 0) as "bus master". Node Id 1 == EV. Node Id 2 == Connector. Node Id 3 == Inlet. Node Id 4 == Adaptor. 5-7 reserved.*
-- *IEC 61851-23-3: Specifies that the cable’s communication module becomes active after the ID-Pin signals a connection, implying the microcontroller waits for EVSE initiation.*
-- *ISO 15118-20: Defines the SECC (EVSE) as the initiator of 10BASE-T1S communication, with the cable and EV (EVCC) responding to requests.*
-- *ISO 15118-20: Specifies IPv6 for 10BASE-T1S communication, aligning with automotive Ethernet standards (e.g., IEEE 802.3cg for 10BASE-T1S).*
-- *IEC 61851-23-3: Implies a lightweight IPv6 stack for MCS devices, supporting link-local addressing for simplicity.*
-- *There is an individual 10BASE-T1S network per EVSE. Charging stations with multiple EVSEs have to support ipv6 link-local routing with additional ethernet/EVSE device information*
+| Device    | Node Id | Description      |
+|-----------|---------|------------------|
+| EVSE      | 0       | Bus Master       |
+| EV        | 1       | Electric Vehicle |
+| Connector | 2       | -                |
+| Inlet     | 3       | -                |
+| Adaptor   | 4       | -                |
+| -         | 5-7     | *reserved*       |
 
-During charging (states C or D), the cable continuously monitors and reports conditions like coolant temperature, flow rate, or electrical faults via 10BASE-T1S.
+After the ID-Pin confirms the EVSE-to-EV connection and the EV signals state B via the *Charge Enable*-Pin, the EVSE provides auxiliary power to the cable’s communication module(s) and sends a discovery message via 10BASE-T1S to identify connected devices *(IEC 61851-23-3)*.
 
-If a fault is detected (e.g., coolant leak or overheating), the cable sends an alert, triggering a transition to fault state E or F.
+Alternatively the **auxiliary power** can be **always on**, to monitor whether the charging cable "still exists". This helps to detect "cable theft", a common costly problem for *Charging Station Operators (CSOs)* worldwide.
 
-The cable information might look like the following:
+According to *ISO 15118-20* and *IEC 61851-23-3* **IPv6 with Link-Local Addressing** must be used for the 10BASE-T1S communication, aligning it with automotive Ethernet standards. There is a dedicated 10BASE-T1S network per EVSE. Charging stations with multiple EVSEs have to support **IPv6 Link-Local Routing** with additional ethernet/EVSE device information.
+
+The standards also define, the EVSE (SECC) as the initiator of the *Single-Pair Ethernet* communication, with cable electronics and EV (EVCC) only responding to EVSE requests. Yet, during charging states C or D, the EV and cable continuously monitor and report conditions like coolant temperature, flow rate, or electrical faults. If a fault is detected, e.g., coolant leak or overheating, the EV or cable sends an **unsolicited alert**, triggering a transition to fault state E or F. The microcontrollers use dedicated time slots for this kind of urgent communication.
+
+Currently the cable communication is not yet standardized, but such a cable information might look like this:
 ```
 {
-  "cable_id":        "MCS-3000A-LC-001",
-  "max_current":      3000,
-  "cooling_type":    "liquid",
-  "coolant_status":  "operational",
-  "max_voltage":      1250,
-  "temperature":      25.5
+  "cableId":           "MCS-3000A-LC-001",
+  "cableCertificate":  "0x00...",
+  "maxVoltage":         1250,
+  "maxCurrent":         3000,
+  "coolingType":       "liquid",
+  "coolantStatus":     "operational",
+  "temperature":        25.5
 }
 ```
-
-
-
-
-
 
 
 ## Diagnostic Monitoring
