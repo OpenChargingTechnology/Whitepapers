@@ -1,4 +1,4 @@
-# OCPP Advanced Diagnostics
+# Advanced Diagnostics for OCPP
 
 As the complexity and criticality of electric vehicle (EV) charging infrastructure increases, the need for robust and transparent **diagnostic capabilities** in charging stations and other OCPP enabled devices becomes paramount. Currently, the *Open Charge Point Protocol (OCPP)* lacks a standardized mechanism to ***explicitly*** **define, trigger, and monitor** e.g. **self and integration tests** within its device model and message set. This gap leads to proprietary extensions, inconsistent implementations, and reduced interoperability across manufacturers and management systems on top of the specified generic device model reporting, diagnostic and logging mechanisms.
 
@@ -99,6 +99,57 @@ Unlike traditional OCPP requests, Diagnostic Control requests are not part of th
 This cryptographic enforcement ensures that only authorized diagnostic tools or operators can issue such requests. As a result, it is considered safe and compliant to keep this interface **active even in production environments**, since misuse by unauthorized parties is effectively prevented through cryptographic validation.
 
 
+### GetExecutingEnvironment
+
+This request returns information about the executing environment of the software under test. Especially when an embedded software is run within an emulator or a multi-user operating system and it hangs within an endless loop or crashed in unexpected ways, it is usefull to find out more details about its executing environment. By this for example the *process identifiction* might be retrieved to be able to `kill -9` and to restart the process. Also alternative ways to initiate a hard restart or to download a memory image might be exposed.
+
+#### OCPP v1.6
+
+*GetExecutingEnvironmentRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+*GetExecutingEnvironmentResponse:*
+
+The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|processId|O|ProcessId|Number *(Integer > 0)*|The process identification of the main application process.|
+|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*.|
+|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
+|*...any...*|O|...|...|...|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+*GetExecutingEnvironmentRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+*GetExecutingEnvironmentResponse:*
+
+The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|processId|O|ProcessId|Number *(Integer > 0)*|The process identification of the main application process.|
+|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*.|
+|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
+|*...any...*|O|...|...|...|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
 ### AdjustTimeScale
 
 This request is a diagnostic extension to OCPP that enables external test tools or validation frameworks to temporarily **alter the rate at which simulated time progresses** within a charging station or associated components. This feature is particularly valuable in testing scenarios that depend on elapsed time, such as the automatic stop of a charging session after a specified duration, authorization timeouts, or inactivity handling. By accelerating or decelerating the passage of time for internal logic, **long-running tests can be executed significantly faster**, or timers can be frozen for controlled debugging.
@@ -141,6 +192,145 @@ This request is intended solely for testing and validation purposes in non-produ
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
+### TimeTravel
+
+This request enables controlled manipulation of the system clock on a charging station or related component. Unlike the *AdjustTimeScale* request, which affects only the relative flow of internal time, *TimeTravel* allows the system to temporarily **jump forward or backward in time**, for example to simulate behavior under certificate expiration, daylight saving changes, authorization token expiry, **dynamic tariff changes**, or to validate metrological timestamp boundaries. Optionally, it may also define a duration, after which the system clock reverts to the original (real) time source. If no duration is specified, the simulated time remains active until explicitly reset or overridden by a subsequent request.
+
+This request is intended solely for testing and validation purposes in non-production environments. Charging stations operating in production mode may reject this request unless explicitly configured to permit it under controlled conditions. 
+
+#### OCPP v1.6
+
+*TimeTravelRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|timestamp|M|Timestamp|String *(ISO8601)*|The timestamp to travel to *(UTC or with time zone offset)*.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*TimeTravelResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+*TimeTravelRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|timestamp|M|Timestamp|String *(ISO8601)*|The timestamp to travel to *(UTC or with time zone offset)*.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*TimeTravelResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+
+
+## Charging Station Diagnostics
+
+### SetErrorState
+
+This request simulates an **Error State** within the entire charging station or within one of its EVSEs. When the charging station for example detects an *upstream grid supply anomaly* like ***undervoltage***, ***overvoltage***, or a ***phase failure***, is must log, report and propagate this error state to one or more of its EVSEs. These EVSEs can then enter a *PowerQualityError* or *GridFault* state and signal the reduced-availability or fault indication via the *Control Pilot (CP)* to the EV. As a consequence, the charging process may be paused, limited, or aborted, depending on the error severity and the EV's response strategy.
+
+#### OCPP v1.6
+
+*SetErrorStateRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|faultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
+|connectorId|O|ConnectorId|Number *(Integer)*|The optional connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SetErrorStateResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+*SetErrorStateRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|faultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
+|evse|O|EVSE|Object|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+*SetErrorStateResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+### SwipeRFIDCard
+
+This request simulates the **swiping of an RFID card** triggering RFID UID detection, authorization, and maybe the start of a charging session without requiring physical presence or hardware interaction. The same mechanism can also be used to terminate an active charging session, either by simulating the swipe of the same RFID card used to initiate the session, or by simulating a swipe of another card that belongs to the same authorization group.
+
+#### OCPP v1.6
+
+*SwipeRFIDCardRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|idTag|M|IdTag|String|The identification tag, e.g. of the RFID card to be swiped.|
+|readerId|O|ConnectorId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one connector and therefore more than one RFID reader or an additional user interface process to select a specific connector before or after swiping the RFID card (0 > ReaderId ≤ MaxConnectorId).|
+|simulationMode|O|IdTagSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SwipeRFIDCardResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+#### OCPP v2.x
+
+*SwipeRFIDCardRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|idToken|M|IdToken|Object|The identification token, e.g. of the RFID card to be swiped.|
+|readerId|O|EVSEId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one EVSE and therefore more than one RFID reader or an additional user interface process to select a specific EVSE/connector before or after swiping the RFID card (0 > ReaderId ≤ MaxEVSEId).|
+|simulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*SwipeRFIDCardResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|The response status.|
+|statusInfo|O|StatusInfo|Object|Optional extended status information.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+
+
+
+
+## CCS Diagnostics
+
+The following messages define diagnostics for the *Combined Charging System (CCS)*.
 
 ### AttachCable
 
@@ -197,57 +387,6 @@ Even when to charging cable is first connected to the EV and afterwards to an EV
 
 
 
-### GetExecutingEnvironment
-
-This request returns information about the executing environment of the software under test. Especially when an embedded software is run within an emulator or a multi-user operating system and it hangs within an endless loop or crashed in unexpected ways, it is usefull to find out more details about its executing environment. By this for example the *process identifiction* might be retrieved to be able to `kill -9` and to restart the process. Also alternative ways to initiate a hard restart or to download a memory image might be exposed.
-
-#### OCPP v1.6
-
-*GetExecutingEnvironmentRequest:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-
-*GetExecutingEnvironmentResponse:*
-
-The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|processId|O|ProcessId|Number *(Integer > 0)*|The process identification of the main application process.|
-|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*.|
-|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
-|*...any...*|O|...|...|...|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-#### OCPP v2.x
-
-*GetExecutingEnvironmentRequest:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-
-*GetExecutingEnvironmentResponse:*
-
-The response can contain any data the executing environment wants to share with the user that optionally signed the request. This also means, that different users might see different information. It is good practise to describe the collection of data via a *JSON-LinkedData (JSON-LD)* `@context` property.
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|statusInfo|O|StatusInfo|Object|Optional extended status information.|
-|processId|O|ProcessId|Number *(Integer > 0)*|The process identification of the main application process.|
-|restartURL|O|URL|String|An URL that can be called to kill and restart the entire process, e.g. *tcp://192.168.178.23:8123* or *http://192.168.178.23:8123*.|
-|restartSecret|O|String|String|A long string acting as *shared secret* to kill and restart the entire process. The *restartURL* determines the actual usage, e.g. sending this string as TCP data or *POST*ing it to the given HTTP URL.|
-|*...any...*|O|...|...|...|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-
-
 ### GetPWMValue
 
 This request retrieves the current value of the *Pulse Width Modulation (PWM)* signal generated by the EVSE's *Control Pilot*. The PWM duty cycle represents the **maximum allowable charging current** as defined by IEC 61851-1 and is used by the EV to determine the upper limit of the energy it may draw from the EVSE. Reading this value allows diagnostic systems to verify the dynamic current limits being communicated by the charging station to the vehicle in real-time, which is essential for safe and standards-compliant operation.
@@ -286,8 +425,6 @@ This request retrieves the current value of the *Pulse Width Modulation (PWM)* s
 |status|M|GenericStatus|String|The response status.|
 |statusInfo|O|StatusInfo|Object|Optional extended status information.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-
 
 
 ### SetCPVoltage
@@ -394,54 +531,6 @@ The following table shows all legal transitions between EV *Charge Pilot* states
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
 
-
-### SetErrorState
-
-This request simulates an **Error State** within the entire charging station or within one of its EVSEs. When the charging station for example detects an *upstream grid supply anomaly* like ***undervoltage***, ***overvoltage***, or a ***phase failure***, is must log, report and propagate this error state to one or more of its EVSEs. These EVSEs can then enter a *PowerQualityError* or *GridFault* state and signal the reduced-availability or fault indication via the *Control Pilot (CP)* to the EV. As a consequence, the charging process may be paused, limited, or aborted, depending on the error severity and the EV's response strategy.
-
-#### OCPP v1.6
-
-*SetErrorStateRequest:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|faultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
-|connectorId|O|ConnectorId|Number *(Integer)*|The optional connector identification, when the charging station has more than one connector (0 > ConnectorId ≤ MaxConnectorId).|
-|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-*SetErrorStateResponse:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-#### OCPP v2.x
-
-*SetErrorStateRequest:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|faultType|M|FaultType|String|`VoltageHigh` \| `VoltageLow` \| `PhaseLoss` \| `ResidualCurrent` \| ...|
-|evse|O|EVSE|Object|The optional EVSE and connector identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId) and (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
-|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|duration|O|TimeSpan|Number (ms)|An optional duration of the error state for short transient errors.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
-
-*SetErrorStateResponse:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|statusInfo|O|StatusInfo|Object|Optional extended status information.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-
-
-
-
 ### SendEVMessage
 
 This message sends an ISO 15118 data structure, as if they would be send by an electric vehicle.
@@ -486,42 +575,120 @@ A more efficient way of sending binary data is to make use of HTTP WebSocket bin
 
 
 
-### SwipeRFIDCard
 
-This request simulates the **swiping of an RFID card** triggering RFID UID detection, authorization, and maybe the start of a charging session without requiring physical presence or hardware interaction. The same mechanism can also be used to terminate an active charging session, either by simulating the swipe of the same RFID card used to initiate the session, or by simulating a swipe of another card that belongs to the same authorization group.
+
+
+
+
+
+## MCS Diagnostics
+
+The following messages define diagnostics for the *Megawatt Charging System (MCS)*.
+
+### SetCEVoltage
+
+- Die Methode basiert auf IEC 61851-23-3, ISO 15118-20, und SAE J3271.
+- IEC 61851-23-3 definiert die Zustände für MCS, die ähnlich wie bei CCS (A, B, C, D, E, F) strukturiert sind, aber auf die spezifischen Anforderungen von MCS (hohe Ströme, flüssigkeitsgekühlte Kabel, 10BASE-T1S-Kommunikation) angepasst wurden.
+- Der Charge Enable (CE) Pin ersetzt den CP und verwendet diskrete Spannungspegel um den Ladezustand zu signalisieren. Die Spannungen werden zwischen CE und dem Schutzleiter (PE) gemessen, mit einer typischen Toleranz von ±0.5 V.
+- Der Insertion Detection (ID) Pin erkennt, ob ein Stecker eingesteckt ist, ähnlich wie der PP bei CCS.
+- Sicherheitsaspekte: MCS erfordert eine strengere Überwachung von Fehlerzuständen (E, F) aufgrund der hohen Leistungen. Tests sollten Szenarien wie Kühlflüssigkeitslecks oder plötzliches Abstecken umfassen.
+
+| CE Voltage | State | 10BASE-T1S | EV Condition | Notes |
+|------------|-------|------------|--------------|-------|
+| +12 V      | A     | -          | Not connected | No vehicle connected. |
+| +9 V       | B     | Active     | Connected, not requesting energy | Vehicle connected (ID-Pin confirmation). EVSE activates 10BASE-T1S link, establishing a network connection with the cable’s embedded electronics and the EV. Ready for negotiation. Not charging. |
+| +6 V       | C     | Active     | Connected and ready to charge | EV requests charging, internal contactor closed. Locked cable on EV side. |
+| +3 V       | D     | Active     | Charging with ventilation required (rare) | EV requests charging, requires external ventilation (e.g. battery gas exhaust). |
+| 0 V        | E     | -          | Error, CE short to PE or GND | Fault or EVSE disconnected. Charging stops immediately. |
+| < 0 V      | F     | -          | Error, reverse polarity or other fault | Communication error or invalid voltage detected. |
+| >12 V      | -     | -          | Error, overvoltage fault | Voltage out of specification. |
+
+
+
+
+The following table shows all legal transitions between EV *Charge Enable* states.
+
+Below is the "Allowed State Transitions" table for the **Megawatt Charging System (MCS)** in English, formatted as Markdown, based on the standards **IEC 61851-23-3**, **ISO 15118-20**, and **SAE J3271**.
+
+
+
+| State Transition | Allowed | Description |
+|------------------|---------|-------------|
+| A → B            | ✅       | Vehicle plugged in. EVSE detects vehicle via ID-Pin, 10BASE-T1S communication initiated. No power supplied yet. |
+| A → C            | ❌       | Direct transition not allowed, must go through B. |
+| A → D            | ❌       | Direct transition not allowed, must go through B. |
+| A → E            | ⚠️      | Hard fault (e.g., CE shorted to PE), possibly due to damaged cable or vehicle. |
+| A → F            | ⚠️      | Invalid CE signal (e.g., negative voltage), possibly due to wiring fault. |
+| B → A            | ✅       | Vehicle unplugged. ID-Pin signals disconnection. |
+| B → C            | ✅       | Vehicle ready to charge, closes internal contactor. EVSE locks cable, activates cooling, and supplies power. |
+| B → D            | ✅       | Like C, but vehicle requests additional cooling (rare). EVSE adjusts cooling parameters. |
+| B → E            | ⚠️      | Unexpected fault if CE pulled to GND. |
+| B → F            | ⚠️      | Invalid CE voltage (e.g., < 0 V), possibly hardware defect. |
+| C → A            | ❌       | Direct transition not possible, as unplugging during charging is detected as a fault (→ E). |
+| C → B            | ✅       | Vehicle pauses charging, e.g., due to SoC or thermal reasons. Cooling remains active. |
+| C → D            | ⚠️      | Direct switching between cooling modes not standard; vehicle typically returns to B. |
+| C → E            | ⚠️      | Unexpected CE fault during charging, e.g., cable unplugged. EVSE stops power. |
+| C → F            | ⚠️      | Invalid signal during charging, treated as a fault. EVSE stops power. |
+| D → A            | ❌       | Direct transition not possible, as unplugging during charging is detected as a fault (→ E). |
+| D → B            | ✅       | Additional cooling no longer required. |
+| D → C            | ⚠️      | Direct switching between cooling modes not standard; vehicle typically returns to B. |
+| D → E            | ⚠️      | CE pulled to GND during charging with increased cooling. Fault condition. EVSE stops power. |
+| D → F            | ⚠️      | Invalid signal during charging, treated as a fault. EVSE stops power. |
+| E → A            | ✅       | Fault resolved, vehicle unplugged. |
+| E → B            | ✅       | Fault resolved, vehicle remains connected. |
+| E → C            | ⚠️      | Fault state requires resolution (usually return to A or B) before charging can resume. |
+| E → D            | ⚠️      | Fault state requires resolution (usually return to A or B) before charging can resume. |
+| E → F            | ⚠️      | Irrelevant, may occur during unstable or cascading faults. |
+| F → A            | ✅       | EVSE fault resolved, vehicle unplugged. |
+| F → B            | ✅       | EVSE fault resolved, vehicle remains connected. |
+| F → C            | ⚠️      | Fault state requires resolution (usually return to A or B) before charging can resume. |
+| F → D            | ⚠️      | Fault state requires resolution (usually return to A or B) before charging can resume. |
+| F → E            | ⚠️      | Irrelevant, may occur during unstable or cascading faults. |
+
+
+
+```
+  +-----+     Plug-In      +-----+    Contactor Close    +-----+
+  |  A  | ---------------> |  B  | --------------------> | C/D |
+  +-----+                  +-----+     Supply Energy     +-----+
+     ^                       | ^                            |
+     |        Unplug         | |      Pause Charging        |
+     +-----------------------+ +----------------------------+
+```
+
 
 #### OCPP v1.6
 
-*SwipeRFIDCardRequest:*
+*SetCEVoltageRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|idTag|M|IdTag|String|The identification tag, e.g. of the RFID card to be swiped.|
-|readerId|O|ConnectorId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one connector and therefore more than one RFID reader or an additional user interface process to select a specific connector before or after swiping the RFID card (0 > ReaderId ≤ MaxConnectorId).|
-|simulationMode|O|IdTagSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|voltage|M|Volt|Number (Double)|The voltage on the *Charge Enable* pin.|
+|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
 |processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-*SwipeRFIDCardResponse:*
+*SetCEVoltageResponse:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |status|M|GenericStatus|String|The response status.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-#### OCPP v2.x
+#### OCPP 2.x
 
-*SwipeRFIDCardRequest:*
+*SetCEVoltageRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|idToken|M|IdToken|Object|The identification token, e.g. of the RFID card to be swiped.|
-|readerId|O|EVSEId|Number (Integer)|The optional RFID reader identification, when the charging station has more than one EVSE and therefore more than one RFID reader or an additional user interface process to select a specific EVSE/connector before or after swiping the RFID card (0 > ReaderId ≤ MaxEVSEId).|
-|simulationMode|O|IdTokenSimulationMode|String|An optional simulation mode: `Software\|Hardware\|...`|
+|voltage|M|Volt|Number (Double)|The voltage on the *Charge Enable* pin.|
+|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
 |processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
+|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-*SwipeRFIDCardResponse:*
+*SetCEVoltageResponse:*
 
 |Property|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
@@ -532,44 +699,49 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 
 
 
-### TimeTravel
+### SetIDVoltage
 
-This request enables controlled manipulation of the system clock on a charging station or related component. Unlike the *AdjustTimeScale* request, which affects only the relative flow of internal time, *TimeTravel* allows the system to temporarily **jump forward or backward in time**, for example to simulate behavior under certificate expiration, daylight saving changes, authorization token expiry, **dynamic tariff changes**, or to validate metrological timestamp boundaries. Optionally, it may also define a duration, after which the system clock reverts to the original (real) time source. If no duration is specified, the simulated time remains active until explicitly reset or overridden by a subsequent request.
+*Insertion Detection*
 
-This request is intended solely for testing and validation purposes in non-production environments. Charging stations operating in production mode may reject this request unless explicitly configured to permit it under controlled conditions. 
+- Can be `null` meaning not connected
+- Can be a `double` meaning connected.
+- Should be +5V/+12V
+- 0V == short to PE => *Error State (E)*!
+- Every other voltage indicates some *Wiring Fault (F)*.
+- Ensure the simulation aligns with IEC 61851-23-3 for ID-Pin voltage levels and ISO 15118-20 for interaction with 10BASE-T1S communication.
 
-#### OCPP v1.6
 
-*TimeTravelRequest:*
+### SendBusMessage
 
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|timestamp|M|Timestamp|String *(ISO8601)*|The timestamp to travel to *(UTC or with time zone offset)*.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+This message sends an ISO 15118 or IEC 61851-23-3 data structure, as if they would be send by the embedded electronics of a charging cable.
 
-*TimeTravelResponse:*
+*Context:* After the ID-Pin confirms the EVSE-to-EV connection and the EV signals state B via the *Charge Enable*-Pin, the EVSE sends a discovery message via 10BASE-T1S to identify connected devices: *EV* and *charging cable*. The EVSE provides the auxiliary power to the cable’s communication module. The microcontroller does not proactively send data without a prompt from the EVSE. Instead, it responds to ISO 15118-20 messages, such as a discovery or query request from the EVSE’s Supply Equipment Communication Controller (SECC).
 
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+- *10BASE-T1S is a half-duplex protocol with the EVSE (Node Id 0) as "bus master". Node Id 1 == EV. Node Id 2 == Connector. Node Id 3 == Inlet. Node Id 4 == Adaptor. 5-7 reserved.*
+- *IEC 61851-23-3: Specifies that the cable’s communication module becomes active after the ID-Pin signals a connection, implying the microcontroller waits for EVSE initiation.*
+- *ISO 15118-20: Defines the SECC (EVSE) as the initiator of 10BASE-T1S communication, with the cable and EV (EVCC) responding to requests.*
+- *ISO 15118-20: Specifies IPv6 for 10BASE-T1S communication, aligning with automotive Ethernet standards (e.g., IEEE 802.3cg for 10BASE-T1S).*
+- *IEC 61851-23-3: Implies a lightweight IPv6 stack for MCS devices, supporting link-local addressing for simplicity.*
+- *There is an individual 10BASE-T1S network per EVSE. Charging stations with multiple EVSEs have to support ipv6 link-local routing with additional ethernet/EVSE device information*
 
-#### OCPP v2.x
+During charging (states C or D), the cable continuously monitors and reports conditions like coolant temperature, flow rate, or electrical faults via 10BASE-T1S.
 
-*TimeTravelRequest:*
+If a fault is detected (e.g., coolant leak or overheating), the cable sends an alert, triggering a transition to fault state E or F.
 
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|timestamp|M|Timestamp|String *(ISO8601)*|The timestamp to travel to *(UTC or with time zone offset)*.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+The cable information might look like the following:
+```
+{
+  "cable_id":        "MCS-3000A-LC-001",
+  "max_current":      3000,
+  "cooling_type":    "liquid",
+  "coolant_status":  "operational",
+  "max_voltage":      1250,
+  "temperature":      25.5
+}
+```
 
-*TimeTravelResponse:*
 
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|statusInfo|O|StatusInfo|Object|Optional extended status information.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
 
 
 

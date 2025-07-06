@@ -18,7 +18,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
 - [Alternative HTTP Authentication Methods for OCPP](HTTPAuthExtensions/README.md) (EU RED/CRA)
 - [Secure Time Synchronization for OCPP v1.6 and v2.x](SecureTimeSync/README.md) (EU RED/CRA, EU MID)
-- [Advanced Diagnostics with Self and Integration Tests for OCPP v2.x](AdvancedDiagnostics/README.md) (EU RED/CRA, EU NIS2)
+- [Advanced Diagnostics with Self and Integration Tests for OCPP](AdvancedDiagnostics/README.md) (EU RED/CRA, EU NIS2)
 - [Ad hoc Payments via Secure Dynamic QR-Codes for OCPP and OCPI](SecureDynamicQRCodes/README.md) (EU AFIR, EU RED/CRA)
 - [OCPP 2.x Firmware Updates with Software Separation](FirmwareUpdateSeparation/README.md) (EU RED/CRA, EU MID)
 

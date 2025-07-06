@@ -115,3 +115,4 @@ Some of those ToDo's are "just" related and might later be part of other specifi
 - Guidance on how to check whether the device is securely set up and maintained in a secure state.
 - Provide clear and transparent information about what personal data is processed and for what purposes, by whom, and for how long, also for associated services (CPOs, EV Roaming, EMPs, ...).
 - How is "constent" to privacy relevant data processing recorded?
+- Megawatt Charging System (MCS) has a micro-controller within the charging cable, which might also need a new firmware or new certificates from time to time.
