@@ -509,7 +509,7 @@ The following table shows all legal transitions between EV *Charge Pilot* states
 |status|M|GenericStatus|String|The response status.|
 |signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
 
-#### OCPP 2.x
+#### OCPP v2.x
 
 *SetCPVoltageRequest:*
 
@@ -582,15 +582,16 @@ A more efficient way of sending binary data is to make use of HTTP WebSocket bin
 
 ## MCS Diagnostics
 
-The following messages define diagnostics for the *Megawatt Charging System (MCS)*.
+The following messages define diagnostics for the *Megawatt Charging System (MCS)*. This new system is conceptually similar to the old *Combined Charging System (CCS)*, but instead of *Pulse Wide Modulation (PWM)* and *Power LAN Communication (PLC)* it uses ***Single-Pair Ethernet*** *(Multi-Drop 10BASE-T1S, IEEE 802.3cg / IEEE 802.3-2022)* to communicate with the EV (*ISO 15118-10*) and possible other auxiliary devices between EVSE and EV. Those devices can be e.g. micro controllers, temperature, and coolant flow sensors within the charging plug and cable.
 
-The Megawatt Charging System is conceptually similar to the old *Combined Charging System (CCS)*, but instead of *Pulse Wide Modulation (PWM)* and *Power LAN Communication (PLC)* it uses ***Single-Pair Ethernet*** *(Multi-Drop 10BASE-T1S, IEEE 802.3cg / IEEE 802.3-2022)* to communicate with the EV (*ISO 15118-10*) and possible other auxiliary devices between EVSE and EV. Those devices can be e.g. micro controllers, temperature, and coolant flow sensors within the charging plug and cable.
+Due to the extreme voltages and currents involved, both *IEC 61851-23-3* and *SAE J3271* mandate rigorous monitoring of errors (state E) and faults (state F) such as cooling system failures, overtemperature, or unexpected cable disconnections. To ensure compliance, test procedures must explicitly validate system behavior in these failure scenarios. This includes verifying the correct transition into state E/F and ensuring that any hazardous conditions immediately trigger safe shutdown procedures, physical interlocks, and remote fault notifications.
+
+Given these requirements, the use of **OCPP v2.1+ is strongly recommended** as it provides *Charging Station Operators (CSOs)* a detailed ***device model*** and ***real-time event stream architecture***, which is required for safety, compliance, and operational continuity of critical infrastructure.
+
 
 ### SetCEVoltage
 
 The *Charge Enable (CE)* pin replaces the *Charge Pilot (CP)* pin of *CCS*, but has a similar approach to signal the current charging state (A, B, C, D, E, F) of the electric vehicle via discrete voltage levels. The voltage is measured between *Charge Enable* and the *Protective Earth (PE)*, with a typical tolerance of ±0.5 volt.
-
-Because of the high voltages and currents *IEC 61851-23-3* and *SAE J3271* require a strict monitoring of errors (state E) and faults (state F). Tests should explicitly verify the behaviour when the liquid cooling fails or the cable is unplugged unexpectedly.
 
 | CE Voltage | State | 10BASE-T1S | EV Condition | Notes |
 |------------|-------|------------|--------------|-------|
@@ -648,28 +649,6 @@ The following table shows all legal transitions between EV *Charge Enable* state
      +-----------------------+ +----------------------------+
 ```
 
-
-#### OCPP v1.6
-
-*SetCEVoltageRequest:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|voltage|M|Volt|Number (Double)|The voltage on the *Charge Enable* pin.|
-|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
-|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-*SetCEVoltageResponse:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-#### OCPP 2.x
-
 *SetCEVoltageRequest:*
 
 |Property|M/O|Type|JSON Type|Description|
@@ -700,26 +679,6 @@ The *Insertion Detection (ID)* pin detects, whether a cable is plugged into an e
 | 0V      | *Short to PE*  | Error State (E) |
 | < 0V.   | *Wiring Fault* | Fault State (F) |
 
-#### OCPP v1.6
-
-*SetIDVoltageRequest:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|voltage|M|Volt|Number (Double)|The voltage on the *Insertion Detection* pin.|
-|voltageError|O|Percent|Number (Double)|An optional random variation within ±n% to simulate real-world analog behavior.|
-|processingDelay|O|TimeSpan|Number (ms)|An optional processing delay before the request is processed by the charging station.|
-|transitionTime|O|TimeSpan|Number (ms)|An optional gradual voltage change over the given time span avoiding instantaneous jumps to simulate real-world analog behavior.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-*SetIDVoltageResponse:*
-
-|Property|M/O|Type|JSON Type|Description|
-|-|-|-|-|-|
-|status|M|GenericStatus|String|The response status.|
-|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
-
-#### OCPP 2.x
 
 *SetIDVoltageRequest:*
 
@@ -774,6 +733,42 @@ Currently the cable communication is not yet standardized, but such a cable info
   "temperature":        25.5
 }
 ```
+
+#### Text Message Format
+
+The ISO 15118 message can be encoded as JSON, when only the processing of the messages shall be tested, or as *Efficient XML(EXI)* or even *Ethernet frames*, when lower layer parsing shall also be tested.
+
+*SendSPEMessage (text):*
+
+|Property|M/O|Type|JSON Type|Default|Description|
+|-|-|-|-|-|-|
+|evseId|M|EVSEId|Number|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).|
+|connectorId|O|ConnectorId|Number|-|The optional connector identification, when the charging station has more than one connector for the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|processingDelay|O|TimeSpan|Number (ms)|-|An optional processing delay before the request is processed by the charging station.|
+|message|M|JSON Object or encoded binary data as a *text*|Object or String|-|The *ISO 15118 EV message*. Either as a JSON object **or** an encoded string representation of the EXI format.|
+|messageType|O/M|ISO15118SimulationContentType|String|-|The content type of the *ISO 15118 EV message* when it is a string, e.g. *EXI*, *EthernetFrame*, ...|
+|messageEncoding|O/M|ISO15118SimulationEncoding|String|BASE64|When the *ISO 15118 EV message* is e.g. encoded as EXI (binary), which additional encoding was used to transform it into a string.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+#### Binary Message Format
+
+A more efficient way of sending binary data is to make use of HTTP WebSocket binary frames. 
+
+*SendSPEMessage (binary):*
+
+|Property|Type|Binary Type|Default|Description|
+|-|-|-|-|-|
+|type|BinaryDataMessageType|UInt32|-|`0x00000100`|
+|evseId|EVSEId|Byte|-|The EVSE identification, when the charging station has more than one EVSE (0 > EVSEId ≤ MaxEVSEId).|
+|connectorId|ConnectorId|Byte|`0x00`|The optional connector identification, when the charging station has more than one connector for the given EVSE (0 > ConnectorId ≤ MaxConnectorId(EVSEId)).|
+|processingDelay|TimeSpan|UInt32 *(ms)*|`0x00000000`|An optional processing delay before the request is processed by the charging station.|
+|messageType|ISO15118SimulationContentType|Byte|-|The content type of the *ISO 15118 EV message* when it is a string, e.g. *EXI*, *EthernetFrame*, ...|
+|messageLength|Integer|UInt32|-|The length of the serialized *ISO 15118 EV message*|
+|message|Array&lt;Byte&gt;|Array&lt;Byte&gt;|-|The *ISO 15118 EV message* as array of bytes.|
+|signatureCount|Integer|Byte|`0x00`|Number of signatures|
+|signatures|Array&lt;Signature&gt;|Array&lt;Byte&gt;|-|An (optional) enumeration of cryptographic signatures.|
+
+
 
 
 ## Diagnostic Monitoring
