@@ -303,6 +303,107 @@ Note: *Perfect Forward Security* rotates session keys so that adversaries can’
 *Warning: Weak library support!*
 
 
+### 1.37 Subject Alternative Names within X.509 Certificates
+
+- Multiple DNS Names, IP Addresses, ... per X.509 certificate
+- RFC 5280
+- RFC 6125
+- Recommendations for the (old) Common Name?
+
+
+### 1.38 DNS‑Based Authentication of Named Entities
+
+DNS‑Based Authentication of Named Entities (DANE, RFC 7671) is a framework that lets domain owners assert which TLS certificates or public keys are valid for their services via DNS, secured by DNSSEC, rather than relying solely on external Certificate Authorities.
+
+```
+# Extract the SubjectPublicKeyInfo (SPKI) in DER form:
+openssl x509 -in server.pem -noout -pubkey \
+  | openssl pkey -pubin -outform der \
+  > spki.der
+
+# Compute the SHA‑256 digest of that DER blob, in hex:
+openssl dgst -sha256 -binary spki.der | xxd -p -c 256
+# → e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+```
+
+DNS Record:
+```
+_443._tcp.www.example.com.  3600  IN  TLSA  3 1 1 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+```
+
+Breakdown of the fields (RFC 6698):
+
+- Usage = 0 (PKIX‑TA), 1 (PKIX-EE), 2 (DANE-TA), 3 (DANE‑EE):
+0: Ensure that CA’s cert matches the TLSA record.
+1: Ensure the leaf cert matches the TLSA record.
+2: Accept any chain as long as one CA in it matches the TLSA record. Validate the rest of the chain below that matched CA in the usual PKIX manner.
+3: Simply check the leaf cert (or its SPKI) against the TLSA data. Ignore the PKIX chain.
+- Selector = 0 (Full Certificate), 1 (SPKI):
+We’re matching against the SubjectPublicKeyInfo portion of the certificate.
+- Matching Type = 0 (exact), 1 (SHA‑256), 2 (SHA‑512):
+The provided data is the SHA‑256 hash of the SPKI.
+- Certificate Association Data:
+The hex‑encoded 32‑byte hash computed above.
+- TTL = 3600 s:
+How long resolvers may cache this record.
+
+*"PKIX"* stands for Public Key Infrastructure with X.509 certificates.
+
+
+DANE‑aware TLS clients will now do:
+1. Fetch `_port._transport.name` TLSA via DNSSEC.
+2. Validate DNSSEC proofs (RRSIG).
+3. During the TLS handshake, compares the server’s certificate or public key per the TLSA tuple (usage, selector, matching).
+4. Enforces the pinning rules (e.g. reject if no matching TLSA).
+
+Note: SRV+TLSA (RFC 7673): Use TLSA with SRV‑discovered services (e.g. XMPP, SIP).
+
+
+### 1.39 DNS-Service Records
+
+A DNS SRV (“service”) record lets you publish the location (hostname and port) of servers for a given service and protocol under your domain. It’s defined in RFC 2782 and has these fields:
+
+```
+_service._proto.name. TTL  CLASS  SRV  priority  weight  port  target
+
+; _ocpp._tcp.example.com SRV records for OCPP pool
+_ocpp._tcp.example.com. 3600 IN SRV 10 60 5060 ocpp1.example.com.
+_ocpp._tcp.example.com. 3600 IN SRV 10 20 5060 ocpp2.example.com.
+_ocpp._tcp.example.com. 3600 IN SRV 10 20 5060 ocpp3.example.com.
+_ocpp._tcp.example.com. 3600 IN SRV 20  0 5060 ocpp-fallback.example.com.
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+|service|String|The symbolic name of the service, prefixed with an underscore. Examples: _sip, _ldap, _xmpp-server, _kerberos.|
+|proto|String|The transport protocol, also prefixed with an underscore: usually _tcp or _udp.|
+|name|String|The domain under which you’re publishing.|
+|TTL|UInt32|Time‑to‑live in seconds for this record.|
+|CLASS|String|Almost always IN for Internet.|
+|SRV|String|The record type.|
+|priority|UInt16|Lower values mean higher preference. A client MUST try all records of the lowest-numbered priority first.|
+|weight|UInt16|Relative weight for records with the same priority. Clients use this for load balancing: If there are N records at the same priority, each has a chance proportional to its weight. A weight of 0 still participates (but only if all weights are 0, clients SHOULD pick randomly).|
+|port|UInt16|TCP or UDP port on which the service is running on the target host.|
+|target|String|The canonical hostname of the machine providing this service. MUST not be “.” for service records.|
+
+
+1. Construct the query
+Client looks up _service._proto.name (e.g. _ldap._tcp.dc.example.com).
+2. Sort by priority
+Group records by ascending priority. Start with the lowest.
+3. Select by weight
+Within that priority group, select one record via a weighted random algorithm:
+3.1 Sum all weights W *(should be 100, to keep it simple)*.
+3.2 Generate a random number R in [0, W).
+3.3 Walk the records, subtracting each record’s weight from R; when R < 0, choose that record.
+4. Attempt connection
+Connect to the selected record’s target on its port.
+If it fails, retry with the same priority group (re‑running the weighted selection among the remaining records).
+Only when all records of that priority fail does the client move to the next‑higher priority.
+
+
+
+
 ## 2. Regulatory Cybersecurity Requirements
 
 The following requirments are grounded in applicable cybersecurity regulations and in other predominantly *horizontal* cybersecurity standards.
