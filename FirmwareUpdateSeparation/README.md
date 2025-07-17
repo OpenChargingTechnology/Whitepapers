@@ -24,6 +24,9 @@ Additionally, this extension enables the **Charging Station Operator (CPO)** to 
   - Release Date
   - Installation Date
   - Audit trail hash
+  - Which (internal) interfaces are implemented?
+    - Are regulated interface implementations **non-reactive/read-only** (what does that mean in detail)?
+  - Which (internal) interfaces are expected?
 
 ## Requests/Respones
 

@@ -6,6 +6,11 @@ We actively encourage your collaboration and contributions. Whether you found a 
 
 Let’s advance the future of interoperable, secure, and open electric vehicle infrastructure... together.
 
+#### Cybersecurity Regulations and Standards
+
+- [EUCyberResilienceAct](RegulationsAndStandards/EUCyberResilienceAct.md)
+- [EN18031](RegulationsAndStandards/EN18031.md)
+
 #### WWCP Related
 
 *Upcoming:*
@@ -25,9 +30,11 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 *Upcoming:*
 
 - [Open Charge Context Protocol (OCCP)](OCCP/README.md)
+- [TCP/IP Networking Configuration](TCPIPNetworkingConfiguration/README.md)
 - [Safe & Secure OCPP v2.x Device Model Updates](SafeAndSecureDeviceModelUpdates/README.md)
 - [Ad hoc payments via Bluetooth LE (BLE)](AdHocPaymentsBLE/README.md)
 - [Ad hoc payments via Near Field Communication (NFC)](AdHocPaymentsNFC/README.md)
+- [Secure SSH Configuration](SecureSSHConfiguration/README.md)
 
 
 #### EV Communication Related
