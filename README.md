@@ -30,6 +30,8 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 *Upcoming:*
 
+- [DNS-over-OCPP](DNS-over-OCPP/README.md)
+- [NTS-over-OCPP](NTS-over-OCPP/README.md)
 - [Open Charge Context Protocol (OCCP)](OCCP/README.md)
 - [TCP/IP Networking Configuration](TCPIPNetworkingConfiguration/README.md)
 - [Safe & Secure OCPP v2.x Device Model Updates](SafeAndSecureDeviceModelUpdates/README.md)
