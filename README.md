@@ -20,6 +20,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 #### Open Charge Point Protocol (OCPP) related:
 
+- [Resilient, high-available and pooled parallel Connections](AdvancedConnections/README.md)
 - [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
 - [Alternative HTTP Authentication Methods for OCPP](HTTPAuthExtensions/README.md) (EU RED/CRA)
 - [Secure Time Synchronization for OCPP v1.6 and v2.x](SecureTimeSync/README.md) (EU RED/CRA, EU MID)
