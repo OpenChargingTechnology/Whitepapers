@@ -131,7 +131,7 @@ The ALPN extension (RFC 7301) allows clients and servers to negotiate the applic
 - Disable ALPN
 
 
-### 1.15 (Encrypten) Server Name Indication
+### 1.15 (Encrypted) Server Name Indication
 
 TLS servers and clients should support Server Name Indication (SNI) and optional (Encrypten) Server Name Indication (ESNI).
 
