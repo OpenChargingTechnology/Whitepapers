@@ -7,6 +7,7 @@ Resilient and high-available connections are established through redundant endpo
   - Backoff
 - H/A settings
   - DNS-SRV records
+  - HTTP 429 (Too many requests)
   - Static configuration within the device model
 - Extended DNS-SRV records
   - Server public keys for security
