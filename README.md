@@ -10,6 +10,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 - [EUCyberResilienceAct](RegulationsAndStandards/EUCyberResilienceAct.md)
 - [EN18031](RegulationsAndStandards/EN18031.md)
+- [EN40000](RegulationsAndStandards/EN40000.md)
 
 #### WWCP Related
 
@@ -22,6 +23,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 - [Resilient, high-available and pooled parallel Connections](AdvancedConnections/README.md)
 - [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
+- [HTTP Basic Authentication with Time-Based One-Time Passwords](HTTPAuthExtensions/README.md) (EU RED/CRA)
 - [Alternative HTTP Authentication Methods for OCPP](HTTPAuthExtensions/README.md) (EU RED/CRA)
 - [Secure Time Synchronization for OCPP v1.6 and v2.x](SecureTimeSync/README.md) (EU RED/CRA, EU MID)
 - [Advanced Diagnostics with Self and Integration Tests for OCPP](AdvancedDiagnostics/README.md) (EU RED/CRA, EU NIS2)
@@ -40,20 +42,27 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [Secure SSH Configuration](SecureSSHConfiguration/README.md)
 
 
-#### EV Communication Related
+#### Open Charge Point Interface (OCPI) related:
 
 *Upcoming:*
 
-- [ISO 15118-Computer Science Edition](ISO15118-CSE/README.md)
+- [Time-Based One-Time Passwords as 2nd Factor Authentication](OCPI/OCPIwithTOTPAuth.md) (EU RED/CRA)
+
+
+#### Open InterCharge Protocol (OICP) related:
+
+*Upcoming:*
+
+- [OICP v2.3 Peer-to-Peer Mode](OICP/OICPv2.3_P2PMode.md)
 
 
 #### EV Roaming Related
 
 *Upcoming:*
 
-- [WWCP/POI Data Model](WWCP-POI-Datamodel/README.md)
-- [WWCP/POI Transport Protocols](WWCP-POI-TransportProtocols/README.md)
-- [WWCP/Roaming Protocol](WWCP-Roaming-Protocol/README.md)
+- [POI Data Model](WWCP/POI-Datamodel.md)
+- [POI Transport Protocols](WWCP/POI-TransportProtocols.md)
+- [Roaming Protocol](WWCP/Roaming-Protocol.md)
 
 
 #### OpenADR Related
@@ -61,6 +70,14 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 *Upcoming:*
 
 - [OpenADR and OCPP v2.1 Interoperability](OpenADR-OCPPv2.1/README.md)
+
+
+#### EV Communication Related
+
+*Upcoming:*
+
+- [ISO 15118-Computer Science Edition](ISO15118-CSE/README.md)
+
 
 
 ## Acknowledgements
