@@ -8,24 +8,18 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 #### Cybersecurity Regulations and Standards
 
-- [EUCyberResilienceAct](RegulationsAndStandards/EUCyberResilienceAct.md)
-- [EN18031](RegulationsAndStandards/EN18031.md)
-- [EN40000](RegulationsAndStandards/EN40000.md)
-
-#### WWCP Related
-
-*Upcoming:*
-
-- [EV Infrastructure Unified Transport](UnifiedTransport/README.md)
+- [EU Cyber Resilience Act (EU CRA)](RegulationsAndStandards/EUCyberResilienceAct.md)
+- [EN 18031](RegulationsAndStandards/EN18031.md)
+- [EN 40000](RegulationsAndStandards/EN40000.md)
 
 
 #### Open Charge Point Protocol (OCPP) related:
 
-- [Resilient, high-available and pooled parallel Connections](AdvancedConnections/README.md)
-- [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
-- [HTTP Basic Authentication with Time-Based One-Time Passwords](HTTPAuthExtensions/README.md) (EU RED/CRA)
+- [HTTP Basic Authentication with Time-Based One-Time Passwords](OCPP/OCPPwithHTTPBasicAuthPlusTOTP.md) (EU RED/CRA)
 - [Alternative HTTP Authentication Methods for OCPP](HTTPAuthExtensions/README.md) (EU RED/CRA)
 - [Secure Time Synchronization for OCPP v1.6 and v2.x](SecureTimeSync/README.md) (EU RED/CRA, EU MID)
+- [Resilient, high-available and pooled parallel Connections](AdvancedConnections/README.md)
+- [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
 - [Advanced Diagnostics with Self and Integration Tests for OCPP](AdvancedDiagnostics/README.md) (EU RED/CRA, EU NIS2)
 - [Ad hoc Payments via Secure Dynamic QR-Codes for OCPP and OCPI](SecureDynamicQRCodes/README.md) (EU AFIR, EU RED/CRA)
 - [OCPP 2.x Firmware Updates with Software Separation](FirmwareUpdateSeparation/README.md) (EU RED/CRA, EU MID)
@@ -77,6 +71,13 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 *Upcoming:*
 
 - [ISO 15118-Computer Science Edition](ISO15118-CSE/README.md)
+
+
+#### WWCP Related
+
+*Upcoming:*
+
+- [EV Infrastructure Unified Transport](UnifiedTransport/README.md)
 
 
 

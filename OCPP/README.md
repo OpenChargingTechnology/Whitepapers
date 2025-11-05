@@ -1,3 +1,3 @@
 # Open Charge Point Protocol (OCPP)
 
-- [Time-Based One-Time Passwords as 2nd Factor Authentication](OCPIwithTOTPAuth.md) (EU RED/CRA)
+- [HTTP Basic Authentication with Time-Based One-Time Passwords](OCPPwithHTTPBasicAuthPlusTOTP.md) (EU RED/CRA)
