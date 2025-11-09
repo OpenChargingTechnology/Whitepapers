@@ -136,11 +136,29 @@ The OCPP 2.x Device Model is backported to the OCPP v1.6 Key-Value-Pair configur
 webPaymentsCtrlr.{ConnectorId}.{Setting}
 ```
 
- The *settings* are the same as for OCPP v2.x. The following would define the **URL Template** for the **first connector**:
+ The *settings* are the same as for OCPP v2.x. The following would define the **URL Template** and **Shared Secret** for the **first connector**:
 
 ```
-webPaymentsCtrlr.1.URLTemplate = „https://qr-pay.example.org/v1/fe9jv39X9x2A9Bsv/{evseId}“
+webPaymentsCtrlr.1.URLTemplate  = "https://qr-pay.example.org/v1/{totp}/{evseId}"
+webPaymentsCtrlr.1.SharedSecret = "abc123"
 ```
+
+A single QR-Code for multiple EVSEs can be found at the following location:
+
+```
+webPaymentsCtrlr.{Setting}
+...
+webPaymentsCtrlr.URLTemplate  = "https://qr-pay.example.org/v1/{totp}/"
+webPaymentsCtrlr.SharedSecret = "abc123"
+```
+
+The manufacturer shall indicate its support for Web Payments by setting the `URLTemplate` and `SharedSecret` variables to an empty string.
+
+```
+webPaymentsCtrlr.[{ConnectorId}].URLTemplate  = ""
+webPaymentsCtrlr.[{ConnectorId}].SharedSecret = ""
+```
+
 
 
 
