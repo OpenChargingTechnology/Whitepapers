@@ -170,6 +170,8 @@ webPaymentsCtrlr.[{ConnectorId}].SharedSecret = ""
 
 With the *NotifyWebPaymentStarted* request the QR code backend can inform the CSMS and by this the charging station about a just started *web payment process* at a given *EVSE identification* and block concurrent processes for a given timeout. The request can be sent multiple times, e.g. to update the timeout. A timeout value of `0` can be seen as a silent revocation of a previous request.
 
+The *NotifyWebPaymentStarted* will not change any charging station or EVSE status. Nevertheless the charging station/EVSE status within EV roaming should be updated accordingly.
+
 
 #### OCPI NotifyWebPaymentStarted
 
@@ -202,14 +204,8 @@ POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_STARTED
 
 #### OCPP NotifyWebPaymentStarted
 
-The CSMS sends an optional NotifyWebPaymentStarted request including the EVSE identification and a timeout to the charging station in order to inform the station about a started web payment process. The following cases can occur:
-
-- No EV connected: After NotifyWebPaymentStarted request has been received, EVSE switches to "Preparing" (OCPP 1.6) or "Occupied" (OCPP 2.X). No concurrent charging session can be started locally. Remote start requests and reservation requests are rejected. After timeout, EVSE switches back to "Available". If RemoteStartTransaction (OCPP 1.6) or RequestStartTransaction (OCPP 2.X) is received before the timeout and EV is connected within ConnectionTimeout, the transaction may be started. If EV is not connected within ConnectionTimeout, EVSE switches back to "Available". Charging station should indicate somehow to the CSMS that the session is terminated.
-- EV connected: EVSE is already in state "Preparing" (OCPP 1.6) or "Occupied" (OCPP 2.X). No concurrent charging session can be started locally. Remote start requests and reservation requests are rejected. After NotifyWebPaymentStarted has timed out, EVSE stays in "Preparing"/"Occupied". If RemoteStartTransaction (OCPP 1.6) or RequestStartTransaction (OCPP 2.X) is received before the timeout, the transaction may be started.
-- EV connected during payment process: After NotifyWebPaymentStarted request has been received, EVSE switches to "Preparing" (OCPP 1.6) or "Occupied" (OCPP 2.X). No concurrent charging session can be started locally. Remote start requests and reservation requests are rejected. EV is connected. EVSE stays in "Preparing"/"Occupied". After NotifyWebPaymentStarted has timed out, EVSE stays in "Preparing"/"Occupied". If RemoteStartTransaction (OCPP 1.6) or RequestStartTransaction (OCPP 2.X) is received before the timeout, the transaction may be started.
-- EV disconnected during payment process: EV is connected. EVSE swicthes to "Preparing" (OCPP 1.6) or "Occupied" (OCPP 2.X). NotifyWebPaymentStarted request is received. EVSE stays in "Preparing"/"Occupied". No concurrent charging session can be started locally. Remote start requests and reservation requests are rejected. EV is diconnected before payment process has been finished. EVSE stays in "Preparing"/"Occupied" until NotifyWebPaymentStarted timed out. If RemoteStartTransaction (OCPP 1.6) or RequestStartTransaction (OCPP 2.X) is received before the timeout and EV is re-connected within ConnectionTimeout, the transaction may be started. If EV is not connected within ConnectionTimeout, EVSE switches back to "Available". Charging station should indicate somehow to the CSMS that the session is terminated.
-
-After receiving a NotifyWebPaymentStarted request, charging station displays some sort of feedback to EV Driver indicating, that his web payment process started successfully. 
+The CSMS sends an optional NotifyWebPaymentStarted request including the EVSE identification and a timeout to the charging station in order to inform the station about a started web payment process.
+The Charging Station now prevents that a concurrent charging session is started locally on the given EVSE for the given timeout and displays some sort of feedback to EV Driver indicating, that his web payment process started successfully. It does so until the RequestStartTransaction request or a NotifyWebPaymentFailed from CSMS was received, or the timeout was reached.
 
 **NotifyWebPaymentStartedRequest**
 
