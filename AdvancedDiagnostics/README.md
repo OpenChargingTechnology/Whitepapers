@@ -325,6 +325,36 @@ This request simulates the **swiping of an RFID card** triggering RFID UID detec
 
 
 
+### SetResidualCurrent (ToDo)
+
+Detects AC/DC leakage currents (e.g., ground faults) by comparing incoming/outgoing current; trips power if imbalance exceeds thresholds (e.g., 6mA DC or 30mA AC). Types: A (AC + pulsating DC), B (full AC/DC including smooth DC). Often paired with RDC-DD for DC monitoring.
+
+(see also: IEC 62955)
+
+
+
+### SetInsulationResistor (ToDo)
+
+An Insulation Monitoring Device (IMD) monitors the insulation resistance between the electrical system (e.g., DC lines) and ground to detect faults like short circuits or degradation that could lead to electric shocks or fires.
+
+(see also: IEC 62955)
+
+
+
+### SetTemperature (ToDo)
+
+Monitors charging station and/or ambient temperatures to prevent overheating.
+
+
+### SetDoorOpen (ToDo)
+
+Some charging station manufacturers have a simple "door open" sensor.
+
+
+### SetIntrusionDetection (ToDo)
+
+Some charging station manufacturers have some sort of "Intrusion Detection", that disables the charging station until explicitly "unlocked" by service personal.
+
 
 
 ## CCS Diagnostics
