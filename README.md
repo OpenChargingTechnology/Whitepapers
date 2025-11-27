@@ -84,11 +84,14 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 ## Acknowledgements
 
 
-This work has been partially funded by the [CyberStand.eu](https://cyberstand.eu) project under the [European Commission’s](https://commission.europa.eu) [Horizon Europe](https://research-and-innovation.ec.europa.eu/funding/funding-opportunities/funding-programmes-and-open-calls/horizon-europe_en) programme. The support of [CyberStand.eu](https://cyberstand.eu) in advancing cybersecurity standardization across critical digital infrastructures, including the e-mobility sector, is gratefully acknowledged.
+This work is partially funded by the [CyberStand.eu](https://cyberstand.eu) project under the [European Commission’s](https://commission.europa.eu) [Horizon Europe](https://research-and-innovation.ec.europa.eu/funding/funding-opportunities/funding-programmes-and-open-calls/horizon-europe_en) programme. The support of [CyberStand.eu](https://cyberstand.eu) in advancing cybersecurity standardization across critical digital infrastructures, including the e-mobility sector, is gratefully acknowledged.
 
 This repository is part of an ***Open Access*** effort to document and structure ongoing work related to the *Information and Communication Technology (ICT)* and *Cybersecurity* aspects of *Electric Vehicle (EV) Charging Infrastructure*. Its contents may change at any time as new knowledge, regulatory requirements, or technical insights emerge. It reflects the author's and contributors' technical and editorial input and do not necessarily represent the official position of the [CyberStand.eu](https://cyberstand.eu) consortium or the [European Commission](https://commission.europa.eu).
 
-<p align="center">
-    <img src="images/EN_FundedbytheEU_RGB_POS.png" alt="Funded by the European Union" width="200">
-</p>
+Open Source implementations are partially funded by the [NGI Zero Commons Fund](https://nlnet.nl/commonsfund/) and is published within the [Open Charging Cloud](https://github.com/OpenChargingCloud) and [Open Charging Community](https://github.com/OpenChargingCommunity) GitHub repositories.
 
+
+<p align="center">
+    <img src="images/EN_FundedbytheEU_RGB_POS.png" alt="Funded by the European Union" height="40">
+    <img src="images/NGI0_tag.svg" alt="Funded by NLnet NGI Zero Commons" height="40">
+</p>
