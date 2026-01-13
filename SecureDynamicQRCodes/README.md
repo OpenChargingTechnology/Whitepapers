@@ -106,11 +106,16 @@ In contrast, OCPP 2.x introduces a hierarchical structured configuration model. 
 
 Because of these architectural differences, any implementation or specification that aims to support both versions must define separate handling logic and configuration schemas tailored to the respective protocol version. The next sections outline the corresponding configuration methods and expected data structures for both OCPP 1.6 and OCPP 2.x in detail.
 
-### OCPP 2.1
+### OCPP 2.X
 
-The OCPP 2.1 Device Model introduces the **Web Payments Controller** *(WebPaymentsCtrlr)* as a dedicated component for managing the generation of **Time-Based One-Time Password** and for configuring additional **QR-Code rendering parameters** related to web-based payment flows.
+The OCPP 2.1 Device Model introduces the **Web Payments Controller** *(WebPaymentsCtrlr)* as a dedicated component for managing the generation of **Time-Based One-Time Password** and for configuring additional **QR-Code rendering parameters** related to web-based payment flows. WebPaymentsCtrlr can also be used in OCPP 2.0.1.
 
-The controller supports **instantiation per EVSE**, enabling charging stations with multiple EVSEs to render independent web payment QR codes, each with its own configuration parameters. This facilitates parallel and isolated payment flows per connector. However, it is equally possible to configure a single shared QR code for all EVSEs. In this case, the specific EVSE (Id) can be selected either directly on the charging station’s display before initiating the payment process or later on the web payment web site.
+The controller supports **instantiation per EVSE**, enabling charging stations with multiple EVSEs to render independent web payment QR codes, each with its own configuration parameters. This facilitates parallel and isolated payment flows per connector. However, it is equally possible to configure a single shared QR code for all EVSEs. In this case, the specific EVSE (Id) can be selected either directly on the charging station’s display before initiating the payment process or later on the web payment web site. An instance of a WebPaymentsCtrlr is addressed by using the evseId in a SetVariablesRequest:
+
+```
+setVariableData.component.evse.id = {evseId}
+```
+If a charging station has only one QR code display for all EVSEs, it should reject SetVariable requests for specific EvseIds. If a charging station has one QR code display per EVSE, it should reject SetVariable requests without EvseId. 
 
 |Variable|M/O|Type|JSON Type|RW/RO|Description|
 |-|-|-|-|-|-|
@@ -127,6 +132,7 @@ The controller supports **instantiation per EVSE**, enabling charging stations w
 |Encoding|O|String|String|RO/RW|The alphabet used for encoding the TOTP, e.g. all charachters of *[a-zA-Z0-9]*|
 |QRCodeQuality|O|OptionList|Array|RO/RW|The QR Code error correction level: *Low*, *Medium*, *Quartile*, *High*|
 
+Cyclic generation of QR code URLs should start automatically, when Enabled=true and URLTemplate as well as SharedSecret are successfully set.
 
 ### OCPP v1.6
 
@@ -139,29 +145,29 @@ webPaymentsCtrlr.{ConnectorId}.{Setting}
  The *settings* are the same as for OCPP v2.x. The following would define the **URL Template** and **Shared Secret** for the **first connector**:
 
 ```
-webPaymentsCtrlr.1.URLTemplate  = "https://qr-pay.example.org/v1/{totp}/{evseId}"
-webPaymentsCtrlr.1.SharedSecret = "abc123"
+WebPaymentsCtrlr.1.URLTemplate  = "https://qr-pay.example.org/v1/{totp}/{evseId}"
+WebPaymentsCtrlr.1.SharedSecret = "abc123"
 ```
 
 A single QR-Code for multiple EVSEs can be found at the following location:
 
 ```
-webPaymentsCtrlr.{Setting}
+WebPaymentsCtrlr.{Setting}
 ...
-webPaymentsCtrlr.URLTemplate  = "https://qr-pay.example.org/v1/{totp}/"
-webPaymentsCtrlr.SharedSecret = "abc123"
+WebPaymentsCtrlr.URLTemplate  = "https://qr-pay.example.org/v1/{totp}/"
+WebPaymentsCtrlr.SharedSecret = "abc123"
 ```
 
 The manufacturer shall indicate its support for Web Payments by setting the `URLTemplate` and `SharedSecret` variables to an empty string.
 
 ```
-webPaymentsCtrlr.[{ConnectorId}].URLTemplate  = ""
-webPaymentsCtrlr.[{ConnectorId}].SharedSecret = ""
+WebPaymentsCtrlr.{ConnectorId}.URLTemplate  = ""
+WebPaymentsCtrlr.{ConnectorId}.SharedSecret = ""
 ```
 
+If a charging station has only one QR code display for all EVSEs, it should reject SetVariable requests for specific EvseIds. If a charging station has one QR code display per EVSE, it should reject SetVariable requests without EvseId. 
 
-
-
+Cyclic generation of QR code URLs should start automatically, when Enabled=true and URLTemplate as well as SharedSecret are successfully set.
 
 
 ## Requests/Respones
@@ -205,13 +211,13 @@ POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_STARTED
 #### OCPP NotifyWebPaymentStarted
 
 The CSMS sends an optional NotifyWebPaymentStarted request including the EVSE identification and a timeout to the charging station in order to inform the station about a started web payment process.
-The Charging Station now prevents that a concurrent charging session is started locally on the given EVSE for the given timeout and displays some sort of feedback to EV Driver indicating, that his web payment process started successfully. It does so until the RequestStartTransaction request or a NotifyWebPaymentFailed from CSMS was received, or the timeout was reached.
+The Charging Station now prevents that a concurrent charging session is started locally and rejects reservations on the given EVSE for the given timeout and displays some sort of feedback to EV Driver indicating, that his web payment process started successfully. It does so until the RequestStartTransaction request or a NotifyWebPaymentFailed from CSMS was received, or the timeout was reached.
 
 **NotifyWebPaymentStartedRequest**
 
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
-|evseId|M|EVSE Id|Integer, 0 ⇐ val|EVSE id for which transaction is requested.|
+|evseId|M|EVSE Id|Integer, >=0|EVSE id for which transaction is requested.|
 |timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed. Should be <= 5 minutes.|
 |customData|O|-|Object||
 
@@ -303,10 +309,10 @@ Request Error Handling:
 
 |Error|Response|
 |-|-|
-|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendorId**.|
 |The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
-|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidTimeout"` and an optional data.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
-|data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidTimeout"` and an optional data.**additionalInfo** ~= `"Invalid 'timeout' value!"`.|
+|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, statusInfo.**reasonCode** = `"invalidEvseId"` and an optional statusInfo.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
+|data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, statusInfo.**reasonCode** = `"invalidTimeout"` and an optional statusInfo.**additionalInfo** ~= `"Invalid 'timeout' value!"`.|
 
 ```
 {
@@ -348,10 +354,10 @@ Request Error Handling:
 
 |Error|Response|
 |-|-|
-|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendorId**.|
 |The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
-|data.**connectorId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'connectorId' value!"`.|
-|data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected** and data.**message** ~= `"Invalid 'timeout' value!"`.|
+|data.**connectorId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** ~= 'invalidConnectorId', and data.**additionalInfo** ~= `"Invalid 'connectorId' value!"`.|
+|data.**timeout** is missing, *null*, not a *positive Integer > 0* or larger than 5 minutes.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** ~= 'invalidTimeout', and data.**additionalInfo** ~= `"Invalid 'timeout' value!"`.|
 
 ```
 {
@@ -505,10 +511,10 @@ Request Error Handling:
 
 |Error|Response|
 |-|-|
-|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendor**.|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendorId**.|
 |The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
-|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidTimeout"` and an optional data.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
-|data.**errorMessage** is invalid.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidMessageContent"` and an optional data.**additionalInfo** ~= `"Invalid format '{propertyKey}' for the message content!"`.|
+|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, statusInfo.**reasonCode** = `"invalidEvseId"` and an optional statusInfo.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
+|data.**errorMessage** is invalid.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, statusInfo.**reasonCode** = `"invalidMessageContent"` and an optional statusInfo.**additionalInfo** ~= `"Invalid format '{propertyKey}' for the message content!"`.|
 
 ```
 {
@@ -551,6 +557,24 @@ For OCPP v1.6 the NotifyWebPaymentFailedRequest/-Response will be serialized in 
 }
 ```
 
+Request Error Handling:
+
+|Error|Response|
+|-|-|
+|The **VendorId** is missing, *null*, or unknown on the charging station.|The charging station SHALL return a status = DataTransferStatus.**UnknownVendorId**.|
+|The charging station has no implementation for the given VendorId.**MessageId**.|The recipient SHALL return a status = DataTransferStatus.**UnknownMessageId**.|
+|data.**evseId** is missing, *null*, `0` or *invalid*.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidEvseId"` and an optional data.**additionalInfo** ~= `"Invalid 'evseId' value!"`.|
+|data.**errorMessage** is invalid.|The charging station SHALL return a status = DataTransferStatus.**Rejected**, data.**reasonCode** = `"invalidMessageContent"` and an optional data.**additionalInfo** ~= `"Invalid format '{propertyKey}' for the message content!"`.|
+
+```
+{
+    "status":  "Rejected",
+    "data":    "{
+                  \"reasonCode\":    \"invalidTimeout\",
+                  \"additionalInfo": \"Invalid 'timeout' value!\"
+                }"
+}
+```
 
 ## Diagnostic Tools
 
@@ -559,9 +583,53 @@ tba.
 
 ## Test Cases
 
-tba.
-
-
+### SetVariables requests for component WebPaymentsCtrlr
+- SetVariables request for WebPaymentsCtrlr.URLTemplate and WebPaymentsCtrlr.SharedSecret => status=Accepted; cyclic QR code generation should start automatically
+- if charging station supports QR code display per EVSE: SetVariable request for WebPaymentsCtrlr.URLTemplate and WebPaymentsCtrlr.SharedSecret => status=Rejected
+- if charging station supports only one QR code display for all EVSEs: SetVariable request with evse.id=1 should be rejected
+- SetVariable request for WebPaymentsCtrlr.URLTemplate contains URL template parameters not contained in WebPaymentsCtrlr.URLParameters list => should be rejected
+- SetVariables request with WebPaymentsCtrlr.ValidityTime not in [6..3600] should be rejected
+- SetVariables request with WebPaymentsCtrlr.SharedSecret with less than 17 characters should be rejected
+- SetVariables request with WebPaymentsCtrlr.Length <=16 should be rejected
+### DataTransferRequests for NotifyWebPaymentStarted
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentStarted", data.evseId=1, data.timeout=60 => status=Accepted; CS should reject new charging sessions and reservations until timeout has expired
+- DataTransferRequest with vendorId="{invalid vendorId}", messageId="NotifyWebPaymentStarted", data.evseId=1, data.timeout=60 => status=UnknownVendorId
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentStarted*", data.evseId=1, data.timeout=60 => status=UnknownMessageId
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentStarted", data.timeout=60, data.evseId=null or 0 or missing => status=Rejected, statusInfo.reasonCode="invalidEvseId", optional statusInfo.additionalInfo="Invalid 'evseId' value!"
+DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentStarted", data.evseId=1, data.timeout=missing or null or not >0 or >300 => status=Rejected, statusInfo.reasonCode="invalidTimeout", optional statusInfo.additionalInfo="Invalid 'timeout' value!"
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentStarted", data.evseId=1, data.timeout=0 => status=Accepted; CS should end the NotifyWebPaymentStarted mode
+### DataTransferRequests for NotifyWebPaymentFailed
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentFailed", data.evseId=1, data.errorMessage="{
+                                              "format":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }" => status=Accepted; CS should end NotifyWebPaymentStarted mode and display the error message
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentFailed", data.errorMessage="{
+                                              "format":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }", data.evseId missing or null,  => status=Rejected; CS should end NotifyWebPaymentStarted mode and display the error message
+- DataTransferRequest with vendorId="{invalid vendorId}", messageId="NotifyWebPaymentFailed", data.evseId=1, data.errorMessage="{
+                                              "format":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }" => status=UnknownVendorId
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentFailed*", data.evseId=1, data.errorMessage="{
+                                              "format":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }" => status=UnknownMessageId
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentFailed", data.errorMessage="{
+                                              "format":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }", data.evseId is missing, null or invalid => status=Rejected, statusInfo.reasonCode="invalidEvseId", optional statusInfo.additionalInfo="Invalid 'evseId' value!"
+- DataTransferRequest with vendorId="{valid vendorId}", messageId="NotifyWebPaymentFailed", data.evseId=1, data.errorMessage="{
+                                              "format*":   "UTF8",
+                                              "language": "en",
+                                              "content":  "Payment network unreachable!"
+                                          }" => status=Rejected, statusInfo.reasonCode="invalidMessageContent", optional statusInfo.additionalInfo="Invalid format '{format*}' for the message content!"
+  
 ## Implementations
 
 - https://github.com/OpenChargingCloud/DynamicQRCodes/
