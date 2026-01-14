@@ -257,25 +257,267 @@ Dynamic server lists with meta data via DNS to solve redundancy, failover and ad
 
 DNS-based solutions are the default way to distribute information in the Internet as it scales better than other approaches.
 
-#### 5.2.1 DNS Service Records (DNS-SRV)
+
+#### 5.2.1 DNS NTS-Policy Discovery
+
+The `_nts-policy` DNS TXT record is intended **solely for policy discovery**, not as an authoritative security policy container.
 
 ```
-_ntp._udp.ptb.de.       3600 IN SRV 10  50  123 time1.ptb.de.
-                        3600 IN SRV 10  50  123 time2.ptb.de.
-                        3600 IN SRV 20 100  123 time3.ptb.de.
+_nts-policy.ptbtime1.ptb.de. IN TXT "v=NTSPv1; id=ptb-nts-2025;
+```
+=> Policy-URL: https://ptbtime1.ptb.de/.well-known/nts-policy.json    
+   Expected version identification `ptb-nts-2025`.
 
-_ntske._tcp.ptb.de.     3600 IN SRV 10  60 4460 ntske1.ptb.de.
-                        3600 IN SRV 10  40 4460 ntske2.ptb.de.
-                        3600 IN SRV 10  40 4460 ntske3.ptb.de.
+```
+_nts-policy.ptbtime1.ptb.de. IN TXT "v=NTSPv1; id=ptb-nts-2026; d=time.ptb.de"
+```
+=> Policy-URL: https://time.ptb.de/.well-known/nts-policy.json    
+   Expected version identification `ptb-nts-2026`.
+
+```
+_nts-policy.ptbtime1.ptb.de. IN TXT "v=NTSPv1; id=ptb-nts-2026; uri=https://ptbtime.ptb.de/.well-known/nts-policy.json"
+```
+=> Policy-URL: https://ptbtime.ptb.de/.well-known/nts-policy.json    
+   Expected version identification `ptb-nts-2026`.
+
+##### ABNF
+
+```
+; NTSPv1 DNS TXT Record ABNF (updated)
+; References:
+; - RFC 5234 (ABNF)
+; - RFC 7405 (%s case-sensitive strings)
+;
+; Intended TXT content examples:
+;   v=NTSPv1; id=ptb-nts-2026
+;   v=NTSPv1; id=ptb-nts-2026; d=time.ptb.de
+;   v=NTSPv1; id=ptb-nts-2026; uri=https://time.ptb.de/.well-known/nts-policy.json
+;
+; Note: If neither d nor uri is present, the policy URI is derived
+; from the queried owner name (outside ABNF; see parsing rules).
+
+nts-policy-txt = wsp* version wsp* ";" wsp* id-param
+                 *( wsp* ";" wsp* parameter ) wsp*
+                 [ ";" wsp* ]  ; optional trailing semicolon
+
+version        = "v" wsp* "=" wsp* %s"NTSPv1"
+
+; Required parameter
+id-param       = "id" wsp* "=" wsp* id-value
+
+; Remaining (optional) parameters
+parameter      = d-param / uri-param / ext-param
+
+d-param        = "d" wsp* "=" wsp* domain-name
+uri-param      = "uri" wsp* "=" wsp* https-uri
+
+; Extension point (clients MUST ignore unknown keys)
+ext-param      = ext-key wsp* "=" wsp* ext-value
+
+; ===== Lexical rules =====
+
+wsp            = SP / HTAB
+
+; id-value is stable across deployments and safe in logs.
+; Example: ptb-nts-2026, ptb-nts-2025-rc1
+id-value       = id-char 0*127(id-char)
+id-char        = ALPHA / DIGIT / "-" / "_" / "."
+
+; Domain name in presentation form.
+; Allows optional trailing dot; clients may normalize it away.
+domain-name    = label *( "." label ) [ "." ]
+
+; Hostname label: LDH rule with no leading/trailing hyphen.
+label          = ( alphanum / ( alphanum *( alphanum / "-" ) alphanum ) )
+
+alphanum       = ALPHA / DIGIT
+
+; HTTPS URI without SP/HTAB or ';' (parameter delimiter).
+https-uri      = %s"https://" uri-rest
+uri-rest       = 1*( uri-char )
+
+; Disallow whitespace and semicolon in URIs to prevent parsing ambiguity.
+uri-char       = uri-allowed / pct-encoded
+uri-allowed    = unreserved / sub-delims / ":" / "@" / "/" / "?" / "#" 
+
+unreserved     = ALPHA / DIGIT / "-" / "." / "_" / "~"
+pct-encoded    = "%" HEXDIG HEXDIG
+sub-delims     = "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / "="
+
+; Extension keys/values:
+ext-key        = 1*( ALPHA / DIGIT / "-" / "_" )
+
+; ext-value must be non-empty and MUST NOT contain ';' or whitespace.
+; (The whitespace/semicolon restriction is enforced normatively.)
+ext-value      = 1*( ext-vchar )
+ext-vchar      = VCHAR
 ```
 
-#### 5.2.2 DNS Service Binding (DNS-SVCB)
+##### Normative Parsing Rules for _nts-policy DNS TXT Record (NTSPv1)
+
+The following rules are normative and MUST be applied by all compliant implementations.
+
+###### 1. TXT Record Concatenation
+
+If a DNS TXT RR contains multiple `<character-string>` elements, the client MUST concatenate them in the order presented by DNS before applying any parsing or validation rules.
+
+###### 2. Parameter Uniqueness
+
+Each parameter key is **case-sensitive** and **MUST NOT** appear more than once.
+
+- The `v` parameter **MUST** appear exactly once.
+- The `id` parameter **MUST** appear exactly once.
+- The `d` parameter **MUST NOT** appear more than once.
+- The `uri` parameter **MUST NOT** appear more than once.
+
+If any parameter appears more than once, the record **MUST** be rejected.
+
+###### 3. Required Parameters
+
+A valid `_nts-policy` TXT record **MUST** contain the following parameters:
+
+- v
+- id
+
+If either parameter is missing, the record **MUST** be rejected.
+
+###### 4. Version Handling
+
+The `v` parameter **MUST** have the exact value `NTSPv1`.
+
+Clients encountering any other version value **MUST** treat the record as unsupported and **MUST NOT** apply the policy.
+
+###### 5. Policy URI Resolution
+
+If the `uri` parameter is present, its value **MUST** be used as the policy retrieval URI.
+
+If the `uri` parameter is absent and the `d` parameter is present, the client **MUST** derive the policy URI as:
+
+https://<d>/.well-known/nts-policy.json
+
+If both `uri` nor `d` are absent, the client MUST derive the policy retrieval URI from the base domain name associated with the _nts-policy owner name that was queried.
+
+###### 6. Whitespace Handling
+
+Whitespace (SP or HTAB) **MAY** appear immediately before or after the `=` and `;` separators.
+
+Whitespace **MUST NOT** appear within parameter names or parameter values.
+
+Clients encountering whitespace within a parameter value **MUST** reject the record.
+
+###### 7. Parameter Value Delimiters
+
+The semicolon character (`;`) is reserved exclusively as a parameter delimiter.
+
+Any parameter value containing a semicolon (`;`) **MUST** cause the record to be rejected.
+
+###### 8. Unknown Parameters (Forward Compatibility)
+
+Parameters not explicitly defined by this specification **MUST** be ignored.
+
+Unknown parameters **MUST NOT** affect validation of known parameters and **MUST NOT** cause the record to be rejected, unless they violate other parsing rules.
+
+###### 9. HTTPS Requirement
+
+Any policy URI obtained either directly from the `uri` parameter or derived via the `d` parameter **MUST** use the https scheme.
+
+Clients **MUST** reject policies resolved to non-HTTPS URIs.
+
+###### 10. Failure Handling
+
+If any of the above rules are violated, the client **MUST** treat the `_nts-policy` TXT record as invalid and **MUST NOT** apply any associated NTS policy.
+
+Clients SHOULD continue operation using previously cached valid policies until their expiration, if available.
+
+
+
+#### 5.2.2 DNS Service Records (DNS-SRV)
+
+Deployments that operate a resilient time service typically provide multiple server instances and require a standardized mechanism for:
+
+- distributing client load across instances
+- supporting planned maintenance and failover
+- keeping client configuration minimal (one service name instead of host lists)
+
+DNS SRV (RFC 2782) provides a widely deployed, operationally proven mechanism to publish **service endpoints** with priorities and weights. Each SRV record consists of:
+
+- `priority`: lower values are preferred.
+- `weight`: relative load distribution among records with equal priority.
+- `port`: service port (e.g., 123 for NTP, 4460 for NTS-KE).
+- `target`: hostname of the service instance.
+
+```
+_ntp._udp.ptb.de.       3600 IN SRV 10  50  123 ptbtime1.ptb.de.
+                        3600 IN SRV 10  50  123 ptbtime2.ptb.de.
+                        3600 IN SRV 20 100  123 ptbtime3.ptb.de.
+                        3600 IN SRV 30 100  123 ptbtime4.ptb.de.
+
+_ntske._tcp.ptb.de.     3600 IN SRV 10  60 4460 ptbntske1.ptb.de.
+                        3600 IN SRV 10  40 4460 ptbntske2.ptb.de.
+                        3600 IN SRV 20 100 4460 ptbntske3.ptb.de.
+                        3600 IN SRV 30 100 4460 ptbntske4.ptb.de.
+```
+
+##### Interaction with NTS Policy Discovery
+
+SRV discovery and NTS policy discovery serve different purposes:
+
+- SRV provides a live set of endpoints for load-balancing and failover *(operational control plane)*.
+- The NTSP policy document provides enforceable requirements and security constraints that apply to endpoints discovered via DNS SRV *(governance control plane)*.
+
+Clients SHOULD use DNS SRV for endpoint selection and use the policy document to:
+
+- validate that selected targets are permitted.
+- constrain behavior (e.g., do not use plain NTP, require NTS-KE, etc.).
+- The policy document **MUST NOT** be used to introduce additional NTP or NTS-KE endpoints that are not present in the DNS SRV records.
+- If an endpoint is present in DNS SRV results but prohibited by the policy document, the client **MUST NOT** use that endpoint.
+- If the intersection of DNS SRV results and policy-permitted endpoints is empty, the client **MUST** treat the service as unavailable or misconfigured and **MUST NOT** fall back to endpoints outside the intersection.
+
+
+##### Interaction with NTS-KE Server List
+
+An NTS-KE server **MAY** include a list of NTP servers that the client MAY use for subsequent NTP exchanges, indicating that NTS cookies issued by the NTS-KE server are expected to be accepted by those NTP servers.
+
+Clients **MUST** treat NTS-KE-provided NTP server lists as constraints on preference, not as an additional discovery mechanism.
+
+The client **MUST** compute the intersection of:
+
+- NTP servers discovered via DNS SRV
+- NTP servers permitted by the applicable NTS policy
+- NTP servers provided by the NTS-KE server
+
+If this intersection is empty, the client **MUST** treat the configuration as invalid, **MUST NOT** use the issued NTS cookies, and **MUST NOT** proceed with authenticated NTP using those cookies.
+
+
+#### 5.2.3 DNS Service Binding (DNS-SVCB)
+
+DNS SVCB (RFC 9460) is a modern variant of DNS SRV for publishing connection parameters (e.g., ALPN, port, address hints) that are directly relevant to **NTS-KE over TLS**. SVCB can therefore provide a single, cacheable, operator-controlled record that combines:
+
+- priority
+- endpoint naming (target)
+- protocol selection via ALPN
+- port selection
+- optional address hints (IPv4/IPv6)
 
 ```
 nts.ptb.de.  300 IN SVCB 1 ntske.ptb.de. alpn="ntske/1" port=4460 ipv4hint=192.53.103.108 ipv6hint=2001:638:902:abcd::1
 ```
 
-#### 5.2.3 DNS-based Authentication of Named Entities (DANE)
+As DNS SVCB records do not have an explicit weight field like DNS SRV records, weighting is done by record multiplicity to model unequal hardware capacity or the gradual rollout of new servers.
+
+```
+nts.ptb.de.  300 IN SVCB 1 ntske-fast.ptb.de. alpn="ntske/1" port=4460
+nts.ptb.de.  300 IN SVCB 1 ntske-fast.ptb.de. alpn="ntske/1" port=4460
+nts.ptb.de.  300 IN SVCB 1 ntske-slow.ptb.de. alpn="ntske/1" port=4460
+```
+
+Expected client behavior:
+
+- ntske-fast is selected ~66% of the time
+- ntske-slow ~33%
+
+
+#### 5.2.4 DNS-based Authentication of Named Entities (DANE)
 
 ```
 _4460._tcp.ntske.ptb.de.  86400 IN TLSA 3 1 1 <sha256-des-aktuellen-leaf-keys>
@@ -283,7 +525,7 @@ _4460._tcp.ntske.ptb.de.  86400 IN TLSA 2 0 1 <sha256-der-ptb-root-ca>
 _4460._tcp.ntske.ptb.de.  86400 IN TLSA 2 1 1 <sha256-des-ptb-root-public-keys>
 ```
 
-#### 5.2.4 DNSSEC
+#### 5.2.5 DNSSEC
 
 Useful!
 
