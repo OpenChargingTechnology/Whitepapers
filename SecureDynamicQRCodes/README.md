@@ -194,11 +194,12 @@ POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_STARTED
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |response_url|O|URL|String|URL that the CommandResult POST should be sent to. This URL might contain a unique Id to be able to distinguish between NotifyWebPaymentStarted commands.
-|evse_id|M|EVSE Id|String|EVSE Identification for which transaction is requested *(ISO 15118 format, e.g. DE\*GEF\*E12345678\*1)*.|
-|location_id|O|Location Id|String|OCPI Location Identification for which transaction is requested.|
-|evse_uid|O|EVSE UId|String|OCPI EVSE Unique Identification for which transaction is requested.|
-|timeout|M|TimeSpan|Integer (seconds)|Timeout after which the web payment process is considered aborted or failed. Should be <= 5 minutes.|
-|customData|O|-|Object|To be forwarded to the charging station.|
+|location_id|M|Location Id|String|The identification of the location for which a WebPayment process shall be started.|
+|evse_uid|M|EVSE UId|String|The unique identification of the EVSE for which a WebPayment process shall be started.|
+|evse_id|O|EVSE Id|String|An optional identification of the EVSE for which a WebPayment process shall be started. This can support debugging and logging, but is not required as the EVSE can be identified by the combination of location_id and evse_uid *(ISO 15118 format, e.g. DE\*GEF\*E12345678\*1)*.|
+|connector_id|O|Connector Id|String|An optional identification of the connector for which a WebPayment process shall be started. This field is required when the capability: START_SESSION_CONNECTOR_REQUIRED is set on the EVSE.|
+|timeout|M|TimeSpan|Integer (seconds)|The timeout after which the WebPayment process is considered failed of aborted. Should be <= 5 minutes.|
+|customData|O|-|Object|Optional custom OCPP data to be forwarded to the charging station.|
 
 **OCPI NotifyWebPaymentStarted Command Result**
 
@@ -389,11 +390,12 @@ POST https://ocpi.example.com/cpo/2.3.0/commands/NOTIFY_WEB_PAYMENT_FAILED
 |Property Name|M/O|Type|JSON Type|Description|
 |-|-|-|-|-|
 |response_url|O|URL|String|URL that the CommandResult POST should be sent to. This URL might contain a unique Id to be able to distinguish between NotifyWebPaymentStarted commands.
-|evse_id|M|EVSE Id|String|EVSE Identification for which transaction is requested (ISO 15118 format).|
-|location_id|O|Location Id|String|OCPI Location Identification for which transaction is requested.|
-|evse_uid|O|EVSE UId|String|OCPI EVSE Unique Identification for which transaction is requested.|
-|error_message|O|DisplayText[]|Array&lt;Object&gt;|An error message why the process was aborted or failed.|
-|customData|O|-|Object||
+|location_id|M|Location Id|String|The identification of the location at which the WebPayment process was aborted or failed.|
+|evse_uid|M|EVSE UId|String|The unique identification of the EVSE at which the WebPayment process was aborted or failed.|
+|evse_id|O|EVSE Id|String|An optional identification of the connector at which the WebPayment process was aborted or failed. This field is required when the capability: START_SESSION_CONNECTOR_REQUIRED is set on the EVSE (ISO 15118 format, e.g. DE*GEF*E12345678*1).|
+|connector_id|O|Connector Id|String|An optional identification of the connector at which the WebPayment process was aborted or failed. This field is required when the capability: START_SESSION_CONNECTOR_REQUIRED is set on the EVSE.|
+|error_message|O|DisplayText[]|Array&lt;Object&gt;|An optional error message why the WebPayment process was aborted or failed.|
+|customData|O|-|Object|Optional custom OCPP data to be forwarded to the charging station.|
 
 **OCPI NotifyWebPaymentFailed Command Result**
 
