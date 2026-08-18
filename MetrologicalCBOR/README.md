@@ -93,8 +93,16 @@ The reading of the physical quantity, scaled by `prefix` and expressed in
 It MUST NOT be a binary floating-point number, and it MUST NOT be a bigfloat
 (tag 5). An integer that major type 0 or 1 can carry MUST NOT be written as
 a bignum — this is the preferred serialization of [RFC 8949], Section 3.4.3,
-and it keeps the encoding deterministic. Encoders SHOULD write integral
-readings as plain CBOR integers and all other readings as decimal fractions.
+and it keeps the encoding deterministic.
+
+The exponent of a decimal fraction MUST be negative: a decimal fraction
+states decimal places, and an integral reading is written as an integer (or
+bignum). This gives every reading exactly one encoding — `500` has no
+second spelling as `4([0, 500])` or `4([2, 5])` — and text input in
+scientific notation whose exponent leaves no decimal places (`5e2`,
+`5.0e2`) denotes the integer it equals. A resolution coarser than one is
+not something this format states; a producer that needs it states an
+uncertainty.
 
 The decimal scale is significant: `4([-1, 50])` (= `5.0`) and `5` denote the
 same numeric quantity but different measurement resolutions, and both MUST
@@ -114,16 +122,19 @@ is not in the registry: `m·s⁻²` is `[[15, 1], [8, -2]]`, and
 `W·m⁻²·K⁻¹` is `[[3, 1], [15, -2], [17, -1]]`.
 
 The exponent is an integer, or a `[numerator, denominator]` pair for a
-rational power. The denominator MUST be positive and the numerator MUST NOT
-be zero; decoders MUST reduce the fraction to its lowest terms, so that
-`[-2, 4]` and `[-1, 2]` are the same exponent. Rational powers are not
-decoration: an amplitude spectral density is stated per √Hz
-(`V·Hz^-1/2`), fracture toughness in `Pa·m^1/2` and the Warburg impedance in
-`Ω·s^-1/2`.
+rational power, and it MUST NOT be zero. A rational exponent MUST be in
+lowest terms and its denominator MUST be greater than one: `[-2, 4]` and
+`[2, 1]` are not valid spellings of `[-1, 2]` and `2`, and decoders MUST
+reject them rather than reduce them — a reading has one encoding, and a
+signed document must not change its bytes on the way through a decoder.
+Rational powers are not decoration: an amplitude spectral density is stated
+per √Hz (`V·Hz^-1/2`), fracture toughness in `Pa·m^1/2` and the Warburg
+impedance in `Ω·s^-1/2`.
 
-An encoder MUST write a single named unit in the named form, never as a
-one-element array — the compact form is the one that stays cheap on the wire,
-and a canonical encoding must not have two spellings for the same unit.
+A single named unit MUST be written in the named form, never as a
+one-element array with exponent one — the compact form is the one that
+stays cheap on the wire, and a canonical encoding must not have two
+spellings for the same unit. Decoders MUST reject `[[unit, 1]]`.
 
 **Why not an existing unit vocabulary?** SenML ([RFC 8428], with an IANA
 registry of its own), UCUM, QUDT and UN/CEFACT Recommendation 20 all define
@@ -171,6 +182,9 @@ reproduces what was displayed and certified.
 
 When `uncertainty` is present, `prefix` MUST be written explicitly, even when
 it is `0`, because the array is positional and `uncertainty` is trailing.
+When no `uncertainty` follows, a `prefix` of `0` MUST be omitted — writing
+it would give the same reading two encodings — and decoders MUST reject the
+redundant form.
 
 ### 3.4 `uncertainty`
 
@@ -202,6 +216,10 @@ Distributions (key 4): 1 = normal, 2 = rectangular, 3 = triangular,
 4 = U-shaped, 5 = Student's t. 0 means "not stated" and MUST be omitted
 rather than written. The degrees of freedom are what a consumer needs to
 derive a coverage factor from a coverage probability ([GUM] Annex G).
+
+A map key other than 1..5 MUST be rejected: an unknown key could state
+anything — an asymmetry, a correlation, a second magnitude — and dropping
+it would silently change what the uncertainty says.
 
 Out of scope, deliberately: **asymmetric** uncertainties and **correlations**
 between quantities. A correlation is a property of a *set* of values, not of
@@ -368,6 +386,16 @@ Encoding Requirements of [RFC 8949], Section 4.2.1, which it fully supports:
 the encoding of a given metrological value is a function of its value, scale,
 unit, prefix and uncertainty alone. This keeps measurement data suitable for
 signing, e.g. with COSE ([RFC 9052]).
+
+The value-level uniqueness rules — one spelling per reading (Section 3.1),
+per exponent and per unit (Section 3.2), per prefix (Section 3.3) — are
+decoder MUSTs of their sections. For the byte level beneath them (shortest
+integer heads, definite lengths, sorted map keys, preferred bignums) two
+decoder profiles exist: a **strict** decoder verifies deterministic encoding
+and rejects what violates it, which is the profile this specification
+RECOMMENDS; a **lenient** decoder MAY accept non-deterministic bytes where
+it has to read documents from producers beyond its control. A lenient
+decoder MUST NOT reproduce non-deterministic bytes when re-encoding.
 
 Two readings that denote the same physical quantity in different
 representations (`5.0 mA` and `0.005 A`) intentionally do **not** produce the

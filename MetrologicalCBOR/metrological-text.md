@@ -68,14 +68,16 @@ prefix             = "Q"/"R"/"Y"/"Z"/"E"/"P"/"T"/"G"/"M"/"k"/"h"/"da"/
 
 statement          = "k="    number
                    / "p="    number
-                   / "dist=" ( "normal" / "rectangular" / "triangular" / "u-shaped" / "t" )
+                   / "dist=" ( "normal" / "rectangular" / "triangular" / "u-shaped" / "student-t" )
                    / "ν="    number
 ```
 
-`symbol` is a unit symbol, alias or name of the registry of
-[README.md](README.md) Section 4. The whole grammar is **anchored**:
-the text is the entire string, with no leading or trailing content beyond
-whitespace.
+`symbol` is a unit symbol of the registry of [README.md](README.md)
+Section 4, or one of the aliases listed there. Registry *names* are not
+symbols: `1 hour` is prose, `1 h` is a reading — names are English words,
+and a format whose strings are auto-detected inside JSON documents must not
+read words as measurements. The whole grammar is **anchored**: the text is
+the entire string, with no leading or trailing content beyond whitespace.
 
 ### 2.2 What the numbers mean
 
@@ -86,7 +88,10 @@ Section 3.1 of the tag specification, and for the same reason.
 Scientific notation is **accepted but never written**: `4.5e-9 V` is read as
 mantissa 45, exponent −10 and comes back as `0.0000000045 V`. A value that
 wants the shorter spelling states an SI prefix instead, which is what prefixes
-are for.
+are for. An exponent that leaves the value with no decimal places denotes
+the integer it equals — `5e2 V` and `5.0e2 V` are both `500 V` — because a
+decimal fraction on the wire states decimal places and its exponent is
+negative ([README.md](README.md) Section 3.1).
 
 ### 2.3 Where the prefix goes
 
@@ -123,6 +128,12 @@ off:
 Only the **leading** factor of a product may carry a prefix; the prefix always
 applies to the quantity as a whole.
 
+A prefix never folds onto a symbol that carries a power of its own: `km²`
+is not a spelling of anything — read as kilo·m² it would mean 10³ m², read
+as (km)² it would mean 10⁶ m², and a parser MUST reject it rather than pick
+a side. This is the reading-direction mirror of the first row of the table
+in Section 2.3.
+
 Two consequences worth stating rather than discovering: `dB` reads as
 deci + byte, because the bel is not a registered unit — and a `°C` reading
 with a prefix is a temperature *difference* (Section 3.3 of the tag
@@ -137,20 +148,24 @@ producer state follows the unit as a comma-separated list, in this order:
 (230.00 ±0.12) V, k=2, p=0.95, dist=normal, ν=45
 ```
 
-`k` is written only when it is not 1; the others only when they are stated. A
-statement without an uncertainty is an error, as is an unknown statement, as
-is the same statement twice. The magnitude is the number **as reported** — the
+The distributions are written `normal`, `rectangular`, `triangular`,
+`u-shaped` and `student-t`. `k` is written only when it is not 1; the others
+only when they are stated. A statement without an uncertainty is an error,
+as is an unknown statement, as is the same statement twice. The magnitude is the number **as reported** — the
 format normalises nothing, exactly as Section 3.4 of the tag specification
 requires.
 
 ### 2.6 What is accepted beyond the canonical spelling
 
 Input is tolerant where tolerance cannot create ambiguity, and strict
-everywhere else. Accepted: `+-` for `±`, `*` for `·`, `nu=` for `ν=`, both
-code points of the micro sign (U+00B5, U+03BC) and of the ohm sign (U+2126,
-U+03A9), scientific notation, statements in any order, and whitespace around
-them. Case is **never** ignored: `m` is milli and `M` is mega, `t` is the
-tonne and `T` the tesla.
+everywhere else. Accepted: `+-` and `+/-` for `±`, `*` for `·`, `x` for `×`,
+`nu=` for `ν=`, `t` for `student-t`, superscript digits for unit exponents
+(`m·s⁻²`) and for the scale (`×10³`), both code points of the micro sign
+(U+00B5, U+03BC) and of the ohm sign (U+2126, U+03A9), scientific notation,
+statements in any order, and whitespace around them. Case is **never**
+ignored: `m` is milli and `M` is mega, `t` is the tonne and `T` the tesla —
+which is also why `t` after `dist=`, where no unit can appear, is
+unambiguously Student's t.
 
 A metrological text always states a unit. A bare number is not a metrological
 value — which is also what keeps the document conversion of Section 3 from
@@ -189,7 +204,7 @@ one JSON string in the format of Section 2.**
 | unsigned / negative integer | number, exactly — including beyond 2⁵³ |
 | tag 2 / 3 (bignum) | number, exactly |
 | tag 4 (decimal fraction) | number, with its scale |
-| half / single / double float | number; NaN and the infinities are not covered |
+| half / single / double float | number, always with a decimal point or exponent — `1.0`, not `1` — so it reads back as a decimal fraction rather than an integer; NaN and the infinities are not covered |
 | text string | string |
 | byte string | string: Base64URL (default), Base64 or lowercase hex |
 | array | array |
@@ -206,6 +221,11 @@ in the document and exact on the way back; what they are not is safe in
 JavaScript's `JSON.parse`, which is a property of that parser and not of the
 document.
 
+Tag 0 passes through as the string it wraps. Tag 1 becomes the instant it
+denotes, written `YYYY-MM-DDThh:mm:ss.fffZ` — UTC, millisecond precision,
+sub-millisecond content truncated — so that every implementation writes the
+same text.
+
 ### 3.2 JSON to CBOR
 
 Strings are try-parsed against the grammar of Section 2; a full match becomes
@@ -215,8 +235,16 @@ perfectly good measurement *and* a perfectly good piece of prose, so a caller
 can decide per [RFC 6901] JSON Pointer path which strings are examined at all.
 
 Numbers never become binary floats: an integer becomes a CBOR integer or a
-bignum, everything else an exact decimal fraction (tag 4) built from the digits
-as written.
+bignum, everything else an exact decimal fraction (tag 4) built from the
+digits as written — `1.10` keeps its trailing zero. An exponent that leaves
+no decimal places denotes the integer it equals (`1e2` is the integer 100),
+because a decimal fraction's exponent is negative on the wire.
+
+This requires reading the digits of a JSON number **as written**. An
+ecosystem whose standard JSON parser hands out binary floats (JavaScript's
+`JSON.parse`) cannot do that through its native tree: a conforming converter
+there works on JSON *text* with its own number reader, and treats tree-level
+conversion as the lossy convenience it is.
 
 ### 3.3 What round-trips, and what does not
 
