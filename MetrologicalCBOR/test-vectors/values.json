@@ -1,0 +1,393 @@
+{
+    "suite": "values",
+    "description": "Valid metrological values: wire bytes, canonical re-encoding, canonical text, text parsing.",
+    "cases": [
+        {
+            "id": "spec5-01-int-ampere",
+            "description": "5 A — integer value, single-byte unit id",
+            "source": "spec §5",
+            "hex": "D9ACDC820504",
+            "text": "5 A",
+            "parseTexts": [
+                {
+                    "text": "+5 A",
+                    "expect": "accept"
+                },
+                {
+                    "text": " 5 A ",
+                    "expect": "survey"
+                },
+                {
+                    "text": "5e0 A",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "spec5-02-int-volt",
+            "description": "230 V — two-byte integer value",
+            "source": "spec §5",
+            "hex": "D9ACDC8218E605",
+            "text": "230 V"
+        },
+        {
+            "id": "spec5-03-decimal-milliamp",
+            "description": "5.0 mA — decimal fraction, milli prefix",
+            "source": "spec §5",
+            "hex": "D9ACDC83C4822018320422",
+            "text": "5.0 mA",
+            "parseTexts": [
+                {
+                    "text": "5.0mA",
+                    "expect": "reject"
+                },
+                {
+                    "text": "05.0 mA",
+                    "expect": "survey"
+                }
+            ]
+        },
+        {
+            "id": "spec5-04-decimal-kilowatthour",
+            "description": "1.10 kWh — trailing zero is resolution and must survive",
+            "source": "spec §5",
+            "hex": "D9ACDC83C48221186E0203",
+            "text": "1.10 kWh",
+            "parseTexts": [
+                {
+                    "text": "1.1 kWh",
+                    "hex": "D9ACDC83C482200B0203",
+                    "expect": "accept"
+                },
+                {
+                    "text": "1.10 KWh",
+                    "expect": "reject"
+                }
+            ]
+        },
+        {
+            "id": "spec5-05-uncertainty-decimal",
+            "description": "(5.00 ±0.02) mA — bare standard uncertainty",
+            "source": "spec §5",
+            "hex": "D9ACDC84C482211901F40422C4822102",
+            "text": "(5.00 ±0.02) mA",
+            "parseTexts": [
+                {
+                    "text": "(5.00 +-0.02) mA",
+                    "expect": "accept"
+                },
+                {
+                    "text": "(5.00 +/-0.02) mA",
+                    "expect": "survey"
+                },
+                {
+                    "text": "(5.00±0.02) mA",
+                    "expect": "survey"
+                }
+            ]
+        },
+        {
+            "id": "spec5-06-uncertainty-integer",
+            "description": "(5 ±0.5) A — prefix written explicitly because uncertainty follows",
+            "source": "spec §5",
+            "hex": "D9ACDC84050400C4822005",
+            "text": "(5 ±0.5) A"
+        },
+        {
+            "id": "spec5-07-symbolic-unit",
+            "description": "5.0 mA with the unit as a text symbol; default (canonical) re-encoding uses the numeric id",
+            "source": "spec §5",
+            "hex": "D9ACDC83C482201832614122",
+            "canonicalHex": "D9ACDC83C4822018320422",
+            "text": "5.0 mA"
+        },
+        {
+            "id": "spec5-08-compound-unit",
+            "description": "9.81 m·s⁻² — product of powers",
+            "source": "spec §5",
+            "hex": "D9ACDC82C482211903D582820F01820821",
+            "text": "9.81 m·s^-2",
+            "parseTexts": [
+                {
+                    "text": "9.81 m*s^-2",
+                    "expect": "accept"
+                },
+                {
+                    "text": "9.81 m·s⁻²",
+                    "expect": "accept"
+                },
+                {
+                    "text": "9.81 m s^-2",
+                    "expect": "survey"
+                }
+            ]
+        },
+        {
+            "id": "spec5-09-coverage-factor",
+            "description": "(230.00 ±0.12) V, k=2 — uncertainty map with coverage factor",
+            "source": "spec §5",
+            "hex": "D9ACDC84C482211959D80500A201C482210C0202",
+            "text": "(230.00 ±0.12) V, k=2",
+            "parseTexts": [
+                {
+                    "text": "(230.00 ±0.12) V,k=2",
+                    "expect": "survey"
+                },
+                {
+                    "text": "(230.00 ±0.12) V, K=2",
+                    "expect": "reject"
+                }
+            ]
+        },
+        {
+            "id": "spec5-10-rational-exponent",
+            "description": "4.5 nV·Hz^-1/2 — rational exponent",
+            "source": "spec §5",
+            "hex": "D9ACDC83C48220182D82820501820982200228",
+            "text": "4.5 nV·Hz^-1/2",
+            "parseTexts": [
+                {
+                    "text": "4.5 nV*Hz^-1/2",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "negative-integer",
+            "description": "-5 A — negative integer value",
+            "hex": "D9ACDC822404",
+            "text": "-5 A"
+        },
+        {
+            "id": "negative-decimal",
+            "description": "-0.5 V — negative decimal fraction",
+            "hex": "D9ACDC82C482202405",
+            "text": "-0.5 V"
+        },
+        {
+            "id": "percent",
+            "description": "95.5 % — percent is a plain dimensionless ratio",
+            "hex": "D9ACDC82C482201903BB06",
+            "text": "95.5 %"
+        },
+        {
+            "id": "celsius",
+            "description": "21.5 °C — affine unit",
+            "hex": "D9ACDC82C4822018D707",
+            "text": "21.5 °C",
+            "parseTexts": [
+                {
+                    "text": "21.5 Cel",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "kilogram",
+            "description": "5 kg — the prefixable base of mass is the gram",
+            "source": "spec §4, note on mass",
+            "hex": "D9ACDC83051003",
+            "text": "5 kg"
+        },
+        {
+            "id": "tonne-decimal",
+            "description": "1.5 t — the tonne, not the tesla",
+            "hex": "D9ACDC82C482200F183F",
+            "text": "1.5 t"
+        },
+        {
+            "id": "hour-fraction",
+            "description": "0.5 h",
+            "hex": "D9ACDC82C482200512",
+            "text": "0.5 h"
+        },
+        {
+            "id": "minute",
+            "description": "30 min",
+            "hex": "D9ACDC82181E13",
+            "text": "30 min"
+        },
+        {
+            "id": "microampere",
+            "description": "5 µA — micro sign U+00B5 canonical, Greek mu accepted",
+            "hex": "D9ACDC83050425",
+            "text": "5 µA",
+            "parseTexts": [
+                {
+                    "text": "5 μA",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "ohm",
+            "description": "230 Ω — U+03A9 canonical; U+2126 OHM SIGN and the alias accepted",
+            "hex": "D9ACDC8218E60E",
+            "text": "230 Ω",
+            "parseTexts": [
+                {
+                    "text": "230 Ω",
+                    "expect": "accept"
+                },
+                {
+                    "text": "230 Ohm",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "centiday-scale",
+            "description": "1.25×10^-2 d — prefix not foldable, cd is the candela",
+            "source": "metrological-text §2.3",
+            "hex": "D9ACDC83C48221187D183C21",
+            "text": "1.25×10^-2 d",
+            "parseTexts": [
+                {
+                    "text": "1.25*10^-2 d",
+                    "expect": "accept"
+                },
+                {
+                    "text": "1.25×10⁻² d",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "squaremeter-scale",
+            "description": "5×10^3 m² — prefix not foldable, km² would read as 10^6 m²",
+            "source": "metrological-text §2.3",
+            "hex": "D9ACDC8305188C03",
+            "text": "5×10^3 m²",
+            "parseTexts": [
+                {
+                    "text": "5*10^3 m²",
+                    "expect": "accept"
+                },
+                {
+                    "text": "5×10³ m²",
+                    "expect": "accept"
+                },
+                {
+                    "text": "5 km²",
+                    "expect": "reject"
+                }
+            ]
+        },
+        {
+            "id": "leading-exponent-scale",
+            "description": "2×10^3 s^-2 — prefix not foldable onto a factor with exponent ≠ 1",
+            "source": "metrological-text §2.3",
+            "hex": "D9ACDC83028182082103",
+            "text": "2×10^3 s^-2",
+            "parseTexts": [
+                {
+                    "text": "2*10^3 s^-2",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "uncertainty-full-map",
+            "description": "All five uncertainty statements",
+            "hex": "D9ACDC84C482211959D80500A501C482210C020203C48221185F040105182D",
+            "text": "(230.00 ±0.12) V, k=2, p=0.95, dist=normal, ν=45",
+            "parseTexts": [
+                {
+                    "text": "(230.00 ±0.12) V, k=2, p=0.95, dist=normal, nu=45",
+                    "expect": "accept"
+                },
+                {
+                    "text": "(230.00 +-0.12) V, k=2, p=0.95, dist=normal, nu=45",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "uncertainty-student-t",
+            "description": "Student's t distribution — the two text spellings under test",
+            "hex": "D9ACDC84050400A201010405",
+            "text": "(5 ±1) A, dist=student-t",
+            "parseTexts": [
+                {
+                    "text": "(5 ±1) A, dist=t",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "bignum-mantissa",
+            "description": "12345678901234567890.1 Wh — mantissa above 2^64 as tag 2 bignum",
+            "hex": "D9ACDC82C48220C24906B14E9F812F366C3502",
+            "text": "12345678901234567890.1 Wh"
+        },
+        {
+            "id": "bignum-integer-value",
+            "description": "2^64 A — an integer beyond major type 0 as a tag 2 bignum value",
+            "source": "spec §3.1",
+            "hex": "D9ACDC82C24901000000000000000004",
+            "text": "18446744073709551616 A"
+        },
+        {
+            "id": "sci-notation-value",
+            "description": "0.0000000045 V·Hz^-1/2 — scientific input accepted, never written; no prefix invented",
+            "source": "metrological-text §2.2",
+            "hex": "D9ACDC82C48229182D828205018209822002",
+            "text": "0.0000000045 V·Hz^-1/2",
+            "parseTexts": [
+                {
+                    "text": "4.5e-9 V·Hz^-1/2",
+                    "expect": "accept"
+                }
+            ]
+        },
+        {
+            "id": "dimensionless-zero",
+            "description": "0, unit one — how is the dimensionless unit written?",
+            "hex": "D9ACDC820001",
+            "text": "0 1"
+        },
+        {
+            "id": "dimensionless-count",
+            "description": "42, unit one",
+            "hex": "D9ACDC82182A01",
+            "text": "42 1"
+        },
+        {
+            "id": "permille",
+            "description": "200 ‰",
+            "hex": "D9ACDC8218C81840",
+            "text": "200 ‰"
+        },
+        {
+            "id": "ppm",
+            "description": "500 ppm",
+            "hex": "D9ACDC821901F41841",
+            "text": "500 ppm"
+        },
+        {
+            "id": "megabit-per-second",
+            "description": "100 Mbit/s — prefix folded onto a symbol containing a slash",
+            "hex": "D9ACDC8318641606",
+            "text": "100 Mbit/s"
+        },
+        {
+            "id": "millikelvin",
+            "description": "1234.5 mK",
+            "hex": "D9ACDC83C482201930391122",
+            "text": "1234.5 mK"
+        },
+        {
+            "id": "kilojoule",
+            "description": "1.50 kJ",
+            "hex": "D9ACDC83C4822118961403",
+            "text": "1.50 kJ"
+        },
+        {
+            "id": "deci-byte",
+            "description": "5 dB — reads as deci-byte, the bel is not a registered unit",
+            "source": "metrological-text §2.4",
+            "hex": "D9ACDC8305187920",
+            "text": "5 dB"
+        }
+    ]
+}

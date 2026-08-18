@@ -1,0 +1,104 @@
+{
+    "suite": "json-to-cbor",
+    "description": "The JSON → CBOR direction on exact JSON text. The number cases probe whether an implementation keeps the digits as written (exact decimal fractions) or goes through binary floats.",
+    "cases": [
+        {
+            "id": "integer",
+            "json": "{\"x\":5}",
+            "cborHex": "A1617805"
+        },
+        {
+            "id": "root-number",
+            "json": "5",
+            "cborHex": "05"
+        },
+        {
+            "id": "root-reading-string",
+            "json": "\"5 A\"",
+            "cborHex": "D9ACDC820504"
+        },
+        {
+            "id": "empty-string",
+            "json": "\"\"",
+            "cborHex": "60"
+        },
+        {
+            "id": "reading-string",
+            "description": "The scale of the reading survives, because it travels as text",
+            "json": "{\"e\":\"1.10 kWh\"}",
+            "cborHex": "A16165D9ACDC83C48221186E0203"
+        },
+        {
+            "id": "ascii-reading-string",
+            "description": "ASCII spellings of ± and · are accepted on the way in",
+            "json": "{\"e\":\"(5.00 +-0.02) mA\"}",
+            "cborHex": "A16165D9ACDC84C482211901F40422C4822102"
+        },
+        {
+            "id": "caret-compound-reading",
+            "description": "Compound unit in the caret spelling",
+            "json": "{\"e\":\"9.81 m·s^-2\"}",
+            "cborHex": "A16165D9ACDC82C482211903D582820F01820821"
+        },
+        {
+            "id": "superscript-compound-reading",
+            "description": "Compound unit in the superscript spelling — accepted input everywhere",
+            "json": "{\"e\":\"9.81 m·s⁻²\"}",
+            "cborHex": "A16165D9ACDC82C482211903D582820F01820821"
+        },
+        {
+            "id": "prose-string",
+            "description": "Anchored grammar: prose stays text",
+            "json": "{\"s\":\"about 1 h\"}",
+            "cborHex": "A161736961626F757420312068"
+        },
+        {
+            "id": "bare-number-string",
+            "description": "\"5\" stays a string: a metrological text always states a unit",
+            "json": "{\"s\":\"5\"}",
+            "cborHex": "A161736135"
+        },
+        {
+            "id": "fractional-number",
+            "description": "5.0 becomes the exact decimal fraction 4([-1, 50]), never a binary float",
+            "json": "{\"x\":5.0}",
+            "cborHex": "A16178C482201832"
+        },
+        {
+            "id": "scale-preserving-number",
+            "description": "1.10 keeps its trailing zero: 4([-2, 110])",
+            "json": "{\"x\":1.10}",
+            "cborHex": "A16178C48221186E"
+        },
+        {
+            "id": "exponent-number",
+            "json": "{\"x\":1e2}",
+            "cborHex": "A161781864",
+            "description": "1e2 leaves no decimal places and denotes the integer 100"
+        },
+        {
+            "id": "unsafe-integer",
+            "description": "2^53+1, exact from its digits",
+            "json": "{\"n\":9007199254740993}",
+            "cborHex": "A1616E1B0020000000000001"
+        },
+        {
+            "id": "uint64-max",
+            "description": "the largest CBOR integer head, exact from its digits",
+            "json": "{\"n\":18446744073709551615}",
+            "cborHex": "A1616E1BFFFFFFFFFFFFFFFF"
+        },
+        {
+            "id": "negative-zero",
+            "json": "-0.0",
+            "cborHex": "C4822000",
+            "description": "-0.0 is the decimal fraction 4([-1, 0]); bigints carry no signed zero"
+        },
+        {
+            "id": "huge-exponent",
+            "json": "1e100",
+            "cborHex": "C2582A1249AD2594C37CEB0B2784C4CE0BF38ACE408E211A7CAAB24308A82E8F10000000000000000000000000",
+            "description": "1e100 denotes the exact integer 10^100, a 42-byte bignum"
+        }
+    ]
+}

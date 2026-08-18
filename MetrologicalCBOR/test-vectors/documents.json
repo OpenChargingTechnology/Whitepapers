@@ -1,0 +1,180 @@
+{
+    "suite": "documents",
+    "description": "Document-level CBOR ↔ JSON conversion (metrological-text.md §3). Map keys of roundtrip cases are in canonical (bytewise) order so that a deterministic re-encoding can reproduce the input.",
+    "cases": [
+        {
+            "id": "meter-reading-sorted",
+            "description": "A meter reading with one metrological value; canonical key order",
+            "cborHex": "A36474696D6574323032362D30382D31355430383A31343A30305A656D657465726E314953413030303030303030343266656E65726779D9ACDC83C48221186E0203",
+            "json": "{\"time\":\"2026-08-15T08:14:00Z\",\"meter\":\"1ISA0000000042\",\"energy\":\"1.10 kWh\"}",
+            "roundtrip": true
+        },
+        {
+            "id": "transaction-record-sorted",
+            "description": "Two text fields and a reading with a coverage factor; canonical key order",
+            "cborHex": "A46474696D6574323032362D30382D31355430383A31343A30305A656D657465726E314953413030303030303030343266656E65726779D9ACDC84C482221A0012D6870203A201C48220187B020267636F6E74657874715472616E73616374696F6E2E426567696E",
+            "json": "{\"time\":\"2026-08-15T08:14:00Z\",\"meter\":\"1ISA0000000042\",\"energy\":\"(1234.567 ±12.3) kWh, k=2\",\"context\":\"Transaction.Begin\"}",
+            "roundtrip": true
+        },
+        {
+            "id": "worked-example-meter-reading",
+            "description": "The unsigned meter reading of the worked signed example (human key order, tag 0 timestamp)",
+            "source": "spec, tag-44252-signed-example.md",
+            "cborHex": "A5656D657465726E31495341303030303030303034326B7472616E73616374696F6E68613466316339653267636F6E74657874715472616E73616374696F6E2E426567696E6474696D65C074323032362D30382D31355430383A31343A30305A66656E65726779D9ACDC84C482221A0012D6870203A401C48220187B020203C48221185F0401",
+            "json": "{\"meter\":\"1ISA0000000042\",\"transaction\":\"a4f1c9e2\",\"context\":\"Transaction.Begin\",\"time\":\"2026-08-15T08:14:00Z\",\"energy\":\"(1234.567 ±12.3) kWh, k=2, p=0.95, dist=normal\"}",
+            "roundtrip": false
+        },
+        {
+            "id": "scalar-array",
+            "description": "Integers, booleans, null, text",
+            "cborHex": "8700201818F5F4F66474657874",
+            "json": "[0,-1,24,true,false,null,\"text\"]",
+            "roundtrip": true
+        },
+        {
+            "id": "nested-reading",
+            "description": "A reading nested in array and map",
+            "cborHex": "A1616181A16162D9ACDC820504",
+            "json": "{\"a\":[{\"b\":\"5 A\"}]}",
+            "roundtrip": true
+        },
+        {
+            "id": "root-reading",
+            "description": "A metrological value as the whole document",
+            "cborHex": "D9ACDC820504",
+            "json": "\"5 A\"",
+            "roundtrip": true
+        },
+        {
+            "id": "unicode-text",
+            "description": "Non-ASCII text survives unescaped",
+            "cborHex": "A1617366C3A4C3B6C3BC",
+            "json": "{\"s\":\"äöü\"}",
+            "roundtrip": true
+        },
+        {
+            "id": "empty-map",
+            "cborHex": "A0",
+            "json": "{}",
+            "roundtrip": true
+        },
+        {
+            "id": "empty-array",
+            "cborHex": "80",
+            "json": "[]",
+            "roundtrip": true
+        },
+        {
+            "id": "safe-integer-max",
+            "description": "2^53-1, the largest integer JSON holds exactly everywhere",
+            "cborHex": "A1616E1B001FFFFFFFFFFFFF",
+            "json": "{\"n\":9007199254740991}",
+            "roundtrip": true
+        },
+        {
+            "id": "above-safe-integer",
+            "description": "2^53+1 — an exact JSON number, beyond what JavaScript JSON.parse holds",
+            "cborHex": "A1616E1B0020000000000001",
+            "roundtrip": true,
+            "json": "{\"n\":9007199254740993}"
+        },
+        {
+            "id": "uint64-in-document",
+            "description": "The largest CBOR integer head, 2^64-1",
+            "cborHex": "A1616E1BFFFFFFFFFFFFFFFF",
+            "roundtrip": true,
+            "json": "{\"n\":18446744073709551615}"
+        },
+        {
+            "id": "bignum-in-document",
+            "description": "2^64 as tag 2 outside a reading — an exact JSON number",
+            "cborHex": "A1616EC249010000000000000000",
+            "roundtrip": true,
+            "json": "{\"n\":18446744073709551616}"
+        },
+        {
+            "id": "decfrac-in-document",
+            "description": "19.99 as tag 4 outside a reading — a JSON number with its scale",
+            "cborHex": "A1657072696365C482211907CF",
+            "roundtrip": true,
+            "json": "{\"price\":19.99}"
+        },
+        {
+            "id": "float-three-halves",
+            "description": "Half-precision 1.5 — floats are one-way: back as the exact decimal 4([-1, 15])",
+            "cborHex": "81F93E00",
+            "json": "[1.5]",
+            "roundtrip": false,
+            "roundtripHex": "81C482200F"
+        },
+        {
+            "id": "float-one",
+            "description": "Half-precision 1.0 — the point is kept, so it comes back as 4([-1, 10]) rather than the integer 1",
+            "cborHex": "81F93C00",
+            "roundtrip": false,
+            "json": "[1.0]",
+            "roundtripHex": "81C482200A"
+        },
+        {
+            "id": "bytes-blob",
+            "description": "A byte string becomes unpadded base64url; documented one-way",
+            "cborHex": "A164626C6F6244DEADBEEF",
+            "json": "{\"blob\":\"3q2-7w\"}",
+            "roundtrip": false
+        },
+        {
+            "id": "tag0-datetime",
+            "description": "Tag 0 becomes the string it wraps; documented one-way",
+            "cborHex": "A16174C074323032362D30382D31355430383A31343A30305A",
+            "json": "{\"t\":\"2026-08-15T08:14:00Z\"}",
+            "roundtrip": false
+        },
+        {
+            "id": "tag1-epoch",
+            "description": "Tag 1 becomes the instant it denotes, UTC with millisecond precision (metrological-text §3.1)",
+            "cborHex": "A16174C11A693FDAB8",
+            "roundtrip": false,
+            "json": "{\"t\":\"2025-12-15T09:54:00.000Z\"}",
+            "roundtripHex": "A161747818323032352D31322D31355430393A35343A30302E3030305A"
+        },
+        {
+            "id": "string-that-reads-as-reading",
+            "description": "The '1 h' hazard: a text string that parses as a reading comes back as tag 44252",
+            "source": "metrological-text §3.2",
+            "cborHex": "A1646E6F746563312068",
+            "json": "{\"note\":\"1 h\"}",
+            "roundtrip": false,
+            "roundtripHex": "A1646E6F7465D9ACDC820112"
+        },
+        {
+            "id": "int-keys-error",
+            "description": "A COSE-style integer key refuses by default",
+            "cborHex": "A10126",
+            "expectToJsonError": true
+        },
+        {
+            "id": "duplicate-keys-error",
+            "description": "Duplicate map keys must not silently drop an entry",
+            "cborHex": "A2616101616102",
+            "expectToJsonError": true
+        },
+        {
+            "id": "nan-error",
+            "description": "JSON has no NaN",
+            "cborHex": "81F97E00",
+            "expectToJsonError": true
+        },
+        {
+            "id": "undefined-error",
+            "description": "The undefined value has no JSON counterpart",
+            "cborHex": "81F7",
+            "expectToJsonError": true
+        },
+        {
+            "id": "simple-value-error",
+            "description": "An unassigned simple value has no JSON counterpart",
+            "cborHex": "81F0",
+            "expectToJsonError": true
+        }
+    ]
+}

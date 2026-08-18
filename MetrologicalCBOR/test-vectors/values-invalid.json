@@ -1,0 +1,388 @@
+{
+    "suite": "values-invalid",
+    "description": "Inputs a conforming decoder or text parser must reject, plus survey cases the specification leaves open.",
+    "cases": [
+        {
+            "id": "value-float",
+            "hex": "D9ACDC82F9480004",
+            "reason": "value MUST NOT be a binary float (spec §3.1)",
+            "description": "half-precision 8.0 as value"
+        },
+        {
+            "id": "value-bigfloat",
+            "hex": "D9ACDC82C582200304",
+            "reason": "value MUST NOT be a bigfloat (spec §3.1)",
+            "description": "tag 5 as value"
+        },
+        {
+            "id": "value-non-preferred-bignum",
+            "hex": "D9ACDC82C2410504",
+            "reason": "an integer that major type 0 can carry MUST NOT be written as a bignum (spec §3.1); decoder acceptance is the deterministic-profile question",
+            "description": "5 as a tag 2 bignum",
+            "expect": "survey"
+        },
+        {
+            "id": "arity-one",
+            "hex": "D9ACDC8105",
+            "reason": "array MUST have 2..4 items (spec §3)",
+            "description": "one-element array"
+        },
+        {
+            "id": "arity-five",
+            "hex": "D9ACDC850504000000",
+            "reason": "array MUST have 2..4 items (spec §3)",
+            "description": "five-element array"
+        },
+        {
+            "id": "tag-content-integer",
+            "hex": "D9ACDC05",
+            "reason": "tag content MUST be an array (spec §3)",
+            "description": "bare integer as tag content"
+        },
+        {
+            "id": "tag-content-map",
+            "hex": "D9ACDCA10105",
+            "reason": "tag content MUST be an array (spec §3)",
+            "description": "map as tag content"
+        },
+        {
+            "id": "untagged-array",
+            "hex": "820504",
+            "reason": "the tag itself is required",
+            "description": "well-formed content without tag 44252"
+        },
+        {
+            "id": "double-tagged",
+            "hex": "D9ACDCD9ACDC820504",
+            "reason": "tag content MUST be an array, not another tag (spec §3)",
+            "description": "tag 44252 wrapping tag 44252"
+        },
+        {
+            "id": "unit-id-zero",
+            "hex": "D9ACDC820500",
+            "reason": "unit id 0 is reserved and never valid (spec §4)",
+            "description": "unit id 0"
+        },
+        {
+            "id": "unit-id-above-65535",
+            "hex": "D9ACDC82051A00010000",
+            "reason": "unit ids above 65535 are errors (spec §3.2)",
+            "description": "unit id 65536"
+        },
+        {
+            "id": "unit-id-unregistered",
+            "hex": "D9ACDC82051828",
+            "reason": "unregistered id is an error (spec §3.2)",
+            "description": "unit id 40, reserved range"
+        },
+        {
+            "id": "unit-symbol-unknown",
+            "hex": "D9ACDC8205676675726C6F6E67",
+            "reason": "unknown symbol is an error (spec §3.2)",
+            "description": "unit symbol 'furlong'"
+        },
+        {
+            "id": "unit-float",
+            "hex": "D9ACDC8205F94800",
+            "reason": "unit must be uint, tstr or array (spec §3.2)",
+            "description": "float as unit"
+        },
+        {
+            "id": "unit-empty-product",
+            "hex": "D9ACDC820580",
+            "reason": "a product of powers has one or more factors (spec §3, CDDL)",
+            "description": "empty array as unit"
+        },
+        {
+            "id": "unit-factor-arity",
+            "hex": "D9ACDC820581810F",
+            "reason": "a unit factor is [named-unit, exponent] (spec §3.2)",
+            "description": "one-element factor"
+        },
+        {
+            "id": "rational-denominator-zero",
+            "hex": "D9ACDC8205818208820100",
+            "reason": "denominator MUST be positive (spec §3.2)",
+            "description": "exponent [1, 0]"
+        },
+        {
+            "id": "rational-denominator-negative",
+            "hex": "D9ACDC8205818208820121",
+            "reason": "denominator MUST be positive (spec §3.2)",
+            "description": "exponent [1, -2]"
+        },
+        {
+            "id": "rational-numerator-zero",
+            "hex": "D9ACDC8205818208820002",
+            "reason": "numerator MUST NOT be zero (spec §3.2)",
+            "description": "exponent [0, 2]"
+        },
+        {
+            "id": "integer-exponent-zero",
+            "hex": "D9ACDC820581820F00",
+            "reason": "a unit exponent MUST NOT be zero (spec §3.2)",
+            "description": "factor m^0"
+        },
+        {
+            "id": "non-reduced-rational",
+            "hex": "D9ACDC8205818208822104",
+            "reason": "a rational exponent MUST be in lowest terms; decoders reject rather than reduce (spec §3.2)",
+            "description": "exponent [-2, 4]"
+        },
+        {
+            "id": "rational-denominator-one",
+            "hex": "D9ACDC8205818208820201",
+            "reason": "the rational spelling of an integer exponent is not valid; the denominator MUST be greater than one (spec §3.2)",
+            "description": "exponent [2, 1]"
+        },
+        {
+            "id": "single-unit-as-product",
+            "hex": "D9ACDC820581820401",
+            "reason": "decoders MUST reject a single named unit written as a one-element product (spec §3.2)",
+            "description": "one-factor product with exponent 1"
+        },
+        {
+            "id": "prefix-four",
+            "hex": "D9ACDC83050404",
+            "reason": "only the 25 canonical SI prefix exponents are valid (spec §3.3)",
+            "description": "prefix 4"
+        },
+        {
+            "id": "prefix-minus-four",
+            "hex": "D9ACDC83050423",
+            "reason": "only the 25 canonical SI prefix exponents are valid (spec §3.3)",
+            "description": "prefix -4"
+        },
+        {
+            "id": "prefix-thirtyone",
+            "hex": "D9ACDC830504181F",
+            "reason": "only the 25 canonical SI prefix exponents are valid (spec §3.3)",
+            "description": "prefix 31"
+        },
+        {
+            "id": "prefix-float",
+            "hex": "D9ACDC830504F94200",
+            "reason": "prefix is an int (spec §3, CDDL)",
+            "description": "half-precision 3.0 as prefix"
+        },
+        {
+            "id": "redundant-prefix-zero",
+            "hex": "D9ACDC83050400",
+            "reason": "a prefix of 0 MUST be omitted when no uncertainty follows; decoders reject the redundant form (spec §3.3)",
+            "description": "[5, A, 0]"
+        },
+        {
+            "id": "uncertainty-negative",
+            "hex": "D9ACDC8405040020",
+            "reason": "uncertainty MUST NOT be negative (spec §3.4)",
+            "description": "bare uncertainty -1"
+        },
+        {
+            "id": "uncertainty-text",
+            "hex": "D9ACDC840504006161",
+            "reason": "uncertainty is a number or a map (spec §3.4)",
+            "description": "text string as uncertainty"
+        },
+        {
+            "id": "uncertainty-map-missing-magnitude",
+            "hex": "D9ACDC84050400A10202",
+            "reason": "map key 1 (magnitude) is required (spec §3.4)",
+            "description": "{2: 2}"
+        },
+        {
+            "id": "uncertainty-map-negative-magnitude",
+            "hex": "D9ACDC84050400A10120",
+            "reason": "uncertainty MUST NOT be negative (spec §3.4)",
+            "description": "{1: -1}"
+        },
+        {
+            "id": "uncertainty-map-duplicate-key",
+            "hex": "D9ACDC84050400A201010102",
+            "reason": "duplicate map keys are invalid CBOR (RFC 8949 §5.6)",
+            "description": "{1: 1, 1: 2}"
+        },
+        {
+            "id": "distribution-zero",
+            "hex": "D9ACDC84050400A201010400",
+            "reason": "distribution 0 MUST be omitted rather than written (spec §3.4)",
+            "description": "{1: 1, 4: 0}"
+        },
+        {
+            "id": "distribution-unknown",
+            "hex": "D9ACDC84050400A201010406",
+            "reason": "distributions are 1..5 (spec §3.4)",
+            "description": "{1: 1, 4: 6}"
+        },
+        {
+            "id": "probability-zero",
+            "hex": "D9ACDC84050400A201010300",
+            "reason": "coverage probability lies in ]0, 1] (spec §3.4)",
+            "description": "{1: 1, 3: 0}"
+        },
+        {
+            "id": "probability-above-one",
+            "hex": "D9ACDC84050400A201010302",
+            "reason": "coverage probability lies in ]0, 1] (spec §3.4)",
+            "description": "{1: 1, 3: 2}"
+        },
+        {
+            "id": "dof-negative",
+            "hex": "D9ACDC84050400A201010520",
+            "reason": "degrees of freedom are positive (spec §3.4)",
+            "description": "{1: 1, 5: -1}"
+        },
+        {
+            "id": "dof-zero",
+            "hex": "D9ACDC84050400A201010500",
+            "reason": "degrees of freedom are positive (spec §3.4)",
+            "description": "{1: 1, 5: 0}"
+        },
+        {
+            "id": "coverage-factor-zero",
+            "hex": "D9ACDC84050400A201010200",
+            "reason": "spec is silent on k = 0, but u = magnitude/k is then undefined",
+            "description": "{1: 1, 2: 0}",
+            "expect": "survey"
+        },
+        {
+            "id": "uncertainty-map-unknown-key",
+            "hex": "D9ACDC84050400A201010601",
+            "reason": "a map key other than 1..5 MUST be rejected (spec §3.4)",
+            "description": "{1: 1, 6: 1}"
+        },
+        {
+            "id": "decfrac-exponent-zero",
+            "hex": "D9ACDC82C482001901F405",
+            "reason": "a decimal fraction's exponent MUST be negative (spec §3.1)",
+            "description": "4([0, 500]) as value — the second spelling of the integer 500"
+        },
+        {
+            "id": "decfrac-positive-exponent",
+            "hex": "D9ACDC82C48201183205",
+            "reason": "a decimal fraction's exponent MUST be negative (spec §3.1)",
+            "description": "4([1, 50]) as value"
+        },
+        {
+            "id": "decfrac-exponent-zero-uncertainty",
+            "hex": "D9ACDC84050400C4820005",
+            "reason": "a decimal fraction's exponent MUST be negative (spec §3.1)",
+            "description": "4([0, 5]) as uncertainty"
+        },
+        {
+            "id": "decfrac-arity",
+            "hex": "D9ACDC82C4812004",
+            "reason": "a decimal fraction is [exponent, mantissa] (RFC 8949 §3.4.4)",
+            "description": "4([-1])"
+        },
+        {
+            "id": "decfrac-float-mantissa",
+            "hex": "D9ACDC82C48220F9480004",
+            "reason": "mantissa must be an integer or bignum (spec §3.1)",
+            "description": "4([-1, 8.0])"
+        },
+        {
+            "id": "nondeterministic-integer-head",
+            "hex": "D9ACDC82180504",
+            "reason": "5 encoded in two bytes; deterministic-encoding acceptance is a decoder profile question",
+            "description": "non-shortest integer head",
+            "expect": "survey"
+        },
+        {
+            "id": "indefinite-length-array",
+            "hex": "D9ACDC9F0504FF",
+            "reason": "indefinite length violates deterministic encoding; acceptance undecided",
+            "description": "indefinite-length tag content",
+            "expect": "survey"
+        },
+        {
+            "id": "text-bare-number",
+            "text": "5",
+            "reason": "a metrological text always states a unit (metrological-text §2.6)",
+            "description": "bare number"
+        },
+        {
+            "id": "text-unknown-unit",
+            "text": "5 furlong",
+            "reason": "unknown symbol",
+            "description": ""
+        },
+        {
+            "id": "text-prose-prefix",
+            "text": "about 1 h",
+            "reason": "grammar is anchored",
+            "description": ""
+        },
+        {
+            "id": "text-prose-suffix",
+            "text": "1 hour",
+            "reason": "symbols and aliases only — registry names are not symbols (metrological-text §2.1)",
+            "description": ""
+        },
+        {
+            "id": "text-trailing-content",
+            "text": "5 A extra",
+            "reason": "grammar is anchored",
+            "description": ""
+        },
+        {
+            "id": "text-negative-uncertainty",
+            "text": "(5 ±-0.5) A",
+            "reason": "uncertainty MUST NOT be negative",
+            "description": ""
+        },
+        {
+            "id": "text-statement-without-uncertainty",
+            "text": "5 A, k=2",
+            "reason": "a statement without an uncertainty is an error (metrological-text §2.5)",
+            "description": ""
+        },
+        {
+            "id": "text-duplicate-statement",
+            "text": "(5 ±0.5) A, k=2, k=3",
+            "reason": "the same statement twice is an error (metrological-text §2.5)",
+            "description": ""
+        },
+        {
+            "id": "text-unknown-statement",
+            "text": "(5 ±0.5) A, q=3",
+            "reason": "an unknown statement is an error (metrological-text §2.5)",
+            "description": ""
+        },
+        {
+            "id": "text-lowercase-symbol",
+            "text": "5 ma",
+            "reason": "case is never ignored (metrological-text §2.6)",
+            "description": "milli + unknown 'a'"
+        },
+        {
+            "id": "text-decimal-comma",
+            "text": "5,0 mA",
+            "reason": "the decimal separator is the point",
+            "description": ""
+        },
+        {
+            "id": "text-empty",
+            "text": "",
+            "reason": "empty string",
+            "description": ""
+        },
+        {
+            "id": "text-trailing-point",
+            "text": "5. A",
+            "reason": "grammar requires digits after the point",
+            "description": ""
+        },
+        {
+            "id": "text-leading-point",
+            "text": ".5 A",
+            "reason": "grammar requires digits before the point",
+            "description": ""
+        },
+        {
+            "id": "text-parenthesis-without-uncertainty",
+            "text": "(5) A",
+            "reason": "parentheses require the ± form",
+            "description": ""
+        }
+    ]
+}

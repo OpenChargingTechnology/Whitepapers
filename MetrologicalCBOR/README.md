@@ -24,6 +24,12 @@ transaction, byte by byte.
 specifies the one-string text form of a metrological value and the
 document-level conversion between CBOR and JSON built on it.
 
+**Test vectors:** [test-vectors/](test-vectors/) is the machine-readable
+conformance annex — golden encodings, must-reject inputs, text renderings
+and the JSON conversion — exercised continuously against both reference
+implementations by the
+[cross-implementation conformance suite](https://github.com/Vanaheimr/MCBORConformanceTests).
+
 ## 1. Introduction
 
 The Concise Binary Object Representation (CBOR, [RFC 8949]) has no standardized
