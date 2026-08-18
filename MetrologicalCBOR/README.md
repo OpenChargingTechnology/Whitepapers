@@ -20,6 +20,10 @@ GraphDefined GmbH
 carries two metrological values through three signature layers of a charging
 transaction, byte by byte.
 
+**Text format and JSON:** [metrological-text.md](metrological-text.md)
+specifies the one-string text form of a metrological value and the
+document-level conversion between CBOR and JSON built on it.
+
 ## 1. Introduction
 
 The Concise Binary Object Representation (CBOR, [RFC 8949]) has no standardized
@@ -413,7 +417,7 @@ Data item:                       array
 Semantics (short form):          Metrological value (quantity with unit of
                                  measure, SI prefix and measurement uncertainty)
 Point of contact:                Achim Friedland <achim.friedland@graphdefined.com>
-Description of semantics (URL):  https://github.com/Vanaheimr/Styx/blob/master/Styx/Illias/CBOR/tag-44252.md
+Description of semantics (URL):  https://github.com/OpenChargingTechnology/Whitepapers/blob/master/MetrologicalCBOR/README.md
 ```
 
 ## 9. References
