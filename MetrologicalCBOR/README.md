@@ -3,7 +3,7 @@
 **Status:** Stable. This document is the normative specification of CBOR tag
 44252 and serves as the semantics reference of its IANA registration.
 
-**Version:** 1.0 (2026-08-14)
+**Version:** 1.0 (2026-08-18)
 
 The numeric identifications of Section 4 become permanent with the IANA
 registration. Until then this document has no version history worth keeping:
@@ -12,7 +12,9 @@ nothing has been registered and no implementation has shipped.
 **Point of contact:** Achim Friedland &lt;achim.friedland@graphdefined.com&gt;,
 GraphDefined GmbH
 
-**Implementation:** [Vanaheimr Styx CBOR](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/CBOR) (Apache License 2.0)
+**Implementations:**
+- [Vanaheimr Styx CBOR C#](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/CBOR) (Apache License 2.0)
+- [Metrological CBOR Type Script](https://github.com/Vanaheimr/MetrologicalCBOR.TS) (Apache License 2.0)
 
 **Worked example:** [tag-44252-signed-example.md](tag-44252-signed-example.md)
 carries two metrological values through three signature layers of a charging
@@ -285,7 +287,7 @@ addition never has to break the grouping.
 | 140 | `188C` | `m²` | square meter |
 | 141 | `188D` | `m³` | cubic meter |
 
-Accepted symbol aliases: `Metre` (2), `Ohm` (16), `Cel` (21), `deg` (33),
+Accepted symbol aliases: `Metre` (15), `Ohm` (14), `Cel` (7), `deg` (61),
 `L`/`Liter` (62), `one` and `/` (1), `bps` (22), `m2` (140), `m3` (141).
 Decoders MUST accept them; encoders SHOULD emit the symbol of the table above.
 
@@ -299,15 +301,15 @@ differences.
 
 **SenML.** Where a unit also exists in the IANA "SenML Units" registry
 ([RFC 8428]), the symbol is either identical (`m`, `A`, `W`, `V`, `Hz`, `Wh`,
-`VA`, `var`, `bit`, `ppm`) or an accepted alias of ours (`Cel` → 21,
-`/` → 39). The mapping is therefore mechanical in both directions for the
+`VA`, `var`, `bit`, `ppm`) or an accepted alias of ours (`Cel` → 7,
+`/` → 1). The mapping is therefore mechanical in both directions for the
 overlapping subset; SenML's `%RH` and its `/100` convention for percent have
-no counterpart here, and this format's percent (36) is the plain
+no counterpart here, and this format's percent (6) is the plain
 dimensionless ratio.
 
 **Note on mass.** The SI base unit of mass is the kilogram, but SI prefixes
-attach to the *gram*. The registry therefore contains the gram (3), and a
-mass of five kilograms is encoded as `(5, 3, 3)` — five, gram, kilo.
+attach to the *gram*. The registry therefore contains the gram (16), and a
+mass of five kilograms is encoded as `(5, 16, 3)` — five, gram, kilo.
 
 **Note on implementations.** This registry is the wire vocabulary, not a list
 of types an implementation has to provide. A decoder needs the identifier and
