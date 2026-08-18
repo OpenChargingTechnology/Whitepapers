@@ -41,7 +41,7 @@ Semantics (short form):          Metrological value (quantity value with unit
 
 Point of contact:                Achim Friedland <achim.friedland@graphdefined.com>
 
-Description of semantics (URL):  https://github.com/OpenChargingTechnology/Whitepapers/MetrologicalCBOR/README.md
+Description of semantics (URL):  https://github.com/OpenChargingTechnology/blob/master/Whitepapers/MetrologicalCBOR/README.md
 ```
 
 The field names follow the templates of existing First Come First Served
