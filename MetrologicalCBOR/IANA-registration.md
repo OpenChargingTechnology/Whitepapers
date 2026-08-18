@@ -41,7 +41,7 @@ Semantics (short form):          Metrological value (quantity value with unit
 
 Point of contact:                Achim Friedland <achim.friedland@graphdefined.com>
 
-Description of semantics (URL):  https://github.com/OpenChargingTechnology/blob/master/Whitepapers/MetrologicalCBOR/README.md
+Description of semantics (URL):  https://github.com/OpenChargingTechnology/Whitepapers/blob/master/MetrologicalCBOR/README.md
 ```
 
 The field names follow the templates of existing First Come First Served
@@ -95,7 +95,8 @@ usually processed within a few business days.
 Should IANA report the number as assigned, pick another free number in the
 First Come First Served range and change `CBORTag.MetrologicalValue` — that
 single constant, the specification, this document and the golden vectors in
-[MetrologicalValueTests.cs](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/Metrology/MetrologicalValueTests.cs) are the only places
-where the number appears.
+[MetrologicalValueTests.cs](https://github.com/Vanaheimr/Styx/blob/master/StyxTests/Illias/Metrology/MetrologicalValueTests.cs),
+the TypeScript implementation's `METROLOGICAL_VALUE_TAG` constant and the
+test-vectors annex are the places where the number appears.
 
 [RFC 8949]: https://www.rfc-editor.org/rfc/rfc8949
