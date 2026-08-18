@@ -15,7 +15,7 @@
                 },
                 {
                     "text": " 5 A ",
-                    "expect": "survey"
+                    "expect": "accept"
                 },
                 {
                     "text": "5e0 A",
@@ -43,7 +43,7 @@
                 },
                 {
                     "text": "05.0 mA",
-                    "expect": "survey"
+                    "expect": "accept"
                 }
             ]
         },
@@ -78,11 +78,11 @@
                 },
                 {
                     "text": "(5.00 +/-0.02) mA",
-                    "expect": "survey"
+                    "expect": "accept"
                 },
                 {
                     "text": "(5.00±0.02) mA",
-                    "expect": "survey"
+                    "expect": "accept"
                 }
             ]
         },
@@ -118,7 +118,7 @@
                 },
                 {
                     "text": "9.81 m s^-2",
-                    "expect": "survey"
+                    "expect": "reject"
                 }
             ]
         },
@@ -131,7 +131,7 @@
             "parseTexts": [
                 {
                     "text": "(230.00 ±0.12) V,k=2",
-                    "expect": "survey"
+                    "expect": "accept"
                 },
                 {
                     "text": "(230.00 ±0.12) V, K=2",

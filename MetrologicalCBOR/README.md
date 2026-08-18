@@ -212,11 +212,12 @@ A **map** states more. Its keys are:
 | 4 | the probability distribution (see below) |
 | 5 | the effective degrees of freedom (positive) |
 
-The standard uncertainty is always u = magnitude / k. A calibration
-certificate stating U = 0.12 V with k = 2 is therefore written as
-`{1: 4([-2, 12]), 2: 2}` and keeps saying exactly that, instead of being
-normalised to u = 0.06 and losing the statement the certificate was issued
-with. Consumers that only need u divide by k.
+The standard uncertainty is always u = magnitude / k, and the coverage
+factor MUST therefore be positive. A calibration certificate stating
+U = 0.12 V with k = 2 is written as `{1: 4([-2, 12]), 2: 2}` and keeps
+saying exactly that, instead of being normalised to u = 0.06 and losing the
+statement the certificate was issued with. Consumers that only need u
+divide by k.
 
 Distributions (key 4): 1 = normal, 2 = rectangular, 3 = triangular,
 4 = U-shaped, 5 = Student's t. 0 means "not stated" and MUST be omitted

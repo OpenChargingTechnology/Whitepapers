@@ -240,9 +240,8 @@
         {
             "id": "coverage-factor-zero",
             "hex": "D9ACDC84050400A201010200",
-            "reason": "spec is silent on k = 0, but u = magnitude/k is then undefined",
-            "description": "{1: 1, 2: 0}",
-            "expect": "survey"
+            "reason": "the coverage factor MUST be positive (spec §3.4)",
+            "description": "{1: 1, 2: 0}"
         },
         {
             "id": "uncertainty-map-unknown-key",

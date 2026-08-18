@@ -162,10 +162,18 @@ everywhere else. Accepted: `+-` and `+/-` for `±`, `*` for `·`, `x` for `×`,
 `nu=` for `ν=`, `t` for `student-t`, superscript digits for unit exponents
 (`m·s⁻²`) and for the scale (`×10³`), both code points of the micro sign
 (U+00B5, U+03BC) and of the ohm sign (U+2126, U+03A9), scientific notation,
-statements in any order, and whitespace around them. Case is **never**
+leading zeros in a number (`05.0` is `5.0`), statements in any order, and
+whitespace — around the whole text, inside the parenthesis around `±`,
+around the factor separators and around the statements. Case is **never**
 ignored: `m` is milli and `M` is mega, `t` is the tonne and `T` the tesla —
 which is also why `t` after `dist=`, where no unit can appear, is
 unambiguously Student's t.
+
+A bare space is **never** a factor separator. The space has one job in this
+grammar — separating the number from its unit — and giving it a second one
+would make `5 m s` a reading where it is prose, which is exactly the
+false-positive surface the JSON conversion of Section 3 must keep small.
+Factors are joined by `·` or `*`.
 
 A metrological text always states a unit. A bare number is not a metrological
 value — which is also what keeps the document conversion of Section 3 from
