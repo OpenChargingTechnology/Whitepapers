@@ -59,7 +59,8 @@ metrological-value = #6.44252([
     ? uncertainty : number / uncertainty-map
 ])
 
-number      = int / decfrac
+number      = int / bignum / decfrac
+bignum      = #6.2(bstr) / #6.3(bstr)                        ; RFC 8949, Section 3.4.3
 decfrac     = #6.4([exponent: int, mantissa: int / bignum])  ; RFC 8949, Section 3.4.4
 
 unit-ref    = named-unit / [+ unit-factor]
@@ -84,13 +85,16 @@ Any other length is an error.
 The reading of the physical quantity, scaled by `prefix` and expressed in
 `unit`. It MUST be either
 
-- a CBOR integer (major type 0 or 1), or
-- a decimal fraction (tag 4) whose mantissa is an integer or a bignum
-  (tag 2 or 3).
+- a CBOR integer (major type 0 or 1),
+- a bignum (tag 2 or 3), for an integer beyond the range of major type 0
+  or 1, or
+- a decimal fraction (tag 4) whose mantissa is an integer or a bignum.
 
 It MUST NOT be a binary floating-point number, and it MUST NOT be a bigfloat
-(tag 5). Encoders SHOULD write integral readings as plain CBOR integers and
-all other readings as decimal fractions.
+(tag 5). An integer that major type 0 or 1 can carry MUST NOT be written as
+a bignum — this is the preferred serialization of [RFC 8949], Section 3.4.3,
+and it keeps the encoding deterministic. Encoders SHOULD write integral
+readings as plain CBOR integers and all other readings as decimal fractions.
 
 The decimal scale is significant: `4([-1, 50])` (= `5.0`) and `5` denote the
 same numeric quantity but different measurement resolutions, and both MUST
@@ -399,10 +403,10 @@ The security considerations of [RFC 8949] apply. In addition:
 - Decoders MUST reject unknown unit identifications rather than substituting
   a placeholder: a value silently attributed to the wrong unit is worse than
   a decoding failure.
-- Decimal fractions permit very large exponents and bignum mantissas.
-  Decoders MUST bound the resources spent on reconstructing a value and
-  reject values they cannot represent exactly, rather than rounding
-  silently.
+- Decimal fractions permit very large exponents, and bignums — as values
+  and as mantissas — very large integers. Decoders MUST bound the resources
+  spent on reconstructing a value and reject values they cannot represent
+  exactly, rather than rounding silently.
 - A missing `uncertainty` means "not stated", never "zero".
 
 ## 8. IANA considerations
