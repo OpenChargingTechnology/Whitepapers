@@ -1,4 +1,4 @@
-# CBOR Tag 44252: Metrological Values
+# Metrological CBOR (Tag 44252)
 
 **Status:** Stable. This document is the normative specification of CBOR tag
 44252 and serves as the semantics reference of its IANA registration.
