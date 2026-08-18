@@ -12,7 +12,9 @@ nothing has been registered and no implementation has shipped.
 **Point of contact:** Achim Friedland &lt;achim.friedland@graphdefined.com&gt;,
 GraphDefined GmbH
 
-**Implementation:** [Vanaheimr Styx CBOR](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/CBOR) (Apache License 2.0)
+**Implementations:**
+- [Vanaheimr Styx CBOR C#](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/CBOR) (Apache License 2.0)
+- [Metrological CBOR Type Script](https://github.com/Vanaheimr/MetrologicalCBOR.TS) (Apache License 2.0)
 
 **Worked example:** [tag-44252-signed-example.md](tag-44252-signed-example.md)
 carries two metrological values through three signature layers of a charging
