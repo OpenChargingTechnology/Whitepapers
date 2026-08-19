@@ -203,8 +203,31 @@ BAC58B3AA2E1FB51EA85CACB978C03DCF78F407039DA41A2E653A60E138958DBD28445A1
 | the station's signed bundle | 713 |
 | the operator's countersignature, within those 713 | 96 of signature |
 
-Three signatures, two complete metrological statements with their
-uncertainties, and the identities of all three signers, in 713 bytes.
+Four signatures by three signers — the meter signs each reading — two complete
+metrological statements with their uncertainties, and the identities of all
+three signers, in 713 bytes.
+
+### What the same record costs after the quantum transition
+
+The elliptic curve signatures above are 64, 64, 64 and 96 bytes: **288 of those
+713 bytes are signature**. ML-DSA
+([FIPS 204](https://doi.org/10.6028/NIST.FIPS.204), registered for COSE by
+[RFC 9964](https://www.rfc-editor.org/rfc/rfc9964)) replaces each of them with
+2420, 3309 or 4627 bytes depending on the parameter set — so the same four
+signatures at ML-DSA-87 are **18 508 bytes**, and the record grows by more than
+twenty-five times what it carries.
+
+A single reading shows the same thing without the nesting. The 31-byte
+metrological value of Section 2, signed on its own, is a 118-byte `COSE_Sign1`
+with ESB256 and a 4675-byte one with ML-DSA-87.
+
+None of this changes the tag, and the specification takes no position on which
+algorithm anyone should use. It does sharpen the point of Section 6 of the tag
+specification: a signature is a byte string, and a byte string costs its bytes
+here. The same 4627-byte signature spelled out in base64 within a textual
+format is 6172 characters — 1545 bytes of pure overhead on the largest field in
+the message, and that penalty grows with exactly the field that post-quantum
+cryptography makes grow.
 
 ## 7. The keys
 
@@ -262,6 +285,8 @@ always produces the same bytes and therefore the same signature.
 - [RFC 8949](https://www.rfc-editor.org/rfc/rfc8949) — CBOR
 - [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052) / [RFC 9053](https://www.rfc-editor.org/rfc/rfc9053) — COSE
 - [RFC 9338](https://www.rfc-editor.org/rfc/rfc9338) — COSE countersignatures
+- [RFC 9964](https://www.rfc-editor.org/rfc/rfc9964) — ML-DSA for JOSE and COSE
+- [FIPS 204](https://doi.org/10.6028/NIST.FIPS.204) — Module-Lattice-Based Digital Signature Standard
 - [RFC 9679](https://www.rfc-editor.org/rfc/rfc9679) — COSE Key Thumbprint
 - [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864) — fully-specified algorithms, incl. the brainpool curves
 - JCGM 100:2008 — Guide to the expression of uncertainty in measurement

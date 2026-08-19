@@ -394,6 +394,13 @@ the encoding of a given metrological value is a function of its value, scale,
 unit, prefix and uncertainty alone. This keeps measurement data suitable for
 signing, e.g. with COSE ([RFC 9052]).
 
+That suitability grows rather than fades as signatures do. A signature travels
+as a byte string, which costs its own length and a head of one to three bytes;
+a textual encoding has to spell the same bytes out, typically in base64, at a
+third again their size — and by then the signature, not the measurement, is the
+largest field in the message. A reading is tens of bytes and a signature may be
+thousands, so the ratio only points one way.
+
 The value-level uniqueness rules — one spelling per reading (Section 3.1),
 per exponent and per unit (Section 3.2), per prefix (Section 3.3) — are
 decoder MUSTs of their sections. For the byte level beneath them (shortest
