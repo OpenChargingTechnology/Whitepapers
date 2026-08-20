@@ -201,8 +201,29 @@ on the wire, so it comes back with the numeric identification (Section 3.3).
 
 ## 3. Document-level CBOR/JSON conversion
 
-The base is [RFC 8949] Section 6.1, extended by one rule: **tag 44252 becomes
-one JSON string in the format of Section 2.**
+The *shape* is that of [RFC 8949] Section 6.1: one rule per CBOR item, applied
+recursively. Most of the rules are not, and the difference is deliberate.
+Section 6.1 offers **non-normative advice** and says what it is for — it deals
+with what JSON cannot carry "by converting them to a single substitute value,
+such as a JSON null". That is the right trade when a document is being
+displayed and the wrong one when it has to stay exact.
+
+So this profile keeps the shape, adds one rule — **tag 44252 becomes one JSON
+string in the format of Section 2** — and replaces five:
+
+| | [RFC 8949] Section 6.1 advises | this profile |
+|---|---|---|
+| bignum (tag 2 / 3) | a base64url string, with `~` prefixed when negative | a number, exactly |
+| decimal fraction (tag 4) | the `[exponent, mantissa]` array the tag wraps | a number, with its scale |
+| tag 1 | the number the tag wraps | the instant it denotes |
+| tag 37 | base64url, the tag being discarded with every other | a UUID string |
+| any other tag | the content, with the tag number discarded | an error |
+
+The last row is the one that matters most. Discarding a tag number turns a
+value that meant something into a value that means nothing, and says nothing
+about having done it: a converter that discards cannot be told from one that
+never saw the tag. This profile refuses instead, for the same reason the tag
+specification refuses elsewhere.
 
 ### 3.1 CBOR to JSON
 
@@ -248,6 +269,13 @@ digits as written — `1.10` keeps its trailing zero. An exponent that leaves
 no decimal places denotes the integer it equals (`1e2` is the integer 100),
 because a decimal fraction's exponent is negative on the wire.
 
+[RFC 8949] Section 6.2 advises the opposite for this direction — a number with
+a fractional part "represented as floating-point values" through binary64 — and
+then provides for exactly this case: *"Decimal representation should only be
+used on the CBOR side if that is specified in a protocol."* This is that
+protocol. The same section leaves the integer range to the protocol as well,
+and this one takes it as far as CBOR reaches rather than stopping at 2⁵³.
+
 This requires reading the digits of a JSON number **as written**. An
 ecosystem whose standard JSON parser hands out binary floats (JavaScript's
 `JSON.parse`) cannot do that through its native tree: a conforming converter
@@ -266,6 +294,10 @@ would be worse than losing it:
 - non-text map keys — a COSE map comes back with text keys;
 - binary floats — they come back as exact decimals;
 - tags 0, 1 and 37 — they come back as the strings they became;
+- tags 32, 33, 34 and 36 — the string survives; the tag that said what kind of
+  string it was does not;
+- tag 55799 — it says "these bytes are CBOR", which a JSON document has no way
+  of saying and no need to;
 - anything rendered in diagnostic notation.
 
 A metrological value written with a symbolic unit (`"A"` instead of `4`) comes
