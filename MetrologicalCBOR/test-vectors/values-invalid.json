@@ -250,6 +250,12 @@
             "description": "{1: 1, 6: 1}"
         },
         {
+            "id": "uncertainty-map-only-magnitude",
+            "hex": "D9ACDC84050400A10102",
+            "reason": "a map stating only the magnitude says what the bare number says, which would give the same uncertainty two encodings; decoders reject the redundant form (spec §3.4)",
+            "description": "[5, A, 0, {1: 2}] rather than [5, A, 2]"
+        },
+        {
             "id": "decfrac-exponent-zero",
             "hex": "D9ACDC82C482001901F405",
             "reason": "a decimal fraction's exponent MUST be negative (spec §3.1)",

@@ -219,6 +219,11 @@ saying exactly that, instead of being normalised to u = 0.06 and losing the
 statement the certificate was issued with. Consumers that only need u
 divide by k.
 
+A map that states only the magnitude MUST NOT be written: with the coverage
+factor at its default of 1 it says exactly what the bare number says, which
+would give the same uncertainty two encodings — and decoders MUST reject the
+redundant form.
+
 Distributions (key 4): 1 = normal, 2 = rectangular, 3 = triangular,
 4 = U-shaped, 5 = Student's t. 0 means "not stated" and MUST be omitted
 rather than written. The degrees of freedom are what a consumer needs to
@@ -402,8 +407,8 @@ largest field in the message. A reading is tens of bytes and a signature may be
 thousands, so the ratio only points one way.
 
 The value-level uniqueness rules — one spelling per reading (Section 3.1),
-per exponent and per unit (Section 3.2), per prefix (Section 3.3) — are
-decoder MUSTs of their sections. For the byte level beneath them (shortest
+per exponent and per unit (Section 3.2), per prefix (Section 3.3), per
+uncertainty (Section 3.4) — are decoder MUSTs of their sections. For the byte level beneath them (shortest
 integer heads, definite lengths, sorted map keys, preferred bignums) two
 decoder profiles exist: a **strict** decoder verifies deterministic encoding
 and rejects what violates it, which is the profile this specification
