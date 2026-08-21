@@ -1,11 +1,13 @@
 # IANA registration of CBOR tag 44252
 
-**Status: prepared, not yet submitted.**
+**Status: registered. IANA assigned tag 44252 on 2026-08-19.**
 
-This document holds the ready-to-send registration request for CBOR tag
-44252 (`0xACDC`) in the IANA registry
-["Concise Binary Object Representation (CBOR) Tags"](https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml),
-together with everything needed to submit it and to record the outcome.
+This document holds the registration request for CBOR tag 44252 (`0xACDC`) in
+the IANA registry
+["Concise Binary Object Representation (CBOR) Tags"](https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml)
+as it was sent, together with what the registry now says. It is kept rather
+than retired: the request is what the entry means, and a reader who wants to
+know why the semantics line reads as it does should be able to see it.
 
 ## Why this is possible without an RFC
 
@@ -25,6 +27,9 @@ of the semantics and a point of contact suffice.
 neighbours are 43000/43001 (complex numbers); the range 43002..49999 is
 entirely unassigned. Note that First Come First Served literally means first
 come, first served — the number is only ours once IANA has recorded it.
+
+**Outcome (2026-08-19):** recorded. 44252 is now the only assignment between
+43002 and 49999, which are otherwise still unassigned on either side.
 
 ## The request
 
@@ -74,23 +79,39 @@ usually processed within a few business days.
   prefer immutability over currentness, use a commit permalink instead —
   but then errata will never reach readers of the registry.
 
-## What the registry entry will look like
+## What the registry entry says
 
 | Tag | Data Item | Semantics | Reference | Template |
 |---|---|---|---|---|
-| 44252 | array | Metrological value (quantity with unit of measure, SI prefix and measurement uncertainty) | Achim_Friedland | template/44252 |
+| 44252 | array | Metrological value (quantity value with unit of measure, SI prefix and GUM measurement uncertainty) | [README.md](README.md); Achim_Friedland | template/44252 |
 
-## After the assignment
+The published semantics is not word for word the short form drafted above: it
+reads *quantity **value*** rather than *quantity*, and ***GUM** measurement
+uncertainty* rather than *measurement uncertainty*. Both are improvements — the
+first is the VIM term for what the tag actually carries, the second names the
+guide the uncertainty follows — and the registry is now the authority for that
+line. Section 8 of [README.md](README.md) quotes the registry, not this
+request.
 
-1. Note the assignment date and the IANA ticket number in this file, and set
-   the status above to *registered*.
-2. Update Section 8 of [README.md](README.md) from "unassigned" to the assignment.
-3. The tag number itself needs no code change: it already lives in exactly
-   one place, `CBORTag.MetrologicalValue` in
-   [CBORTag.cs](https://github.com/Vanaheimr/Styx/blob/master/Styx/Illias/CBOR/CBORTag.cs), whose XML documentation is worded to serve as
-   the registration's semantics text.
+## After the assignment — done 2026-08-19
 
-## If 44252 is taken in the meantime
+1. ~~Note the assignment date in this file and set the status above to
+   *registered*.~~ Done; there is no ticket number to record, the entry itself
+   is the confirmation.
+2. ~~Update Section 8 of [README.md](README.md) from "unassigned" to the
+   assignment.~~ Done, quoting the registry.
+3. The tag number needed no code change, as expected: it lives in exactly one
+   place per implementation — `CBORTag.MetrologicalValue` in
+   [CBORTag.cs](https://github.com/Vanaheimr/Styx/blob/master/Styx/Illias/CBOR/CBORTag.cs),
+   whose XML documentation is worded to serve as the registration's semantics
+   text, and `METROLOGICAL_VALUE_TAG` in the TypeScript implementation.
+
+## If 44252 had been taken in the meantime
+
+It was not, and this contingency is closed. The list is kept because it is
+still the answer to "where does the number appear", which is a question with a
+different reason to be asked now: an erratum, not a renumbering.
+
 
 Should IANA report the number as assigned, pick another free number in the
 First Come First Served range and change `CBORTag.MetrologicalValue` — that

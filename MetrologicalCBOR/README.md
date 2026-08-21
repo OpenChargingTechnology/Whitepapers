@@ -5,9 +5,9 @@
 
 **Version:** 1.0 (2026-08-18)
 
-The numeric identifications of Section 4 become permanent with the IANA
-registration. Until then this document has no version history worth keeping:
-nothing has been registered and no implementation has shipped.
+The numeric identifications of Section 4 became permanent with the IANA
+registration of tag 44252, recorded on 2026-08-19. Changing one of them is from
+now on a change to a registered format rather than an editorial matter.
 
 **Point of contact:** Achim Friedland &lt;achim.friedland@graphdefined.com&gt;,
 GraphDefined GmbH
@@ -453,18 +453,24 @@ The security considerations of [RFC 8949] apply. In addition:
 
 ## 8. IANA considerations
 
-Tag 44252 (`0xACDC`) lies within the First Come First Served range of the
-"Concise Binary Object Representation (CBOR) Tags" registry
-([RFC 8949], Section 9.2).
+Tag 44252 (`0xACDC`) is **registered** in the "Concise Binary Object
+Representation (CBOR) Tags" registry ([RFC 8949], Section 9.2), assigned on
+**2026-08-19** under that registry's First Come First Served policy. This
+document is the "Description of semantics" the entry points at.
+
+The entry as published, quoted from the registry rather than from the request:
 
 ```
-Tag:                             44252
-Data item:                       array
-Semantics (short form):          Metrological value (quantity with unit of
-                                 measure, SI prefix and measurement uncertainty)
-Point of contact:                Achim Friedland <achim.friedland@graphdefined.com>
-Description of semantics (URL):  https://github.com/OpenChargingTechnology/Whitepapers/blob/master/MetrologicalCBOR/README.md
+Tag:         44252
+Data item:   array
+Semantics:   Metrological value (quantity value with unit of measure, SI prefix
+             and GUM measurement uncertainty)
+Reference:   https://github.com/OpenChargingTechnology/Whitepapers/blob/master/MetrologicalCBOR/README.md
+             Achim Friedland
+Template:    template/44252
 ```
+
+<https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml>
 
 ## 9. References
 
