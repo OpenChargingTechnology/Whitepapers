@@ -2,7 +2,7 @@
 
 **Status:** normative annex of
 [totp-token-format.md](../totp-token-format.md), the specification of the
-Open Charging Cloud TOTP token format, and of
+Open Charging Technology TOTP token format, and of
 [totp-http-authentication.md](../totp-http-authentication.md), its HTTP
 authentication binding.
 

@@ -1,4 +1,4 @@
-# Open Charging Cloud TOTP Token Format
+# Open Charging Technology TOTP Token Format
 
 **Version 1.0**, 2026-08-22
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · conformance suite: [OpenChargingCloud/TOTPConformanceTests](https://github.com/OpenChargingCloud/TOTPConformanceTests)

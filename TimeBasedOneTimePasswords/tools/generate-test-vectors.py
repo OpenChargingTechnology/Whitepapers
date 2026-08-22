@@ -48,8 +48,8 @@ from pathlib import Path
 SPEC_DIR     = Path(__file__).resolve().parent.parent
 VECTORS_DIR  = SPEC_DIR / "test-vectors"
 
-SPEC_NAME       = "Open Charging Cloud TOTP Token Format 1.0"
-SPEC_NAME_HTTP  = "Open Charging Cloud TOTP HTTP Authentication 1.0 (draft)"
+SPEC_NAME       = "Open Charging Technology TOTP Token Format 1.0"
+SPEC_NAME_HTTP  = "Open Charging Technology TOTP HTTP Authentication 1.0 (draft)"
 GENERATOR       = "TimeBasedOneTimePasswords/tools/generate-test-vectors.py"
 
 MASK64       = 0xFFFF_FFFF_FFFF_FFFF

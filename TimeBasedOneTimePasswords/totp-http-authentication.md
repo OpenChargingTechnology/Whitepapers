@@ -1,11 +1,11 @@
-# Open Charging Cloud TOTP — HTTP Authentication
+# Open Charging Technology TOTP — HTTP Authentication
 
 **Version 1.0 — Draft**, 2026-08-22
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · conformance suite: [OpenChargingCloud/TOTPConformanceTests](https://github.com/OpenChargingCloud/TOTPConformanceTests)
 
 This document specifies how the tokens of the
-[Open Charging Cloud TOTP Token Format](totp-token-format.md) are carried in
-HTTP for **machine-to-machine authentication** — as a drop-in replacement for
+[Open Charging Technology TOTP Token Format](totp-token-format.md) are
+carried in HTTP for **machine-to-machine authentication** — as a drop-in replacement for
 HTTP Basic Authentication and for long-lived static bearer tokens (e.g.
 OCPI-style `Authorization: Token …`). Three bindings are defined:
 

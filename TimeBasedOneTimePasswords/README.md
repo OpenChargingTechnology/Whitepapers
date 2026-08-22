@@ -1,7 +1,7 @@
 # Time-Based One-Time Passwords (TOTP) for M2M Authentication
 
 **Status:** This directory is the normative home of the **Open Charging
-Cloud TOTP token format** — a machine-to-machine Time-based One-Time
+Technology TOTP token format** — a machine-to-machine Time-based One-Time
 Password format — and of its HTTP authentication binding. The token format
 (v1.0) is **final**: it is frozen by deployed verifiers, and the
 specification describes it exactly as implemented. The HTTP binding (v1.0)
