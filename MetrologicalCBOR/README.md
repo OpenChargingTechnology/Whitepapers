@@ -416,6 +416,19 @@ RECOMMENDS; a **lenient** decoder MAY accept non-deterministic bytes where
 it has to read documents from producers beyond its control. A lenient
 decoder MUST NOT reproduce non-deterministic bytes when re-encoding.
 
+The same reasoning reaches past this tag, to the structure that carries it. A
+signature covers bytes rather than meaning, so a document that will be signed
+SHOULD be written in the deterministic encoding of [RFC 8949], Section 4.2.1
+throughout — not merely in the readings it holds. A consumer that receives
+such a document, decodes it and encodes it again produces that encoding;
+where the signer wrote a different spelling of the same data, the re-encoded
+document no longer verifies, and the failure is indistinguishable from
+tampering. This is a property of the carrier rather than of the tag, which is
+why it is a SHOULD here and not a MUST: this specification cannot bind a
+format it does not define. The worked example of this specification
+([tag-44252-signed-example.md](tag-44252-signed-example.md)) is written that
+way.
+
 Two readings that denote the same physical quantity in different
 representations (`5.0 mA` and `0.005 A`) intentionally do **not** produce the
 same bytes. Implementations that need to compare quantities rather than
