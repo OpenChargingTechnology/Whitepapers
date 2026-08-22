@@ -255,6 +255,29 @@ denotes, written `YYYY-MM-DDThh:mm:ss.fffZ` — UTC, millisecond precision,
 sub-millisecond content truncated — so that every implementation writes the
 same text.
 
+**Escaping.** A converter SHOULD escape only what [RFC 8259] Section 7
+requires — the quotation mark, the reverse solidus, and the characters below
+U+0020 — preferring the two-character forms (`\n`, `\t`, …) where Section 7
+defines one, and `\uXXXX` otherwise. Every other character SHOULD be written
+as itself.
+
+This is RECOMMENDED rather than required, because Section 7 permits more: the
+solidus may be escaped, and any character may be written as `\uXXXX`. Both
+spellings denote the same string and a converter that chooses differently is
+not wrong. What following the recommendation buys is that the JSON text
+becomes a **function of the CBOR document** — the same property this section
+already gives the instant of tag 1, and for the same reason: a text that two
+implementations derive independently can be compared, and one that is a matter
+of taste cannot.
+
+Two notes on characters above U+FFFF, which is where this bites in practice.
+JSON text is UTF-8 ([RFC 8259] Section 8.1) and so is a CBOR text string, so
+writing such a character as an escape asks a reader to reassemble it from two
+UTF-16 code units of an encoding neither side uses — and costs twelve bytes
+where four would do. And the escape is easy to arrive at without choosing it:
+implementations exist whose *only* available escaping policies escape above
+U+FFFF, whatever they are asked for.
+
 ### 3.2 JSON to CBOR
 
 **Which strings are examined is the caller's to name**, and a converter
