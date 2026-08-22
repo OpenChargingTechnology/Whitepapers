@@ -1,7 +1,7 @@
 # A signed metrological record, end to end
 
 A worked example of a charging transaction carried as CBOR: two meter readings
-expressed as [metrological values](tag-44252.md), signed by the meter, bundled
+expressed as [metrological values](README.md), signed by the meter, bundled
 by the charging station, and endorsed by the operator before the customer
 receives them.
 
