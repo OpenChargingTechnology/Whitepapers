@@ -1,0 +1,6 @@
+# The TOTP test-vector annex is generated with LF line endings; the
+# conformance suite's drift guard (TimeBasedOneTimePasswords/tools/
+# generate-test-vectors.py --check) compares it byte for byte, so git must
+# never rewrite these files.
+TimeBasedOneTimePasswords/test-vectors/*.json text eol=lf
+TimeBasedOneTimePasswords/tools/*.py          text eol=lf

@@ -36,6 +36,15 @@ Time synchronization must be part of the system’s overall security audit trail
 - **Derivation**: TOTP is generated according to OCPP v2.1 WebPayments.
 - **Validation**: The receiver must validate both the static login and the TOTP value. Requests failing either check are rejected with HTTP 401 Unauthorized.
 
+The token derivation and this Basic binding are **normatively specified** in
+[Time-Based One-Time Passwords](../TimeBasedOneTimePasswords/README.md):
+OCPP's *"TOTP algorithm, version 1"* is the sha256/Base62 profile of the
+[token format specification](../TimeBasedOneTimePasswords/totp-token-format.md),
+and the Basic binding sketched above is section 4 of its
+[HTTP authentication specification](../TimeBasedOneTimePasswords/totp-http-authentication.md)
+— machine-checkable via the test-vector annex and the
+[TOTP conformance suite](https://github.com/OpenChargingCloud/TOTPConformanceTests).
+
 
 ## Compatibility and Migration
 

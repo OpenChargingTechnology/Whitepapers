@@ -193,8 +193,10 @@ The Digest Authentication method also offers additional configuration parameters
 HTTP TOTP Auth uses **Time-Based One-Time-Passwords** to generate tokens for authentication what will change e.g. every couple of seconds. This technique is already used for *Web Payments* in OCPP v2.1. This method combines the simplicity of HTTP Basic Auth with an improved security close the HTTP Digest Auth. Support of HTTP TOTP Auth is **optional**.
 
 ```
-Authorization: TOTP {login} {totp(timestamp, shared_secret, ...)}
+Authorization: TOTP login="{base64(login)}", totp="{base64(totp(timestamp, shared_secret, ...))}"
 ```
+
+The scheme carries its credentials as **RFC 9110 auth-params**: `login` and `totp` are mandatory (Base64 of UTF-8), plus an optional `tlscb` parameter for TLS v1.3 channel binding with its secure default `true`. The scheme, the corresponding `TOTP` request header, and the zero-code-change variant of putting the TOTP into HTTP Basic Auth's password field are **normatively specified** in [Time-Based One-Time Passwords](../TimeBasedOneTimePasswords/totp-http-authentication.md).
 
 #### OCPP vNext
 

@@ -13,6 +13,12 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [EN 40000](RegulationsAndStandards/EN40000.md)
 
 
+#### Specifications
+
+- [Metrological CBOR (CBOR Tag 44252)](MetrologicalCBOR/README.md)
+- [Time-Based One-Time Passwords (TOTP) for M2M Authentication](TimeBasedOneTimePasswords/README.md) (EU RED/CRA)
+
+
 #### Open Charge Point Protocol (OCPP) related:
 
 - [HTTP Basic Authentication with Time-Based One-Time Passwords](OCPP/OCPPwithHTTPBasicAuthPlusTOTP.md) (EU RED/CRA)
