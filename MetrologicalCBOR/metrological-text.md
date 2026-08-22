@@ -257,11 +257,24 @@ same text.
 
 ### 3.2 JSON to CBOR
 
-Strings are try-parsed against the grammar of Section 2; a full match becomes
-tag 44252, everything else stays a string. Because the grammar is anchored,
-strict and requires a unit, false positives are rare — but `"1 h"` is a
-perfectly good measurement *and* a perfectly good piece of prose, so a caller
-can decide per [RFC 6901] JSON Pointer path which strings are examined at all.
+**Which strings are examined is the caller's to name**, and a converter
+SHOULD examine none until told. A string that is examined and matches the
+grammar of Section 2 in full becomes tag 44252; every other string, and every
+string that was not examined, stays a string.
+
+The grammar is anchored, strict and requires a unit, so false positives are
+rare — but rare is not never, and `"1 h"` is a perfectly good measurement
+*and* a perfectly good piece of prose. Guessing wrong in this direction is the
+failure that cannot be noticed downstream: what comes out is a well-formed
+reading of something nobody measured, indistinguishable from one that was.
+A caller who says nothing about a document has not asked for that risk, which
+is why the default is to take none.
+
+Two ways of naming are enough in practice, and an implementation SHOULD offer
+both: **every string**, which is what recovers a document that nothing
+describes and what the round trip of Section 3.3 assumes; and **per
+[RFC 6901] JSON Pointer path**, which is what an application with a schema
+should use, because it already knows which members hold measurements.
 
 Numbers never become binary floats: an integer becomes a CBOR integer or a
 bignum, everything else an exact decimal fraction (tag 4) built from the
@@ -284,8 +297,15 @@ conversion as the lossy convenience it is.
 
 ### 3.3 What round-trips, and what does not
 
-**Byte for byte**, given deterministic CBOR encoding: metrological values,
-text strings, numbers, booleans, null, arrays, and maps with text keys.
+**Byte for byte**, given deterministic CBOR encoding and a caller that named
+the strings to examine (Section 3.2): metrological values, text strings,
+numbers, booleans, null, arrays, and maps with text keys.
+
+The second condition is easy to overlook and belongs here rather than as a
+footnote: a reading survives the trip out as a string, and only comes back as
+a reading if the way in was told to look. A converter told nothing returns the
+document with its measurements as the strings they were written as — which is
+a faithful JSON round trip and not a metrological one.
 
 **Not**, because JSON has no room for the distinction and guessing it back
 would be worse than losing it:
