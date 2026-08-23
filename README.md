@@ -6,20 +6,20 @@ We actively encourage your collaboration and contributions. Whether you found a 
 
 Let’s advance the future of interoperable, secure, and open electric vehicle infrastructure... together.
 
-#### Cybersecurity Regulations and Standards
+## Cybersecurity Regulations and Standards
 
 - [EU Cyber Resilience Act (EU CRA)](RegulationsAndStandards/EUCyberResilienceAct.md)
 - [EN 18031](RegulationsAndStandards/EN18031.md)
 - [EN 40000](RegulationsAndStandards/EN40000.md)
 
 
-#### Specifications
+## Specifications
 
 - [Metrological CBOR (CBOR Tag 44252)](MetrologicalCBOR/README.md)
 - [Time-Based One-Time Passwords (TOTP) for M2M Authentication](TimeBasedOneTimePasswords/README.md) (EU RED/CRA)
 
 
-#### Open Charge Point Protocol (OCPP) related:
+## Open Charge Point Protocol (OCPP) related:
 
 - [HTTP Basic Authentication with Time-Based One-Time Passwords](OCPP/OCPPwithHTTPBasicAuthPlusTOTP.md) (EU RED/CRA)
 - [Alternative HTTP Authentication Methods for OCPP](HTTPAuthExtensions/README.md) (EU RED/CRA)
@@ -42,21 +42,21 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [Secure SSH Configuration](SecureSSHConfiguration/README.md)
 
 
-#### Open Charge Point Interface (OCPI) related:
+## Open Charge Point Interface (OCPI) related:
 
 *Upcoming:*
 
 - [Time-Based One-Time Passwords as 2nd Factor Authentication](OCPI/OCPIwithTOTPAuth.md) (EU RED/CRA)
 
 
-#### Open InterCharge Protocol (OICP) related:
+## Open InterCharge Protocol (OICP) related:
 
 *Upcoming:*
 
 - [OICP v2.3 Peer-to-Peer Mode](OICP/OICPv2.3_P2PMode.md)
 
 
-#### EV Roaming Related
+## EV Roaming Related
 
 *Upcoming:*
 
@@ -65,21 +65,21 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [Roaming Protocol](WWCP/Roaming-Protocol.md)
 
 
-#### OpenADR Related
+## OpenADR Related
 
 *Upcoming:*
 
 - [OpenADR and OCPP v2.1 Interoperability](OpenADR-OCPPv2.1/README.md)
 
 
-#### EV Communication Related
+## EV Communication Related
 
 *Upcoming:*
 
 - [ISO 15118-Computer Science Edition](ISO15118-CSE/README.md)
 
 
-#### WWCP Related
+## WWCP Related
 
 *Upcoming:*
 
