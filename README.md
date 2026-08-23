@@ -1,5 +1,7 @@
 # EV Charging Infrastructure ICT Whitepapers
 
+<!-- description: Open technical whitepapers on EV charging cybersecurity, OCPP, OCPI, metrology, CRA compliance and secure protocols. -->
+
 All white papers presented here are published under the [Creative Commons Attribution Share Alike 4.0 International (CC-BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/). This means you are free to share, adapt, and build upon the content, even for commercial purposes, as long as you give appropriate credit and distribute your work and contributions under the same license.
 
 We actively encourage your collaboration and contributions. Whether you found a mistake, have suggestions for improvement, or want to extend a topic with new insights: *Pull Requests* are welcome and highly appreciated. Help us make these resources better, more accurate, and more useful for the entire e-mobility community.
