@@ -31,6 +31,8 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [Advanced Diagnostics with Self and Integration Tests for OCPP](AdvancedDiagnostics/README.md) (EU RED/CRA, EU NIS2)
 - [Ad hoc Payments via Secure Dynamic QR-Codes for OCPP and OCPI](SecureDynamicQRCodes/README.md) (EU AFIR, EU RED/CRA)
 - [OCPP 2.x Firmware Updates with Software Separation](FirmwareUpdateSeparation/README.md) (EU RED/CRA, EU MID)
+- [ISO 15118 via OCPP 2.1](ISO15118ViaOCPP/README.md) (EU RED/CRA)
+  - [The ISO 15118 Tunnel](ISO15118ViaOCPP/ISO15118Tunnel.md) (EU RED/CRA, EU NIS2, GDPR)
 
 *Upcoming:*
 

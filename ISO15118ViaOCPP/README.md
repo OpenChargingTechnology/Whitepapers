@@ -1,29 +1,72 @@
 # ISO 15118 via OCPP 2.1
 
-## Scope
+*Companion paper: [The ISO 15118 Tunnel](ISO15118Tunnel.md), which captures and tests the SLAC, SDP and V2G TLS layers below, so that the policies proposed here can be shown to be enforced.*
 
-This document analyses the ISO 15118 management surface in OCPP 2.1 Edition 2. It distinguishes between:
+An OCPP CSMS that supports ISO 15118 today can do Plug & Charge, install certificates, run smart-charging schedules, and drive bidirectional power transfer. What it cannot manage are the layers that decide whether an ISO 15118 session starts at all: the power-line pairing between vehicle and charging station (SLAC), the discovery of the charging station's communication controller (SDP), the TLS policy of the vehicle-facing connection, and the EXI codec that encodes every V2G message. A vendor can expose these functions, but OCPP 2.1 gives them no interoperable names, so no CSMS can manage them the same way across two manufacturers.
 
-- functionality standardized by OCPP;
-- implementation-specific functionality that can be exposed through the extensible Device Model, `DataTransfer`, or `customData`;
-- capabilities, operator policy, effective runtime state, and telemetry;
-- requirements that already exist in OCPP and proposals for a future management model.
+This document maps what OCPP 2.1 Edition 2 already standardizes for ISO 15118, shows where that standardized surface ends, and proposes a future management model. The model keeps `ISO15118Ctrlr` as the umbrella controller and adds five controllers for the currently unmanaged layers: `SLACCtrlr`, `SDPCtrlr`, `V2GTLSCtrlr`, `V2GEXICtrlr`, and `V2GPKICtrlr`.
+
+Throughout, it separates four things that OCPP tends to blur, and every proposed controller is described in these terms:
+
+- **Capability** (read-only): what the hardware and firmware can support;
+- **Operator policy** (read-write): what the operator permits within that capability and the standards;
+- **Effective state** (read-only): what is actually running after defaults, safety rules, and policy resolution;
+- **Telemetry** (read-only, monitorable): counters, timings, selected modes, and failures.
 
 Unless explicitly marked as a proposal, requirement identifiers refer to OCPP 2.1 Edition 2. The proposed components and variables in this document are not part of OCPP 2.1.
 
-## Executive conclusion
+## Summary
 
-OCPP 2.1 does not manage ISO 15118 as one end-to-end functional block. Part 2, section 2.7 explicitly distributes authorization, smart charging, certificate management, and bidirectional power transfer across several functional blocks.
+- OCPP 2.1 does not manage ISO 15118 as one end-to-end functional block. Part 2, section 2.7 distributes authorization, smart charging, certificate management, and bidirectional power transfer across several functional blocks.
+- The CSMS nevertheless has substantial management surface: ISO 15118-related use cases and messages; the Device Model (`ISO15118Ctrlr`, `SmartChargingCtrlr`, `V2XChargingCtrlr`, `DCDERCtrlr`, `ACDERCtrlr`, `ConnectedEV`); generic monitoring through `SetVariableMonitoring` and `NotifyEvent`; security auditing through `SecurityEventNotification`; and vendor extension mechanisms.
+- The principal standardized gap is below the application use cases: OCPP 2.1 has no interoperable model for SLAC, SDP, V2G TLS policy, EXI codec and schema state, protocol-selection policy, or authorization fallback policy.
+- The fix is not a second umbrella controller. It is to reuse the existing components and add five scoped controllers, each exposing capability, operator policy, effective state, and telemetry for one layer.
+- Timing budgets, a two-channel event model, certificate domain separation, atomic policy bundles, and a pre-transaction `v2gSessionId` correlation identifier are cross-cutting requirements, not per-controller details.
 
-The CSMS nevertheless has substantially more management surface than a single `ISO15118Ctrlr`:
+Phase 0 needs no change to OCPP itself:
 
-1. ISO 15118-related OCPP use cases and messages;
-2. the Device Model, including `ISO15118Ctrlr`, `SmartChargingCtrlr`, `V2XChargingCtrlr`, `DCDERCtrlr`, `ACDERCtrlr`, and `ConnectedEV`;
-3. generic monitoring through `SetVariableMonitoring` and `NotifyEvent`;
-4. security auditing through `SecurityEventNotification` and security logs;
-5. vendor-specific Device Model components and OCPP extension mechanisms.
+- Define versioned custom Device Model components for the missing layers, advertised through `CustomizationCtrlr.CustomImplementationEnabled[<vendorId>]`.
+- Manage them through `GetReport`, `GetVariables`, `SetVariables`, `NotifyEvent`, and `SecurityEventNotification` rather than opaque `DataTransfer`.
+- Enforce distinct keys for the OCPP, ISO 15118-2, and ISO 15118-20 identities immediately, independent of future standardization.
 
-The principal standardized gap is below the ISO 15118 application use cases: OCPP 2.1 has no interoperable management model for SLAC, SDP, V2G TLS policy, EXI codec/schema state, protocol-selection policy, or authorization fallback policy. A vendor can expose these functions, but a CSMS cannot manage them consistently across vendors.
+## How an ISO 15118 session starts, and where OCPP sees it
+
+Every ISO 15118 use case in OCPP presumes that a vehicle and a charging station have already found each other and built a secure channel. The steps that get them there run below the OCPP application layer, in this order:
+
+1. **Control Pilot** (IEC 61851): the physical signalling state changes when the cable is plugged in (state A to B).
+2. **SLAC** (ISO 15118-3): the vehicle sends a burst of sounding packets over the power line; each nearby charging station measures how much the signal is attenuated; the vehicle pairs with the station showing the least attenuation, i.e. the one it is physically plugged into. This runs directly over Ethernet (EtherType `0x88E1`), with no IP layer.
+3. **SDP** (SECC Discovery Protocol): over IPv6 link-local multicast, the vehicle asks for the charging station's communication controller (the SECC) and its TLS policy.
+4. **V2G TLS**: TLS 1.2 for ISO 15118-2, TLS 1.3 for ISO 15118-20.
+5. **SAP and EXI**: the application protocol and version are negotiated (`SupportedAppProtocolReq`), binding a session-local `schemaID`; every V2G message from here on is EXI-encoded.
+6. **V2G application**: authorization, certificate installation, scheduling, and the charge loop, i.e. the use cases OCPP already covers.
+
+The following table shows which layer each proposed controller manages, and what the companion paper captures:
+
+```
+Layer                              OCPP 2.1 today            Proposed here      Companion paper
+---------------------------------  ------------------------  -----------------  ----------------------
+Control Pilot (IEC 61851, A->B)    StatusNotification,       -                  -
+                                   ConnectedEV
+SLAC (ISO 15118-3, 0x88E1, no IP)  -                         SLACCtrlr          L2 capture, or
+                                                                                reconstructed (see 2.1)
+IPv6 link-local + SDP              -                         SDPCtrlr           capture + inject
+TCP + V2G TLS (1.2 for -2,         M06 OCSP cache only       V2GTLSCtrlr        handshake capture
+1.3 for -20)
+V2GTP + EXI (SAP -> schemaID)      ConnectedEV.ProtocolAgreed V2GEXICtrlr       capture (needs secrets)
+V2G application                    C07/C08, A02/A03,         ISO15118Ctrlr      -
+                                   M01-M07, K15-K20, J03,    (+ policy matrix)
+                                   Q01-Q12, R01-R05
+Cross-cutting: V2GPKICtrlr (identities, trust anchors, revocation)
+```
+
+One consequence matters for correlation. An OCPP `transactionId` may not exist yet during SLAC, SDP, TLS, and early authorization: depending on `TxCtrlr.TxStartPoint`, a transaction can start as late as `Authorized` or as early as `EVConnected`. Nothing below the application layer can be correlated by `transactionId`. This is why the proposed model introduces a `v2gSessionId` that exists from the moment the cable is plugged in.
+
+## Reading guide
+
+- **New to ISO 15118**: the primer above, then chapter 2 of the companion paper, then the "What OCPP 2.1 covers today" table.
+- **CSMS and operations engineers**: "Observability and security events", the "Effective state and telemetry" rows of each proposed controller, and "Structured session and event correlation".
+- **Charging-station firmware implementers**: the controller tables, "Common conventions for the proposed controllers", and "Configuration must be atomic".
+- **Security and certification**: "Certificate domain separation", "Policy must be a matrix", and "Safety, resilience, and privacy".
 
 ## What OCPP 2.1 covers today
 
@@ -39,7 +82,7 @@ The principal standardized gap is below the ISO 15118 application use cases: OCP
 | Certificate deletion and trust-anchor installation | M04, M05 | Delete an installed certificate and install CSMS, manufacturer, MO, or V2G root certificates |
 | SECC certificate OCSP status | M06 | Retrieve and cache OCSP responses for the V2G/SECC certificate chain before the EV TLS handshake. OCPP requires refresh at least weekly |
 | Vehicle certificate-chain revocation | M07 | New in OCPP 2.1: check an ISO 15118-20 vehicle certificate chain by OCSP and/or CRL, including cache and `nextUpdate` handling |
-| ISO 15118-2 smart charging | K15-K17 | Convert an OCPP charging profile into `SAScheduleList`, support EV- and CSMS-initiated renegotiation, and return the EV charging schedule. The CSMS `SHOULD` provide the profile within the 60-second ISO 15118 sequence timeout |
+| ISO 15118-2 smart charging | K15-K17 | Convert an OCPP charging profile into `SAScheduleList`, support EV- and CSMS-initiated renegotiation, and return the EV charging schedule. The CSMS `SHOULD` send the profile within 60 seconds to satisfy the ISO 15118 `ChargeParameterDiscoveryReq` timeout (K15.FR.08, K17.FR.08) |
 | ISO 15118-20 smart charging | K18-K20 | Support Scheduled and Dynamic Control Mode, `V2XChargingParameters`, schedule adjustment, and optional signed `AbsolutePriceSchedule` or `PriceLevelSchedule` through `ChargingProfileType.signatureValue` |
 | Metering receipts | J03 | Request an EV metering receipt before forwarding a fiscal meter value when `ISO15118Ctrlr.RequestMeteringReceipt` is true. The receipt itself is not forwarded as the OCPP meter value |
 | Bidirectional power transfer | Q01-Q12 | Authorize energy-transfer services, manage operation modes, switch modes, apply schedules or dynamic setpoints, support frequency services and local load balancing, and define offline/resume behavior |
@@ -50,12 +93,14 @@ The principal standardized gap is below the ISO 15118 application use cases: OCP
 
 ### Timing is part of the management problem
 
-The 60-second sequence timeout is not the only relevant timing constraint. Part 2, section 2.7 also identifies much shorter ISO 15118 budgets, including approximately:
+The 60-second sequence timeout is not the only relevant timing constraint. Part 2, section 2.7 (Tables 9 and 10) also lists much shorter ISO 15118 budgets:
 
-- 1.5 seconds for authorization messages;
-- 4.5 seconds for certificate installation or update messages;
+- 1.5 seconds for `AuthorizationReq/Res`, and for `AuthorizationSetupReq/Res` in ISO 15118-20;
+- 4.5 seconds for `CertificateInstallationReq/Res` and `CertificateUpdateReq/Res`, and for `PaymentDetailsReq/Res` in ISO 15118-2;
 - 40 seconds for sequence-performance timeouts;
 - 60 seconds for sequence timeouts.
+
+C07 adds that a contract-certificate check which cannot be completed within the `PaymentDetailsReq/Res` budget may be completed during `AuthorizationReq/Res`, which can be extended up to 60 seconds.
 
 A future management model therefore needs explicit latency budgets, cache freshness, timeout outcomes, and per-hop telemetry. It is not sufficient to expose only a Boolean success or failure state.
 
@@ -79,7 +124,7 @@ The Appendices additionally list typical controller variables such as `Active`, 
 
 ### Related standardized components
 
-Calling `ISO15118Ctrlr` the only relevant controller gives an incomplete view of OCPP 2.1.
+OCPP 2.1 spreads ISO 15118 management across several components besides `ISO15118Ctrlr`:
 
 | Component | ISO 15118 relevance |
 |---|---|
@@ -115,6 +160,60 @@ These functions are normally implemented inside the Charging Station. They can b
 
 The gap is therefore not that a CSMS can never manage these layers. The gap is that it cannot do so consistently across vendors using standardized OCPP semantics.
 
+## One failed session, two views
+
+A concrete failure shows what the gap costs and what the proposed model adds. A vehicle asks for a session without transport-layer security (`security = 0x10` in its SDP request), the operator has configured the station to require TLS, the SECC therefore answers `0x00`, and the vehicle gives up before it ever opens a TCP connection. The charge simply does not start.
+
+**What a CSMS sees today.** Nothing that names the cause. There is no transaction yet (SDP runs long before `TxStartPoint`), so no `TransactionEvent`. At best the station emits a `SecurityEventNotification` whose 255-character `techInfo` field is free text, with no EVSE, no severity, and no way to correlate it with anything else. Diagnosing this means sending an engineer with a Green PHY sniffer to the site.
+
+**What the proposed model adds.** The outcome becomes queryable and monitorable. `SDPCtrlr.EffectiveSecurityMode` reports what the SECC actually answered; a `NotifyEvent` carrying `SdpSecurityPolicyViolation`, the EVSE, and a `v2gSessionId` records the rejection with structure; and `SDPCtrlr.RejectedRequestCount` increments so a fleet dashboard can see it happening across thousands of stations. To see the bytes on the wire, the CSMS opens a capture through the companion paper's mechanism.
+
+These three surfaces correlate through one identifier:
+
+| Surface | Correlation key | Notes |
+|---|---|---|
+| `NotifyEvent` | `v2gSessionId` (in `techInfo` until a structured envelope exists) | scoped, severity-graded, monitorable |
+| `TransactionEvent` | `transactionId`, plus `v2gSessionId` in `customData` | exists only once a transaction has started |
+| `SecurityEventNotification` | station identity and time window only | lossy by design; the reason a structured envelope is proposed |
+| Packet capture (companion paper) | `captureId`, linked to `v2gSessionId` in the pcapng | the raw bytes, under separate authorization |
+
+The rest of this document defines the controllers, events, and correlation identifier that make this view possible.
+
+## A worked Device Model example
+
+The proposed controllers are ordinary Device Model components, managed with the messages a CSMS already implements. A `GetReport` returns a variable like any other:
+
+```json
+{
+  "component": { "name": "V2GTLSCtrlr", "evse": { "id": 1 } },
+  "variable":  { "name": "EffectiveTLSVersions", "instance": "ISO15118-20" },
+  "variableAttribute": [
+    { "type": "Actual", "value": "TLS1.3", "mutability": "ReadOnly", "persistent": false }
+  ],
+  "variableCharacteristics": { "dataType": "MemberList", "valuesList": [ "TLS1.2", "TLS1.3" ] }
+}
+```
+
+Operator policy is set the same way. Here the CSMS narrows the allowed TLS versions for the ISO 15118-2 namespace, and the station rejects a value that would violate the profile:
+
+```json
+// SetVariablesRequest
+{ "setVariableData": [
+  { "attributeType": "Actual",
+    "component": { "name": "V2GTLSCtrlr", "evse": { "id": 1 } },
+    "variable":  { "name": "TLSVersionsAllowed", "instance": "ISO15118-2" },
+    "attributeValue": "TLS1.2" } ] }
+
+// SetVariablesResponse
+{ "setVariableResult": [
+  { "attributeStatus": "Rejected",
+    "component": { "name": "V2GTLSCtrlr", "evse": { "id": 1 } },
+    "variable":  { "name": "TLSVersionsAllowed", "instance": "ISO15118-2" },
+    "attributeStatusInfo": { "reasonCode": "BelowConformanceMinimum" } } ] }
+```
+
+The instance string (`ISO15118-2`, `ISO15118-20`) is how one controller carries per-namespace policy; the EVSE scope is expressed through `component.evse`, not through the instance. See "Common conventions for the proposed controllers".
+
 ## Observability and security events
 
 ### `SecurityEventNotification`
@@ -148,7 +247,7 @@ The Device Model event path must not be ignored. `NotifyEventRequest` and `Event
 - optional `transactionId`;
 - `cleared`, `techCode`, and a larger `techInfo` field.
 
-Monitoring events can be queued offline according to `OfflineMonitoringEventQueueingSeverity`. This is configurable and does not provide the unconditional guaranteed delivery required for critical security events.
+Monitoring events can be queued offline according to `MonitoringCtrlr.OfflineQueuingSeverity`. This is configurable and does not provide the unconditional guaranteed delivery required for critical security events.
 
 ### Required two-channel model
 
@@ -241,9 +340,103 @@ Existing OCPP components should be reused instead of introducing a second umbrel
 
 The following tables define a minimum interoperable management surface, not an implementation-specific list of tuning knobs. `RO` and `RW` denote read-only and read-write variables. Policy variables are persistent; current-session state is transient; counters are monotonic until an explicitly reported reset. List values use Device Model `MemberList` or `SequenceList` semantics and a standardized registry, not vendor-defined free text.
 
-A bracketed suffix denotes a Variable instance. `<namespace>` identifies a protocol and service profile, for example ISO 15118-2 or an ISO 15118-20 AC/DC profile. `<messageType>`, `<certificatePurpose>`, `<peerRole>`, and `<trustDomain>` are likewise controlled enumerations. Their exact identifiers must be part of the extension specification.
+A bracketed suffix denotes a Variable instance, carried in the OCPP `Variable.instance` field (`identifierString[0..50]`). `<namespace>` identifies a protocol and service profile. This document uses the short tokens `ISO15118-2`, `ISO15118-20-AC`, `ISO15118-20-DC`, and `ISO15118-20-WPT`, which map onto the `<uri>` values already reported in `ISO15118Ctrlr.ProtocolSupported` and `ConnectedEV.ProtocolAgreed` (for example `urn:iso:15118:2:2013:MsgDef` and `urn:iso:std:iso:15118:-20:DC`). A full URN would also fit the field, but the short tokens keep instance names readable; the extension specification must fix one set. `<certificatePurpose>`, `<peerRole>`, and `<trustDomain>` are likewise controlled enumerations. EVSE scope is expressed through `Component.evse`, never through the instance.
 
 An unsupported value, a value outside the advertised capability, or a combination that would violate the applicable ISO 15118 profile must be rejected with `SetVariableStatus` and a machine-readable `statusInfo.reasonCode`. A policy change must not alter an active V2G session. It is applied `OnIdle`, at an explicitly agreed activation time, or as part of the atomic policy bundle described below.
+
+#### Proposed `ISO15118Ctrlr` extensions
+
+`ISO15118Ctrlr` stays the umbrella controller. Every other proposed controller manages one layer and defers the cross-layer decisions to a deterministic policy matrix that lives here: which namespace is selected, whether authorization falls back from PnC to EIM, and whether any allowed path remains after a lower layer fails. OCPP 2.1 already exposes the capability view as `ProtocolSupported`. The following variables add the operator-policy and effective-state views that OCPP does not yet define. They do not duplicate the existing `ISO15118Ctrlr` variables.
+
+##### Operator policy
+
+| Variable | Type | Access | Instance | Application | Meaning and constraints |
+|---|---|---:|---|---|---|
+| `ProtocolEnabled` | Boolean | RW | `<namespace>` | `OnIdle` | Enables this namespace as operator policy; it may not enable a namespace absent from `ProtocolSupported` |
+| `AuthorizationServicesAllowed` | MemberList | RW | `<namespace>` | `OnIdle` | Allowed subset of `PnC` and `EIM` for this namespace |
+| `NamespacePreference` | SequenceList | RW | none | `OnIdle` | Deterministic selection order among enabled namespaces when the EV offers more than one |
+| `FallbackPolicy` | OptionList | RW | `<namespace>` | `OnIdle` | `None`, `EIMOnBusinessRejection`, or `EIMOnAnyFailure`; a cryptographic or policy failure never silently downgrades transport security |
+
+##### Effective state and telemetry
+
+| Variable | Type | Access | Instance | Meaning |
+|---|---|---:|---|---|
+| `SelectedNamespace` | OptionList | RO | none | Namespace chosen for the current or most recent session |
+| `SelectionReason` | OptionList | RO | none | `HighestPreferenceOffered`, `OnlyOneOffered`, `FallbackAfterFailure`, or `NoCommonProtocol` |
+| `AuthorizationServiceUsed` | OptionList | RO | none | `PnC`, `EIM`, or `None` |
+| `FallbackExecuted` | Boolean | RO, monitorable | none | Whether PnC-to-EIM fallback was taken in the current or most recent session |
+| `LastSessionOutcome` | OptionList | RO, monitorable | none | `Started`, `RejectedByPolicy`, `NoCommonProtocol`, `AuthorizationFailed`, or `LowerLayerFailed` |
+
+The policy is a matrix, not a set of global switches; see "Policy must be a matrix". A minimal expression looks like this, and the `SelectionReason` and `LastSessionOutcome` telemetry then reports which row was applied and why:
+
+```json
+{
+  "ProtocolEnabled":            { "ISO15118-20-DC": true, "ISO15118-2": true },
+  "NamespacePreference":        [ "ISO15118-20-DC", "ISO15118-2" ],
+  "AuthorizationServicesAllowed": { "ISO15118-20-DC": [ "PnC", "EIM" ], "ISO15118-2": [ "PnC", "EIM" ] },
+  "FallbackPolicy":             { "ISO15118-20-DC": "EIMOnBusinessRejection", "ISO15118-2": "EIMOnBusinessRejection" }
+}
+```
+
+#### Proposed `SLACCtrlr`
+
+`SLACCtrlr` exposes the outcome and health of the SLAC pairing on the Control Pilot. It is scoped to the connector where the hardware allows it. The design is deliberately capability-and-telemetry first: SLAC runs on timers of tens to hundreds of milliseconds, so almost nothing here is a remotely tunable production knob. One hardware reality bounds the whole controller: on modems that terminate SLAC internally, the MMEs never reach the host and the controller can only report the modem's summary, not observe the exchange. See §2.1 of the companion paper.
+
+##### Capabilities
+
+| Variable | Type | Access | Instance | Meaning and constraints |
+|---|---|---:|---|---|
+| `Available` | Boolean | RO | none | The connector implements the proposed SLAC management surface |
+| `SlacVisibility` | OptionList | RO | none | `HostTerminated` (MMEs reach the host and are observable) or `ModemTerminated` (only the modem's summary is available) |
+| `AttenuationProfileAvailable` | Boolean | RO | none | Whether the modem exposes the per-sounding attenuation profile used for the match decision |
+
+##### Operator policy
+
+| Variable | Type | Access | Instance | Application | Meaning and constraints |
+|---|---|---:|---|---|---|
+| `Enabled` | Boolean | RW | none | `OnIdle` | Enables SLAC handling on this connector |
+| `ConcurrencyPolicy` | (group) | RW | none | `OnIdle` | Bounded limit on concurrent and repeated match attempts, with standardized units, burst semantics, and exhaustion behavior; not a single token-bucket integer |
+
+##### Effective state and telemetry
+
+| Variable | Type | Access | Instance | Meaning |
+|---|---|---:|---|---|
+| `State` | OptionList | RO | none | `Idle`, `Sounding`, `Matching`, `Matched`, or `Failed` for the current plug-in |
+| `LastMatchResult` | OptionList | RO | none | `Matched`, `NoMatch`, `TimedOut`, or `InternalError` |
+| `LastMatchFailureReason` | OptionList | RO | none | Stable reason such as `NoSounExchange`, `AttenuationImplausible`, `ValidationFailed`, `Timeout`, or `Reconstructed` (modem-side, not observed) |
+| `MatchAttemptCount` | Integer | RO, monitorable | none | Total SLAC match attempts |
+| `MatchFailureCount` | Integer | RO, monitorable | none | Failed SLAC match attempts |
+
+#### Proposed `SDPCtrlr`
+
+`SDPCtrlr` manages the SECC Discovery Protocol responder and the transport-security mode it advertises. SDP is answered before `SupportedAppProtocol`, so this decision is made per SECC and independently of the later application-protocol negotiation; a `NoTLS` answer implicitly excludes ISO 15118-20 for that session. One component instance represents one SECC, placed like `V2GTLSCtrlr`.
+
+##### Capabilities
+
+| Variable | Type | Access | Instance | Meaning and constraints |
+|---|---|---:|---|---|
+| `Available` | Boolean | RO | none | The SECC implements the proposed SDP management surface |
+| `SecurityModesSupported` | MemberList | RO | `<namespace>` | Implemented transport-security modes, `TLS` and/or `NoTLS` |
+
+##### Operator policy
+
+| Variable | Type | Access | Instance | Application | Meaning and constraints |
+|---|---|---:|---|---|---|
+| `Enabled` | Boolean | RW | `<namespace>` | `OnIdle` | Enables SDP responses for this namespace |
+| `SecurityPolicy` | OptionList | RW | `<namespace>` | `OnIdle` | `TLSRequired` or `TLSAllowed`; for an ISO 15118-20 instance only `TLSRequired` is valid |
+| `RespondToUnicast` | Boolean | RW | none | `OnIdle` | Whether the SECC answers SDP requests sent directly to its address rather than to the link-local multicast group; default `false` |
+| `RequestRateLimit` | (group) | RW | none | `OnIdle` | Bounded limit on SDP requests, with standardized units, burst semantics, scope, and exhaustion behavior; not a single integer |
+
+##### Effective state and telemetry
+
+| Variable | Type | Access | Instance | Meaning |
+|---|---|---:|---|---|
+| `EffectiveSecurityMode` | OptionList | RO | `<namespace>` | The transport-security mode the SECC actually answered with |
+| `LinkLocalSourceEnforced` | Boolean | RO | none | Whether requests from a non-link-local source are rejected. Normally a hardwired `true`, not a production toggle |
+| `RejectedRequestCount` | Integer | RO, monitorable | none | SDP requests rejected for any reason |
+| `LastRejectionReason` | OptionList | RO | none | `SourceNotLinkLocal`, `PolicyViolation`, `RateLimited`, or `MalformedHeader` |
+
+`LinkLocalSourceEnforced` replaces the raw `RequireLinkLocalSource` switch from an earlier draft: source-scope enforcement is a hardwired invariant exposed as effective state, not a freely disabling production variable. The companion paper's §10.6 test verifies these variables from the CSMS side by injecting SDP requests and checking the responses.
 
 #### Proposed `V2GTLSCtrlr`
 
@@ -306,7 +499,7 @@ The state variables describe only the current or last session. Historical detail
 
 `V2GEXICtrlr` manages and observes the ISO 15118 EXI codec boundary: `SupportedAppProtocol` decoding, binding the session-local `schemaID` to the agreed protocol, schema-informed encoding/decoding, resource protection, and signed-element round-trip stability. One component instance represents one SECC and follows the same Charging Station/EVSE placement rule as `V2GTLSCtrlr`. Shared capabilities and policy may be reported at Charging Station level, but current-session state and per-session-derived counters must remain EVSE-scoped when a shared SECC serves multiple EVSEs.
 
-It does not select the application protocol, interpret the business meaning of a valid message, validate a certificate signature, or provide a generic raw-payload tunnel. `ISO15118Ctrlr` remains responsible for protocol selection and the V2G state machine; `V2GPKICtrlr` validates cryptographic trust; raw forensic data belongs to a separately authorized capture/log mechanism.
+It does not select the application protocol, interpret the business meaning of a valid message, validate a certificate signature, or provide a generic raw-payload tunnel. `ISO15118Ctrlr` remains responsible for protocol selection and the V2G state machine; `V2GPKICtrlr` validates cryptographic trust; raw forensic data belongs to a separately authorized capture/log mechanism, described in [The ISO 15118 Tunnel](ISO15118Tunnel.md).
 
 OCPP 2.1 already exposes `ConnectedEV.ProtocolSupportedByEV` and `ConnectedEV.ProtocolAgreed`. These remain authoritative for the offered and selected URI/version. The EXI controller adds the missing codec evidence. In particular, `schemaID` is assigned within `SupportedAppProtocolReq` and is meaningful only in that session; it must never be treated as a fleet-wide schema version. A useful correlation tuple is therefore `{ProtocolAgreed, SelectedSchemaId, ActiveSchemaSetDigest}`.
 
@@ -522,7 +715,7 @@ Simple global values such as `TLSPreferred`, `VersionDowngradePolicy`, or `EIMFa
 - online/offline state and certificate-status freshness;
 - operator minimum-security policy.
 
-The policy surface should therefore express allowed combinations and deterministic selection order. `ProtocolSupported` remains the capability view; a proposed `ProtocolEnabled[namespace]` or equivalent would express operator policy. The selected namespace and the reason for selection belong to effective state and session telemetry.
+The policy surface should therefore express allowed combinations and deterministic selection order. This is what the proposed `ISO15118Ctrlr` extensions above provide: `ProtocolSupported` remains the capability view, `ProtocolEnabled`, `NamespacePreference`, `AuthorizationServicesAllowed`, and `FallbackPolicy` express operator policy, and `SelectedNamespace` with `SelectionReason` report the resolved decision as effective state and telemetry.
 
 ### Configuration must be atomic
 
@@ -541,7 +734,7 @@ A future policy bundle needs:
 
 ### Structured session and event correlation
 
-`transactionId` is unavailable during SLAC, SDP, TLS, SAP/EXI, and early authorization. A future model therefore needs an opaque, locally generated, privacy-preserving `v2gSessionId` that can correlate the complete chain without exposing an eMAID, certificate, or stable vehicle identifier.
+Depending on `TxCtrlr.TxStartPoint`, an OCPP `transactionId` may not exist yet during SLAC, SDP, TLS, SAP/EXI, and early authorization. A future model therefore needs an opaque, locally generated, privacy-preserving `v2gSessionId` that exists from plug-in and can correlate the complete chain without exposing an eMAID, certificate, or stable vehicle identifier.
 
 A structured ISO 15118 event should contain:
 
@@ -575,21 +768,24 @@ Suggested event semantics include:
 
 The existing OCPP severity scale 0-9 should be used for `NotifyEvent`; critical security events additionally use the guaranteed-delivery security channel.
 
-### Safe SLAC, SDP, TLS, and EXI management
+### Why the obvious knobs are not enough
 
-The initial proposal exposed several raw implementation knobs. These require refinement:
+The naive way to manage these layers is a handful of raw Boolean switches. Each one is either unsafe or underspecified, and the controllers above replace it with a capability, a bounded policy, and effective-state evidence:
 
-- `RequireLinkLocalSource` should normally be a hardwired invariant or a capability/effective-state indication, not a freely disabling production switch;
-- a rate-limit policy should define standardized units, scope, burst semantics, exhaustion behavior, and safe bounds rather than assume one token-bucket implementation;
-- a scalar attenuation minimum/maximum does not fully model an SLAC attenuation profile and may damage interoperability;
-- `ClientCertRequired` must not expose a non-conformant production mode merely for penetration testing;
-- test-only behavior must be locally authorized, time-limited, clearly indicated, and automatically reverted;
-- OCSP behavior should expose capability, cache freshness, and effective result rather than only a global `RequireOCSPStapling` Boolean;
-- TLS versions and cipher suites must be scoped per ISO 15118 namespace/profile, not copied from the separate OCPP Security Profile 2/3 configuration;
-- EXI document lengths, occurrence counts, nesting, and processing time must be checked before allocation or iteration wherever possible;
-- a session-local `schemaID` must always be reported together with the agreed protocol and active schema-set digest;
-- valid EXI in the wrong V2G phase is a state-machine error, not a decoder error;
-- raw EXI and decoded field values must not be placed in ordinary OCPP events or Device Model variables.
+| Naive variable | Problem | Replaced by |
+|---|---|---|
+| `RequireLinkLocalSource` (Boolean) | A freely disabling switch turns off a security invariant | `SDPCtrlr.LinkLocalSourceEnforced` as effective state, normally a hardwired `true` |
+| A single rate-limit integer | No units, burst, scope, or exhaustion semantics; assumes one token-bucket implementation | A rate-limit policy group with standardized units and safe bounds |
+| A scalar attenuation min/max | Does not model an SLAC attenuation profile and can damage interoperability | `SLACCtrlr` capability and reason-coded telemetry, not a remote threshold |
+| `ClientCertRequired` (Boolean) | Can expose a non-conformant production mode for penetration testing | `V2GTLSCtrlr.PeerAuthenticationPolicy`, restricted to profile-conformant modes |
+| `RequireOCSPStapling` (Boolean) | Hides cache freshness and the actual result | `V2GTLSCtrlr.OCSPStaplingSupported` plus `StapledStatusPolicy` and `StapledStatusState` |
+
+Four design rules follow, and the controllers above already apply them:
+
+- TLS versions and cipher suites are scoped per ISO 15118 namespace and profile, never copied from the separate OCPP Security Profile 2/3 configuration.
+- EXI document lengths, occurrence counts, nesting, and processing time are checked before allocation or iteration wherever possible, and the session-local `schemaID` is always reported together with the agreed protocol and active schema-set digest.
+- Valid EXI in the wrong V2G phase is a state-machine error, not a decoder error; raw EXI and decoded field values never appear in ordinary OCPP events or Device Model variables.
+- Test-only behavior must be locally authorized, time-limited, clearly indicated, and automatically reverted, never a persistent production variable.
 
 ### Safety, resilience, and privacy
 
@@ -615,6 +811,7 @@ A complete future management design also needs:
 - Use `GetReport`, `GetVariables`, `SetVariables`, and Device Model monitoring instead of opaque `DataTransfer` wherever possible.
 - Use `NotifyEvent` for structured layer telemetry and `SecurityEventNotification` for critical audit events.
 - Enforce distinct OCPP, ISO 15118-2, and ISO 15118-20 keys immediately, independent of future standardization.
+- For packet-level evidence that these policies are enforced, the capture lifecycle of [The ISO 15118 Tunnel](ISO15118Tunnel.md) is deployable on OCPP 2.1 as its transport profile 1, with no protocol change.
 
 ### Phase 1: proposed OCPP standardization
 
@@ -633,6 +830,6 @@ A complete future management design also needs:
 
 | Priority | Action |
 |---|---|
-| P0 | Correct the certificate-use-case mapping; represent M03-M07; enforce separate certificate keys; distinguish `SecurityEventNotification` from `NotifyEvent` |
+| P0 | Enforce separate certificate keys for the OCPP, ISO 15118-2, and ISO 15118-20 identities; use M03-M07 as the operational certificate protocol; distinguish `SecurityEventNotification` from `NotifyEvent` |
 | P1 | Define the versioned custom Device Model extension including `V2GEXICtrlr`, session correlation, policy matrix, structured event taxonomy, and atomic configuration workflow |
 | P2 | Standardize and certify the missing layer-management semantics across vendors |

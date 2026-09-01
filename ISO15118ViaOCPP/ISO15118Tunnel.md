@@ -8,7 +8,7 @@ This paper describes how a charging station can capture these layers the way Wir
 
 Two questions carry most of the weight:
 
-- **Transport** (chapters 5–9): OCPP 2.1's new `SEND` message type is the deployable answer, binary WebSocket frames are the efficient answer, and HTTP/2 and HTTP/3 are the *correct* answer, because they are the only ones that stop a 4 MB capture dump from delaying a `RemoteStartTransaction`.
+- **Transport** (chapters 5–9): OCPP 2.1's new `SEND` message type is the deployable answer, binary WebSocket frames are the efficient answer, and HTTP/2 and HTTP/3 are the *correct* answer, because they are the only ones that stop a 4 MB capture dump from delaying a `RequestStartTransaction`.
 - **The reverse path** (chapter 10): remote raw-frame injection into critical infrastructure is a weapon before it is a diagnostic tool. The constraints come first, the API second.
 
 This paper is the packet-level counterpart to the controller proposals in [ISO 15118 via OCPP](README.md). That document retains the existing `ISO15118Ctrlr` as the umbrella controller and proposes `SLACCtrlr`, `SDPCtrlr`, `V2GTLSCtrlr`, `V2GEXICtrlr`, and `V2GPKICtrlr` for the currently unmanaged layers. This paper is about obtaining the evidence that the resulting configuration is actually being enforced.
@@ -49,6 +49,25 @@ This is not a replacement for the ISO 15118 conformance and interoperability tes
 - **Fleet-wide statistics** on where sessions die, across thousands of stations, which no bench test produces.
 - **Verification** that a deployed security policy is enforced — for example that a station configured for `TLSRequired` really does refuse an SDP request asking for no transport-layer security.
 - **Regression testing** after a firmware rollout, from the CSMS, without a site visit.
+
+### 1.4 The smallest useful version needs no new OCPP messages
+
+Most of the diagnostic value in this paper is reachable today, on an unmodified OCPP 2.1 stack, with no protocol extension at all. The station does everything locally and the CSMS collects the result with a message it already has:
+
+1. **Capture into a ring** (§3.2): always-on, header-only by default, into a bounded in-memory buffer.
+2. **Trigger** on a failure (§3.2): a SLAC match failure, an SDP timeout, a TLS alert, a `SecurityEventNotification`, or a failed transaction freezes the ring.
+3. **Write a pcapng file** locally (chapter 4), including the custom blocks for PLC state and reconstructed SLAC events (§4.3).
+4. **Upload it with `GetLogRequest`** using `LogEnumType = DiagnosticsLog`. The content of a diagnostics log is not fixed by OCPP, so a pcapng file (or a zip of pcapng files) needs no change to `LogEnumType`. One `SecurityEventNotification` per export records that it happened.
+
+Everything after this, transport profiles and the reverse path, is optimization and new capability on top of this floor. What each OCPP generation can do:
+
+| OCPP version | Capture upload today | Notes |
+|---|---|---|
+| 1.6 | `GetDiagnostics` to an operator URL | No Device Model; capture policy is firmware-configured |
+| 2.0.1 | `GetLog(DiagnosticsLog)`; `DataTransfer` for control | Custom capture components possible via `DataTransfer` |
+| 2.1 | `GetLog(DiagnosticsLog)` plus the `SEND` transport profile (chapter 5); custom components via `CustomizationCtrlr` | The first version with an unconfirmed message type suited to streaming |
+
+The rest of this paper specifies the streaming lifecycle and transports that turn "upload a file after the fact" into "watch a station live and test it remotely". Steps 1 to 3 of the [companion paper](README.md)'s roadmap deliver the diagnostic value; the reverse path (chapter 10) is where the risk is.
 
 
 ## 2. What actually has to be captured
@@ -117,15 +136,20 @@ A complete SDP request is ten bytes on the wire:
 
 and the response twenty bytes of payload: the SECC's IPv6 address (16), TCP port (2), the security byte and the transport protocol byte.
 
-Those two bytes are the entire ISO 15118-2 transport security negotiation, unauthenticated, on a multicast address any node on the link can reach. That is why the [companion paper](README.md) proposes an `SDPCtrlr` with `SecurityPolicy`, `RequireLinkLocalSource` and a rate limiter — and why being able to *test* those settings remotely (§10.6) is worth the effort.
+Those two bytes are the entire ISO 15118-2 transport security negotiation, unauthenticated, on a multicast address any node on the link can reach. That is why the [companion paper](README.md) proposes an `SDPCtrlr` with a `SecurityPolicy`, enforced link-local source scoping, and a rate limiter — and why being able to *test* those settings remotely (§10.6) is worth the effort.
 
 ### 2.4 V2G TLS and EXI
 
 After SDP the EVCC opens TCP to the announced port and starts TLS — 1.2 for ISO 15118-2, 1.3 for -20. ISO 15118-2 authenticates only the SECC at the TLS layer; the vehicle proves its contract at the application layer. ISO 15118-20 supports mutual authentication.
 
-A capture of the handshake alone already answers a great deal: offered and selected versions, cipher suites, the certificate chain the SECC presented, `signature_algorithms_cert`, whether OCSP was stapled, and the exact alert that ended it. **This requires no secrets** and should be the default level of V2G capture.
+How much a handshake capture answers depends on the TLS version, and the two ISO 15118 namespaces differ exactly here:
 
-Capturing the *contents* requires the session secrets, and that is a different decision entirely (§3.6).
+- **ISO 15118-2 (TLS 1.2).** Offered and selected versions, cipher suites, the certificate chain the SECC presented, `signature_algorithms_cert`, whether OCSP was stapled, and the alert that ended the handshake are all in the clear. A handshake capture answers a great deal and **needs no secrets**.
+- **ISO 15118-20 (TLS 1.3).** Only `ClientHello` and `ServerHello` are in the clear. Everything from `EncryptedExtensions` onward — the certificate chain, the stapled OCSP status, `CertificateVerify`, and most alerts — is encrypted under the handshake traffic secrets. A capture without secrets sees the versions and cipher suites and little else, precisely for the namespace that *mandates* TLS.
+
+This is why secret export (§3.6) is not a single on/off decision but a tier, and why the default capture level differs by namespace: header-only is enough to diagnose most ISO 15118-2 handshakes, but a useful ISO 15118-20 handshake capture needs at least the handshake-traffic secrets.
+
+Capturing the message *contents* requires the application-traffic secrets, and that is a different decision again (§3.6).
 
 Above TLS, V2G messages are EXI-encoded against a schema. The protocol namespace/version and its session-local `schemaID` binding are negotiated in `SupportedAppProtocolReq`/`Res`, which is itself sent over the same channel. A decoder that missed the negotiation cannot reliably select the schema for the session — so a capture that starts mid-session is far less useful than one that starts at the TCP SYN. Ring-buffer sizing (§3.2) has to account for this.
 
@@ -254,17 +278,25 @@ Practical consequences for the design:
 
 ### 3.6 TLS keying material
 
-Decoding V2G application messages requires the session secrets, exported in the usual `SSLKEYLOGFILE` form — `CLIENT_RANDOM` for TLS 1.2, the handshake and application traffic secrets for TLS 1.3.
+Secret export is not one capability but three tiers, and they carry very different risk. They map onto the `SSLKEYLOGFILE` labels, so a station never has to invent a format:
 
-This is the single most dangerous capability in the paper, and it deserves to be stated bluntly. Exporting V2G session secrets to the CSMS means the CSMS can read every V2G session on that station. In a test environment that is exactly what is wanted. In production it means a CSMS compromise yields plaintext contract certificates fleet-wide.
+| Tier | Exports | Decodes | Risk |
+|---|---|---|---|
+| `None` | nothing | ClientHello/ServerHello only | none beyond the header capture |
+| `HandshakeOnly` | the handshake traffic secrets (`CLIENT_HANDSHAKE_TRAFFIC_SECRET`, `SERVER_HANDSHAKE_TRAFFIC_SECRET`) | the certificate chain, stapled OCSP status, `CertificateVerify`, and alerts of a TLS 1.3 (ISO 15118-20) handshake | the identities and posture of the handshake, but no application data |
+| `All` | the handshake **and** application traffic secrets (`CLIENT_RANDOM` for TLS 1.2, `*_TRAFFIC_SECRET_0` for TLS 1.3) | every V2G message on the session | full plaintext, including contract certificates |
+
+`HandshakeOnly` exists specifically because of §2.4: for ISO 15118-20 the certificate chain and OCSP status are encrypted, so diagnosing a handshake failure needs the handshake secrets, but it does not need, and must not export, the application-traffic keys. Only the `TLSK` Decryption Secrets Block (§4.2) actually carried in a given capture distinguishes the tiers on the wire.
+
+`All` is the single most dangerous capability in the paper, and it deserves to be stated bluntly. Exporting V2G application secrets to the CSMS means the CSMS can read every V2G session on that station. In a test environment that is exactly what is wanted. In production it means a CSMS compromise yields plaintext contract certificates fleet-wide.
 
 It also interacts badly with a finding from the [companion paper](README.md): OCPP 2.1 A00.FR.428 permits the Charging Station Certificate and the ISO 15118 SECC certificate to be the same object, while A00.FR.514 recommends against Extended Key Usage. Where an implementation takes that invitation, the key whose sessions are being logged is also the station's OCPP identity.
 
-Therefore:
+Therefore, for both the `HandshakeOnly` and `All` tiers:
 
-- Secret export is **off by default** and **not enabled by a normal `SetVariables`** — it requires a signed command (§10.4) or physical presence.
+- Secret export is **off by default** and **not enabled by a normal `SetVariables`** — it requires a signed command (§10.4) or physical presence. `All` should require a stronger unlock than `HandshakeOnly`.
 - It is **time-boxed by a lease that expires**, never a persistent setting.
-- Enabling it **raises a security event** that cannot be suppressed.
+- Enabling it **raises a security event** that cannot be suppressed, and the event names the tier.
 - It **applies per session**, not to a whole interface.
 - Deployments should be able to **disable the capability in firmware permanently**, and certification profiles should be able to require that.
 
@@ -341,7 +373,7 @@ That is head-of-line blocking, acknowledged in the standard, in the sentence tha
 
 ### 5.2 Lifecycle modelled on the periodic event stream
 
-OCPP 2.1 already has a streaming family — `OpenPeriodicEventStream`, `AdjustPeriodicEventStream`, `ClosePeriodicEventStream`, `GetPeriodicEventStream`, and `NotifyPeriodicEventStream` as the `SEND`-typed data carrier. Reusing that shape means implementers already know it and CSMS state machines already exist for it.
+OCPP 2.1 already has a streaming family — `OpenPeriodicEventStream`, `AdjustPeriodicEventStream`, `ClosePeriodicEventStream`, `GetPeriodicEventStream`, and `NotifyPeriodicEventStream` as the `SEND`-typed data carrier. Reusing that shape means implementers already know it and CSMS state machines already exist for it. One difference should be stated up front: in N11 the Charging Station opens the stream by sending `OpenPeriodicEventStreamRequest` to the CSMS, whereas a capture is opened by the CSMS. The Adjust and Close directions are the same as in OCPP.
 
 ```
 CSMS                                              Charging Station
@@ -470,7 +502,7 @@ A station should be able to negotiate `client_no_context_takeover` to bound memo
 
 Fixed: the 33 % base64 penalty, JSON parsing cost on multi-megabyte payloads, and the need to escape binary into a text encoding at all.
 
-**Not fixed: head-of-line blocking.** A WebSocket connection is a single ordered byte stream. A 64 kB binary capture frame occupies the connection for exactly as long as 64 kB of base64 would minus the encoding overhead. On a 1 Mbit/s uplink a 4 MB ring dump is still ~30 seconds during which a `RemoteStopTransaction` cannot arrive.
+**Not fixed: head-of-line blocking.** A WebSocket connection is a single ordered byte stream. A 64 kB binary capture frame occupies the connection for exactly as long as 64 kB of base64 would minus the encoding overhead. On a 1 Mbit/s uplink a 4 MB ring dump is still ~30 seconds during which a `RequestStopTransaction` cannot arrive.
 
 WebSocket has no multiplexing. That is the actual problem, and it needs a different layer.
 
@@ -558,7 +590,7 @@ Multiplexing bulk capture onto the OCPP control connection over TCP can therefor
 
 RFC 9220 extends RFC 8441's mechanism to HTTP/3, so the stream model of chapter 7 carries over unchanged. What changes is underneath: QUIC streams are **independently delivered**. Loss on a capture stream delays that capture stream and nothing else. The OCPP control stream is unaffected.
 
-This is the decisive property. It converts §7.6's "multiplexing may hurt control latency" into "multiplexing cannot hurt control latency", which is what makes it acceptable to run a multi-megabyte forensic dump over the same connection that carries `RemoteStopTransaction`.
+This is the decisive property. It converts §7.6's "multiplexing may hurt control latency" into "multiplexing cannot hurt control latency", which is what makes it acceptable to run a multi-megabyte forensic dump over the same connection that carries `RequestStopTransaction`.
 
 ### 8.2 Connection migration
 
@@ -648,14 +680,25 @@ Constraint 8 is easy to overlook and matters more than it looks. Without it, an 
 
 ### 10.3 The injection ladder
 
-Do not offer only raw frames. Offer three levels, with the safe one as the default. All three are bodies of the same `InjectFrameRequest` (§10.5); the egress interface is **not** among their fields, because it is fixed by the lease (§10.4) and must not be selectable per frame.
+Do not offer only raw frames. Offer a ladder of levels, named rather than numbered, with the safe one as the default. A bare integer for the most security-critical parameter in the paper invites the off-by-one where "highest level" and "lowest number" disagree; an enumeration with a stated order does not. Define:
 
-**Level 3 — Semantic.** The CSMS says *what* to send; the station encodes it.
+```
+InjectionLevelEnumType: Replay < Semantic < Transport < Raw
+```
+
+- `Replay` re-emits frames the station itself previously captured; no CSMS-authored bytes at all.
+- `Semantic` is the default and covers most tests.
+- `Transport` is the highest level most deployments should ever enable.
+- `Raw` is the level at which every mistake becomes someone else's incident.
+
+A lease grants a `maxLevel`, and a frame's `level` must not be higher in this order (`Semantic ≤ Transport`, but `Raw` is refused under a `Transport` lease). All are bodies of the same `InjectFrameRequest` (§10.5). Two fields are deliberately **not** per-frame, because they are fixed by the lease (§10.4) and must not be selectable per frame: the egress interface, and the **direction** (§10.4) — whether the frame leaves the station on the wire (`Egress`) or is delivered into the station's own stack as if received on the EV-facing interface (`LocalIngress`).
+
+**`Semantic`.** The CSMS says *what* to send; the station encodes it.
 
 ```json
 {
   "leaseId":  42,
-  "level":    3,
+  "level":    "Semantic",
   "semantic": {
     "kind":              "SdpRequest",
     "security":          "TLS",
@@ -667,12 +710,12 @@ Do not offer only raw frames. Offer three levels, with the safe one as the defau
 
 The station builds the V2GTP header, the UDP and IPv6 headers, and the Ethernet frame. It is impossible to emit anything that is not a well-formed SDP request. This covers the majority of real tests and should be the default level.
 
-**Level 2 — Transport payload.** The CSMS supplies a UDP or TCP payload plus a destination; the station builds L2/L3.
+**`Transport`.** The CSMS supplies a UDP or TCP payload plus a destination; the station builds L2/L3.
 
 ```json
 {
   "leaseId":   42,
-  "level":     2,
+  "level":     "Transport",
   "transport": {
     "protocol":    "UDP",
     "destination": "[ff02::1]:15118",
@@ -685,17 +728,17 @@ The station builds the V2GTP header, the UDP and IPv6 headers, and the Ethernet 
 
 This permits malformed *payloads* — which is exactly what negative testing needs (§10.7) — while guaranteeing well-formed framing and a destination inside the allow-list. **This should be the highest level most deployments ever enable.**
 
-**Level 1 — Raw Ethernet frame.** The CSMS supplies the complete frame from the destination MAC onwards.
+**`Raw`.** The CSMS supplies the complete frame from the destination MAC onwards.
 
 ```json
 {
   "leaseId": 42,
-  "level":   1,
+  "level":   "Raw",
   "raw":     "MzMAAAABAgAAAAABht0..."
 }
 ```
 
-Necessary for SLAC MMEs, which are not IP, and for tests requiring control of the source MAC. Also the level at which every mistake becomes someone else's incident. It must be gated behind a stronger unlock than level 2 — a separate device-model variable, a separate signing key, or physical presence — and it should be permanently disablable in firmware.
+Necessary for SLAC MMEs, which are not IP, and for tests requiring control of the source MAC. It must be gated behind a stronger unlock than `Transport` — a separate signing key or physical presence — and it should be permanently disablable in firmware. Because `Raw` is the top of the order, `MaxInjectionLevel = Raw` is the single gate; there is no separate Boolean that can disagree with it.
 
 ### 10.4 The lease model
 
@@ -711,7 +754,7 @@ CSMS                                                  Charging Station
   │─── OpenPacketCaptureRequest(same EVSE, EVFacing) ──────────►│   ← always capture
   │◄── OpenPacketCaptureResponse(Accepted) ─────────────────────│      before injecting
   │                                                             │
-  │─── InjectFrameRequest(lease, level 2, SDP request) ────────►│
+  │─── InjectFrameRequest(lease, Transport, SDP request) ──────►│
   │◄── InjectFrameResponse(Sent, egressTimestamp) ──────────────│
   │◄── NotifyPacketCaptureData(SEND) ───────────────────────────│   ← injected frame
   │◄── NotifyPacketCaptureData(SEND) ───────────────────────────│   ← SECC response
@@ -721,7 +764,7 @@ CSMS                                                  Charging Station
   │                                          unlock connector   │
 ```
 
-The lease is granted by a **signed** request. OCPP 2.1 chapter 7 of Part 4 already defines this: an action `X` has a signed equivalent `X-Signed` whose payload is a Flattened JWS JSON Serialization, with `OCPPAction` and `OCPPMessageTypedId` in the protected header and `x5t#S256` identifying the signing certificate, using ES256, RS256 or RS384.
+The lease is granted by a **signed** request. OCPP 2.1 chapter 7 of Part 4 already defines this: an action `X` has a signed equivalent `X-Signed` whose payload is a Flattened JWS JSON Serialization, with `OCPPAction` and `OCPPMessageTypedId` (sic) in the protected header and `x5t#S256` identifying the signing certificate, using ES256, RS256 or RS384.
 
 The specification notes that message signing is "redundant" when the connection is already secured by TLS. For ordinary messages that is fair. For this one it is exactly wrong, and the reason is the threat model: TLS authenticates *the CSMS*, and the whole point of signing an injection lease is to survive the case where the CSMS is the compromised party. Sign with a key that does not live on the CSMS — an operator hardware token, an offline approval service, a four-eyes authority — and a CSMS compromise no longer yields fleet-wide frame injection.
 
@@ -732,16 +775,19 @@ Lease fields:
 | `leaseId` | integer | Unique per station |
 | `evseId` | integer | Scope |
 | `interface` | string | Must be in the firmware allow-list |
-| `maxLevel` | integer | 3, 2 or 1 — the injection ladder |
+| `direction` | InjectionDirectionEnumType | `Egress` or `LocalIngress` — fixed for the lease, not per frame |
+| `maxLevel` | InjectionLevelEnumType | Highest permitted rung: `Replay`, `Semantic`, `Transport`, or `Raw` |
 | `expiryDateTime` | dateTime | Hard stop, station-enforced against its own clock |
 | `maxFrames` | integer | Total budget |
 | `maxFramesPerSecond` | integer | Rate limit |
 | `egressFilter` | EgressFilterType | Allowed EtherTypes, destinations, ports |
-| `requireCapture` | boolean | Refuse to inject unless an egress capture is active |
+| `requireCapture` | boolean | Refuse to inject unless a capture is active on the path being injected |
 
 `requireCapture` defaults to `true`. An injection you cannot see the result of is not a test.
 
 Expiry is enforced by the station against its own clock, so a CSMS that stops responding cannot leave a lease open indefinitely. If the station's clock is not trusted, a monotonic duration cap applies in addition.
+
+**Direction is not cosmetic.** A raw frame *transmitted* on the EV-facing interface (`Egress`) goes to the wire, i.e. to the PLC modem, and Linux does not loop it back into the local IPv6/UDP receive path; a Green PHY modem does not echo the host's transmissions either. So on a single-SoC station where the SECC listens on that same interface, an `Egress` SDP request never reaches the station's own SECC, and "no response" is indistinguishable from a broken SECC — the exact ambiguity this apparatus exists to remove. To test the station's own SECC, the frame must be *delivered inbound* on the EV-facing interface (`LocalIngress`, for example a `tc` ingress redirect from a tap device, or a modem loopback). A `LocalIngress` frame never leaves the station and cannot touch the CPO network, so it is also strictly safer than `Egress`. `Egress` is for stimulating something on the wire; the §10.6 and §10.7 tests against the local SECC require `LocalIngress` unless the SECC lives on a separate SoC and is reachable on the wire. Constraint 8 (capture with provenance) applies to both directions, and the capture tap must be placed where it sees both the injected request and the SECC's unicast reply.
 
 ### 10.5 Message definitions
 
@@ -750,12 +796,12 @@ Expiry is enforced by the station against its own clock, so a CSMS that stops re
 | Field | Type | Card. | Description |
 |---|---|---|---|
 | `leaseId` | integer | 1..1 | Must be active and unexpired |
-| `level` | integer | 1..1 | 3, 2 or 1; must be ≤ lease `maxLevel` |
+| `level` | InjectionLevelEnumType | 1..1 | `Replay`, `Semantic`, `Transport`, or `Raw`; must not exceed the lease `maxLevel` in the ladder order |
 | `repeat` | integer | 0..1 | For rate-limit testing; counts against `maxFrames` |
 | `intervalMs` | integer | 0..1 | Spacing for `repeat` |
-| `semantic` | SemanticFrameType | 0..1 | Level 3 |
-| `transport` | TransportFrameType | 0..1 | Level 2 |
-| `raw` | string | 0..1 | Level 1, base64 |
+| `semantic` | SemanticFrameType | 0..1 | Present for `Semantic` |
+| `transport` | TransportFrameType | 0..1 | Present for `Transport` |
+| `raw` | string | 0..1 | Present for `Raw`, base64 |
 
 **`InjectFrameResponse`** returns `status` (`Sent`, `RejectedByFilter`, `RateLimited`, `LeaseExpired`, `InterlockActive`, `NotSupported`, `Unauthorized`), the egress timestamp from the same clock domain as the capture, and — on rejection — *which* filter rule rejected it. A test framework that cannot tell "the SECC did not answer" from "the station never sent it" is useless.
 
@@ -767,14 +813,14 @@ This is the canonical test, and it exercises everything above.
 
 **Goal.** Verify that the SECC answers an SDP request sent to `[ff02::1]:15118` on the EV-facing interface — that it answers at all, that it answers *unicast*, that it answers within the timeout, and that the security byte matches the configured policy.
 
-**Setup.** Open a capture on the EV-facing tap with a filter for EtherType `0x86DD` and UDP port 15118, full packets (an SDP exchange is ~30 bytes of payload; there is no privacy argument for slicing it). Take a level-2 injection lease on the same EVSE. The connector is locked out by the interlock, so no vehicle is involved.
+**Setup.** Open a capture on the EV-facing tap with a filter for EtherType `0x86DD` and UDP port 15118, full packets (an SDP exchange is ~30 bytes of payload; there is no privacy argument for slicing it). Take a `Transport`-level injection lease on the same EVSE, with `direction: LocalIngress` so the request is delivered inbound to the station's own SECC rather than sent out on the wire (§10.4). The connector is locked out by the interlock, so no vehicle is involved.
 
-**Inject.** A level-2 request for a well-formed SDP request asking for TLS over TCP:
+**Inject.** A `Transport`-level request for a well-formed SDP request asking for TLS over TCP:
 
 ```json
 {
   "leaseId":   42,
-  "level":     2,
+  "level":     "Transport",
   "transport": {
     "protocol":    "UDP",
     "destination": "[ff02::1]:15118",
@@ -785,7 +831,7 @@ This is the canonical test, and it exercises everything above.
 }
 ```
 
-The payload decodes to `01 FE 90 00 00 00 00 02 00 00` — the ten-byte SDP request from §2.3. The EV-facing interface comes from lease 42, not from this message.
+The payload decodes to `01 FE 90 00 00 00 00 02 00 00` — the ten-byte SDP request from §2.3. The EV-facing interface and the `LocalIngress` direction come from lease 42, not from this message.
 
 The station builds around it:
 
@@ -822,15 +868,15 @@ and checks, mechanically:
 | Announced address/port | Matches the SECC's actual listener | Misconfiguration that only manifests with real vehicles |
 | V2GTP header | Version `0x01`, inverse `0xFE`, length exactly 20 | Malformed responder |
 
-This is precisely the closing of the loop promised in §1.3: the [companion paper](README.md) proposes `SDPCtrlr.SecurityPolicy` and `RequireLinkLocalSource` as configuration; this chapter is how the CSMS verifies that setting them had any effect.
+This is precisely the closing of the loop promised in §1.3: the [companion paper](README.md) proposes `SDPCtrlr.SecurityPolicy` as configuration and `SDPCtrlr.LinkLocalSourceEnforced` as effective state; this chapter is how the CSMS verifies that setting them had any effect.
 
 ### 10.7 Negative tests
 
-The positive test above is the easy half. The interesting findings come from malformed input — which is why level 2 permits arbitrary *payloads* inside well-formed framing.
+The positive test above is the easy half. The interesting findings come from malformed input — which is why the `Transport` level permits arbitrary *payloads* inside well-formed framing.
 
 | # | Injected | Correct SECC behaviour | Finding if it does otherwise |
 |---|---|---|---|
-| 1 | Source `2001:db8::1` — not link-local | Ignore, if `RequireLinkLocalSource` is set | Off-link SDP spoofing is possible |
+| 1 | Source `2001:db8::1` — not link-local | Ignore; `SDPCtrlr.LinkLocalSourceEnforced` must be `true` in production | Off-link SDP spoofing is possible |
 | 2 | `security = 0x10` (no TLS) with policy `TLSRequired` | Answer `0x00` or refuse | **Downgrade accepted** — the finding this whole apparatus exists to catch |
 | 3 | `transportProtocol = 0x10` (UDP) | Refuse; ISO 15118-2 requires TCP | Undefined transport accepted |
 | 4 | Inverse version byte `0x00` instead of `0xFE` | Drop | Header validation not implemented |
@@ -841,7 +887,7 @@ The positive test above is the easy half. The interesting findings come from mal
 | 9 | Valid request during an active session | Per policy | Session hijack surface |
 | 10 | Unicast request direct to the SECC address | Per `SDPCtrlr.RespondToUnicast` | Discovery reachable off-multicast |
 
-Tests 5, 6 and 7 are the memory-safety trio. They are the ones most likely to find something exploitable, they are trivial to express at level 2, and they are essentially impossible to run against a deployed station today without physical access. Being able to run them remotely, from the CSMS, against the entire fleet after a firmware rollout, is the strongest argument in this paper for building any of it.
+Tests 5, 6 and 7 are the memory-safety trio. They are the ones most likely to find something exploitable, they are trivial to express at the `Transport` level, and they are essentially impossible to run against a deployed station today without physical access. Being able to run them remotely, from the CSMS, against the entire fleet after a firmware rollout, is the strongest argument in this paper for building any of it.
 
 Each test is a lease, an injection, a capture window and an automated verdict — so the whole table becomes a CSMS-side regression suite that runs against a maintenance-mode station in under a minute.
 
@@ -887,7 +933,7 @@ This is the same principle as §3.3's rejection of CSMS-supplied BPF, applied to
 | `MaxBytesPerSecond` | integer | RW | Station-enforced ceiling, independent of what a capture requests |
 | `DefaultSnapLength` | integer | RW | Default 128 (§3.3) |
 | `FullPayloadCaptureAllowed` | boolean | RW | Gate on capturing application content (§3.5) |
-| `SecretsExportAllowed` | boolean | RW | Gate on TLS secret export; **signed command only** (§3.6) |
+| `SecretsExportAllowed` | OptionList | RW | TLS secret-export tier: `None`, `HandshakeOnly`, or `All` (§3.6); **signed command only**, and `All` needs a stronger unlock than `HandshakeOnly` |
 | `PseudonymizationMode` | OptionList | RW | `None`, `PerCapture`, `PerStation` |
 | `MaxRetentionSeconds` | integer | RW | Station-side retention bound |
 | `DroppedFrameCount` | integer | RO, monitorable | Telemetry — must be exported, never silent |
@@ -898,8 +944,7 @@ This is the same principle as §3.3's rejection of CSMS-supplied BPF, applied to
 |---|---|---|---|
 | `Enabled` | boolean | RW | Master switch; default `false` |
 | `AllowedInterfaces` | MemberList | **RO** | Fixed in firmware. Read-only is the security control (§10.2) |
-| `MaxInjectionLevel` | integer | RW | 3, 2 or 1 — cannot exceed the firmware ceiling |
-| `RawFrameInjectionAllowed` | boolean | RW | Separate gate for level 1 |
+| `MaxInjectionLevel` | InjectionLevelEnumType | RW | Highest permitted level: `Replay`, `Semantic`, `Transport`, or `Raw`; may not be more permissive than the firmware ceiling. `Raw` needs a stronger unlock (separate signing key or physical presence) than `Transport` |
 | `AllowedEtherTypes` | MemberList | RW | Egress filter |
 | `AllowedDestinations` | MemberList | RW | Egress filter — MAC/IP/port allow-list |
 | `MaxLeaseSeconds` | integer | RW | Hard ceiling on lease duration |
@@ -927,7 +972,7 @@ Extending the list proposed in the [companion paper](README.md):
 | `FrameInjectionLeaseDenied` | medium | Signature, interlock or policy refused a lease |
 | `FrameInjectionRejectedByFilter` | **high** | Something tried to inject outside the allow-list — likely abuse |
 | `FrameInjectionLeaseExpired` | low | Lease closed by timeout rather than by the CSMS |
-| `RawFrameInjectionUsed` | **high** | Level 1 was used |
+| `RawFrameInjectionUsed` | **high** | A `Raw` (level 4) frame was injected |
 
 Every one of these needs an `evseId`, which `SecurityEventNotificationRequest` does not have — reinforcing the argument in the [companion paper](README.md) that `evseId`, severity and a sequence number belong in that message. Smuggling them into 255 characters of `techInfo` is not a basis for NIS2 incident correlation.
 
@@ -940,9 +985,10 @@ Every one of these needs an `evseId`, which `SecurityEventNotificationRequest` d
 |---|---|---|
 | Header-only capture | EV MAC, EVCCID → vehicle tracking | Pseudonymisation, retention bounds, disclosure |
 | Full-payload capture | Contract certificates, eMAID → contract holder identity | Separate gate, security event, off by default |
-| TLS secret export | Every V2G session on the station | Signed command, lease-bound, firmware-disablable |
-| Level 2/3 injection | The station's own SECC | Egress filter, interlock, lease, capture-on-egress |
-| Level 1 injection | Anything on the EV-facing link | Separate gate, stronger unlock, firmware-disablable |
+| `HandshakeOnly` secret export | Certificate chain and posture of a TLS 1.3 handshake | Signed command, lease-bound, firmware-disablable |
+| `All` secret export | Every V2G session on the station | Stronger unlock, lease-bound, firmware-disablable |
+| `Semantic`/`Transport` injection | The station's own SECC | Egress filter, interlock, lease, capture-on-path |
+| `Raw` injection | Anything on the EV-facing link | Stronger unlock, firmware-disablable |
 | Any injection with a wrong interface list | **The CPO's operational network** | Read-only `AllowedInterfaces` (§11.2) |
 
 The last row is the one that turns a diagnostic feature into a fleet-wide incident, and it is prevented by a single design decision made early: the interface list is firmware, not configuration.
@@ -972,10 +1018,10 @@ An injection agent that can be updated independently of the OCPP client is also 
 2. **Add the capture lifecycle messages** with transport profile 1 (`SEND` + base64). Deployable on OCPP 2.1 as it stands.
 3. **Add `PacketCaptureCtrlr`**, with header-only capture and full-payload capture as distinct gates.
 4. **Add transport profile 2** (binary WebSocket frames) as an optional efficiency improvement.
-5. **Only then the reverse path**, starting at injection level 3 (semantic), signed leases mandatory, level 1 not implemented.
+5. **Only then the reverse path**, starting at the `Semantic` injection level with `LocalIngress` direction, signed leases mandatory, `Raw` not implemented.
 6. **Add the HTTP/2 profile.** This is where bulk capture stops competing with control traffic and becomes safe to run on a production station.
 7. **HTTP/3 for stations on mobile links**, with fallback.
-8. **Level 2 injection and the negative test suite** of §10.7, as a CSMS-side regression suite for maintenance-mode stations.
+8. **`Transport`-level injection and the negative test suite** of §10.7, as a CSMS-side regression suite for maintenance-mode stations.
 
 Steps 1–3 deliver most of the diagnostic value and carry almost none of the risk. Step 5 is where the review effort belongs.
 
@@ -993,6 +1039,6 @@ Steps 1–3 deliver most of the diagnostic value and carry almost none of the ri
 - Chunk-level integrity: is a per-chunk hash chain worth it, so a truncated or tampered capture is detectable independently of TLS? Relevant if captures are ever used as evidence rather than diagnostics.
 - Wireless ISO 15118 (WPT, ACD) has a different discovery path. How much of chapter 2 carries over?
 - Should `SecurityEventNotification` for `TlsSecretsExportEnabled` be non-suppressible at the protocol level, or is that unenforceable in practice?
-- Injection level 0: should there be a mode where the station only *replays* frames from a previously captured pcapng that it recorded itself, with no CSMS-authored bytes at all? Strictly less powerful than level 3, and possibly sufficient for regression testing.
+- The `Replay` level (the lowest rung of `InjectionLevelEnumType`): a mode where the station only re-emits frames from a pcapng it recorded itself, with no CSMS-authored bytes at all. Strictly less powerful than `Semantic` and possibly sufficient for regression testing. Worth implementing first, before any authored-byte level?
 - How does an injection lease interact with a reservation or a queued remote start that arrives mid-lease?
 - DTLS and QUIC for the V2G link itself (ISO 15118-20 and beyond) — out of scope here, but it changes §2.4 substantially.
