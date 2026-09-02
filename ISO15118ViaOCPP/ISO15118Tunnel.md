@@ -4,28 +4,30 @@
 
 An OCPP CSMS today is blind below the application layer of ISO 15118. It learns that a charging session did not start, but not why. The three layers that decide whether a session starts at all — SLAC on the Control Pilot, SECC Discovery on IPv6 link-local multicast, and the V2G TLS handshake — leave no trace in any OCPP message. When a vehicle fails to charge at a station 400 km away, the state of the art is to send an engineer with a laptop, a Green PHY sniffer and a cable, and hope the failure reproduces while they are standing there.
 
-This paper describes how a charging station can capture these layers the way Wireshark does, forward them to the CSMS over the existing OCPP connection, and — in the other direction — accept frames from the CSMS and put them on a real network interface, so that behaviour such as SDP multicast handling can be tested remotely against the station's own SECC.
+This paper describes how a charging station can capture these layers the way Wireshark does, forward them to the CSMS over the existing OCPP connection, and — in the other direction — accept frames from the CSMS and put them on a real network interface, so that behavior such as SDP multicast handling can be tested remotely against the station's own SECC.
 
 Two questions carry most of the weight:
 
-- **Transport** (chapters 5–9): OCPP 2.1's new `SEND` message type is the deployable answer, binary WebSocket frames are the efficient answer, and HTTP/2 and HTTP/3 are the *correct* answer, because they are the only ones that stop a 4 MB capture dump from delaying a `RequestStartTransaction`.
+- **Transport** (chapters 5–9): OCPP 2.1's new `SEND` message type is the deployable answer, binary WebSocket frames are the efficient answer, and HTTP/2 and HTTP/3 are the *correct* answer, because they are the only ones that stop a 4 MB capture from delaying a `RequestStartTransaction`.
 - **The reverse path** (chapter 10): remote raw-frame injection into critical infrastructure is a weapon before it is a diagnostic tool. The constraints come first, the API second.
 
 This paper is the packet-level counterpart to the controller proposals in [ISO 15118 via OCPP](README.md). That document retains the existing `ISO15118Ctrlr` as the umbrella controller and proposes `SLACCtrlr`, `SDPCtrlr`, `V2GTLSCtrlr`, `V2GEXICtrlr`, and `V2GPKICtrlr` for the currently unmanaged layers, and its "Terminology and abbreviations" section expands the acronyms used throughout both papers. This paper is about obtaining the evidence that the resulting configuration is actually being enforced.
+
+This paper states its own hard requirements in the numbered constraint tables (§10.2 above all); lowercase "must" and "should" in the prose are its recommendations, while backticked uppercase keywords quote OCPP.
 
 
 ## 1. Motivation
 
 ### 1.1 The blind spot below OCPP
 
-OCPP 2.1 manages ISO 15118 as a set of use cases and device-model knobs: Plug & Charge authorization, certificate installation, smart charging schedules, bidirectional power transfer. Every one of them presumes that an EV and an SECC have already found each other and built a secure channel. The machinery that gets them there is invisible:
+OCPP 2.1 manages ISO 15118 as a set of use cases and Device Model knobs: Plug & Charge authorization, certificate installation, smart charging schedules, bidirectional power transfer. Every one of them presumes that an EV and an SECC have already found each other and built a secure channel. The machinery that gets them there is invisible:
 
 | Layer | Runs on | Visible in OCPP 2.1 |
 |---|---|---|
 | SLAC / HomePlug Green PHY | Control Pilot, layer 2, no IP | Nothing |
 | SECC Discovery Protocol (SDP) | UDP over IPv6 link-local multicast | Nothing |
 | V2G TLS handshake | TCP, TLS 1.2 (-2) / TLS 1.3 (-20) | Nothing |
-| V2G application messages (EXI) | Inside the TLS channel | Only certificate installation and update, tunnelled as base64 EXI in `Get15118EVCertificate` |
+| V2G application messages (EXI) | Inside the TLS channel | Only certificate installation and update, tunneled as base64 EXI in `Get15118EVCertificate` |
 
 The single existing tunnel is instructive. `Get15118EVCertificateRequest` carries `exiRequest` as `string[0..11000]`, base64-encoded, with `iso15118SchemaVersion` alongside so the CSMS can parse it, and a `CertificateActionEnumType` of `Install` or `Update` selecting between `CertificateInstallationReq`/`Res` and `CertificateUpdateReq`/`Res`. OCPP already accepts the principle that raw ISO 15118 bytes may travel to the CSMS. It just does so for one narrow family of messages, for a business reason (contract certificate provisioning) rather than a diagnostic one.
 
@@ -85,7 +87,7 @@ Two properties matter for the capture design:
 - *Host-side SLAC*: the modem (e.g. a QCA7000-class device on SPI, bound by the `qcaspi` driver and appearing as an ordinary Ethernet interface) passes MMEs up, and the SLAC state machine runs in station firmware. A raw socket on that interface sees everything.
 - *Modem-side SLAC*: the modem firmware terminates SLAC internally and only reports the outcome. The host sees the resulting IPv6 link coming up and nothing before it.
 
-On a modem-side design, a packet capture on the host interface produces an empty file for the entire SLAC phase, and the station must instead export a *synthesised* record from whatever the modem's management interface reports. A capture framework that cannot express "this is reconstructed, not observed" will silently produce misleading evidence. See §4.3.
+On a modem-side design, a packet capture on the host interface produces an empty file for the entire SLAC phase, and the station must instead export a *synthesized* record from whatever the modem's management interface reports. A capture framework that cannot express "this is reconstructed, not observed" will silently produce misleading evidence. See §4.3.
 
 **Timing.** The sounding and matching phases run on timers measured in tens to hundreds of milliseconds. No capture, filter, buffer flush or transport decision may sit inside that path. This is also why closed-loop SLAC testing through the CSMS is impossible (§10.8).
 
@@ -134,7 +136,7 @@ A complete SDP request is ten bytes on the wire:
  └───────────────────────────── Protocol version
 ```
 
-and the response twenty bytes of payload: the SECC's IPv6 address (16), TCP port (2), the security byte and the transport protocol byte.
+The response carries a 20-byte payload: the SECC's IPv6 address (16 bytes), its TCP port (2 bytes), the security byte, and the transport-protocol byte.
 
 Those two bytes are the entire ISO 15118-2 transport security negotiation, unauthenticated, on a multicast address any node on the link can reach. That is why the [companion paper](README.md) proposes an `SDPCtrlr` with a `SecurityPolicy`, enforced link-local source scoping, and a rate limiter — and why being able to *test* those settings remotely (§10.6) is worth the effort.
 
@@ -209,7 +211,7 @@ Streaming everything to the CSMS is not an option. A single charging session is 
 The workable model is the one flight recorders use:
 
 1. **Capture always**, at low cost, into a bounded in-memory ring (typically 1–16 MB per EVSE), with headers-only slicing by default.
-2. **Trigger** on a condition: SLAC match failure, SDP response timeout, TLS alert, `SecurityEventNotification`, a failed transaction, an explicit CSMS command, or a device-model monitor firing.
+2. **Trigger** on a condition: SLAC match failure, SDP response timeout, TLS alert, `SecurityEventNotification`, a failed transaction, an explicit CSMS command, or a Device Model monitor firing.
 3. **Freeze** the ring — stop overwriting — and **export** a window around the trigger: everything from *N* seconds before to *M* seconds after.
 4. **Resume**.
 
@@ -264,16 +266,16 @@ A full ISO 15118 capture contains, at minimum:
 - The EV's MAC address, stable across sessions and therefore a durable vehicle identifier
 - The EVCCID
 - The eMAID and the contract certificate, which identify the *contract holder*
-- Session timing precise enough to characterise an individual's charging behaviour
+- Session timing precise enough to characterize an individual's charging behavior
 
 Under the GDPR this is personal data, and a station that captures it by default has changed its processing purpose without saying so. Under national wiretap law, capturing a communication between two parties may need a legal basis of its own even when the operator owns one endpoint.
 
 Practical consequences for the design:
 
 - **Header-only by default.** `snapLength: 128` collects almost everything diagnostically useful and almost nothing personal beyond identifiers.
-- **Full-payload capture is a distinct, more privileged mode** with its own device-model variable and its own security event on activation.
-- **Support pseudonymisation at the station**, and make it layer-aware. Rewriting the Ethernet source and destination is not enough: the EV MAC also appears inside the SLAC management messages (`CM_SLAC_PARM.CNF`, `CM_ATTEN_CHAR.IND`, `CM_SLAC_MATCH.REQ`/`CNF` carry EV MAC, EVSE MAC, EV ID, and RunID), in the EUI-64 interface identifier of the EVCC's link-local IPv6 source address, and in the destination of the SECC's unicast SDP response. `PseudonymizationMode` must therefore substitute all of these consistently (re-deriving the link-local IID from the pseudonym MAC), state which fields it leaves untouched (for example the RunID), and hold the substitution mapping as a keyed derivation (an HMAC with a per-capture random key discarded at close for `PerCapture`; only the `PerStation` key is a stored secret, guarded like the TLS secrets of §3.6).
-- **Header-only capture still ships identifiers.** `snapLength: 128` keeps the SLAC and SDP payloads in full (they are short), so a "header-only" capture is not automatically anonymous; pseudonymisation, not slicing, is what removes the vehicle identifier. And `fullPacketFor` must include SLAC whenever EtherType `0x88E1` is filtered, because `CM_ATTEN_CHAR.IND` with a 58-group attenuation profile is about 129 bytes, just past the 128-byte snap length that §2.2 calls the most valuable frame.
+- **Full-payload capture is a distinct, more privileged mode** with its own Device Model variable and its own security event on activation.
+- **Support pseudonymization at the station**, and make it layer-aware. Rewriting the Ethernet source and destination is not enough: the EV MAC also appears inside the SLAC management messages (`CM_SLAC_PARM.CNF`, `CM_ATTEN_CHAR.IND`, `CM_SLAC_MATCH.REQ`/`CNF` carry EV MAC, EVSE MAC, EV ID, and RunID), in the EUI-64 interface identifier of the EVCC's link-local IPv6 source address, and in the destination of the SECC's unicast SDP response. `PseudonymizationMode` must therefore substitute all of these consistently (re-deriving the link-local IID from the pseudonym MAC), state which fields it leaves untouched (for example the RunID), and hold the substitution mapping as a keyed derivation (an HMAC with a per-capture random key discarded at close for `PerCapture`; only the `PerStation` key is a stored secret, guarded like the TLS secrets of §3.6).
+- **Header-only capture still ships identifiers.** `snapLength: 128` keeps the SLAC and SDP payloads in full (they are short), so a "header-only" capture is not automatically anonymous; pseudonymization, not slicing, is what removes the vehicle identifier. And `fullPacketFor` must include SLAC whenever EtherType `0x88E1` is filtered, because `CM_ATTEN_CHAR.IND` with a 58-group attenuation profile is about 129 bytes, just past the 128-byte snap length that §2.2 calls the most valuable frame.
 - **Retention must be bounded at the station and at the CSMS**, and stated.
 - **Every capture start is an auditable event**, not a silent config change.
 
@@ -333,7 +335,7 @@ pcapng Custom Blocks are keyed by an IANA Private Enterprise Number, which makes
 - **PLC/PHY records** (§2.2): attenuation profiles, tone maps, SNR, association state, modem firmware version.
 - **Reconstructed SLAC events** on modem-side designs, explicitly flagged as reconstructed rather than observed. This is what stops §2.1's failure mode from producing misleading evidence.
 - **SECC decision records** (§2.5 item 6): "SDP request rejected, reason: source not link-local", correlated to the EPB that triggered it.
-- **Injection provenance** (§10): every frame the CSMS caused the station to emit is recorded with the lease id and the identity that authorised it.
+- **Injection provenance** (§10): every frame the CSMS caused the station to emit is recorded with the lease id and the identity that authorized it.
 
 A Wireshark dissector for these blocks is a small, self-contained piece of work and should be published alongside any implementation, or the format is only readable by the tool that wrote it.
 
@@ -372,7 +374,7 @@ The specification's own note on `SEND` is the reason chapters 7 and 8 exist:
 
 That is head-of-line blocking, acknowledged in the standard, in the sentence that introduces the mechanism.
 
-### 5.2 Lifecycle modelled on the periodic event stream
+### 5.2 Lifecycle modeled on the periodic event stream
 
 OCPP 2.1 already has a streaming family — `OpenPeriodicEventStream`, `AdjustPeriodicEventStream`, `ClosePeriodicEventStream`, `GetPeriodicEventStream`, and `NotifyPeriodicEventStream` as the `SEND`-typed data carrier. Reusing that shape means implementers already know it and CSMS state machines already exist for it. One difference should be stated up front: in N11 the Charging Station opens the stream by sending `OpenPeriodicEventStreamRequest` to the CSMS, whereas a capture is opened by the CSMS. The Adjust and Close directions are the same as in OCPP.
 
@@ -534,7 +536,7 @@ A station should be able to negotiate `client_no_context_takeover` to bound memo
 
 Fixed: the 33 % base64 penalty, JSON parsing cost on multi-megabyte payloads, and the need to escape binary into a text encoding at all.
 
-**Not fixed: head-of-line blocking.** A WebSocket connection is a single ordered byte stream. A 64 kB binary capture frame occupies the connection for exactly as long as 64 kB of base64 would minus the encoding overhead. On a 1 Mbit/s uplink a 4 MB ring dump is still ~30 seconds during which a `RequestStopTransaction` cannot arrive.
+**Not fixed: head-of-line blocking.** A WebSocket connection is a single ordered byte stream. A 64 kB binary frame still occupies the connection for as long as 64 kB takes to send; binary framing only saves the 33 % Base64 overhead. On a 1 Mbit/s uplink a 4 MB ring export is still ~30 seconds during which a `RequestStopTransaction` cannot arrive.
 
 WebSocket has no multiplexing. That is the actual problem, and it needs a different layer.
 
@@ -561,9 +563,9 @@ The consequence is exactly what this problem needs: one TCP connection, one TLS 
 
 - **Stream 1: the OCPP control channel.** Unchanged `ocpp2.1` subprotocol, unchanged message set. An HTTP/2-unaware CSMS sees ordinary OCPP-J and nothing else exists.
 - **One stream per capture**, opened with extended `CONNECT` and a distinct subprotocol name (`ocpp2.1-capture`), carrying raw pcapng chunks with no per-chunk header at all — HTTP/2 already frames and sequences them.
-- **One stream per injection lease** (§10), so a burst of injected frames cannot delay control traffic and can be cancelled with `RST_STREAM` — which is a genuinely useful safety property: aborting an injection test becomes a single frame, not an application-level negotiation.
+- **One stream per injection lease** (§10), so a burst of injected frames cannot delay control traffic and can be canceled with `RST_STREAM` — which is a genuinely useful safety property: aborting an injection test becomes a single frame, not an application-level negotiation.
 
-Authorization still happens on stream 1. The station opens a capture stream only after an `OpenPacketCaptureResponse(Accepted)`, and the CSMS rejects a `CONNECT` whose capture id it did not authorise.
+Authorization still happens on stream 1. The station opens a capture stream only after an `OpenPacketCaptureResponse(Accepted)`, and the CSMS rejects a `CONNECT` whose capture id it did not authorize.
 
 ### 7.3 Per-stream flow control — the real win
 
@@ -571,7 +573,7 @@ HTTP/2 has per-stream flow control via `WINDOW_UPDATE`. The CSMS advertises a sm
 
 Compare with §5.5, where backpressure was `pending` in a `SEND` message plus a CSMS round-trip. Here it is a transport primitive with zero application involvement and no round-trip delay. **The `pending` field becomes advisory telemetry rather than the flow-control mechanism.**
 
-One caveat, and it is the opposite of what it first looks like. HTTP/2 has a *connection-level* window in addition to the per-stream ones, and it is shared. A capture stream that fills the connection window blocks the control stream with it — the classic HTTP/2 starvation case. Withholding credit therefore has to be done precisely: the CSMS returns connection-level `WINDOW_UPDATE` normally while withholding *stream-level* credit from the capture stream. That is receiver behaviour the CSMS must implement deliberately, not a guarantee the protocol hands you. A CSMS that simply stops reading the capture stream's socket gets the starvation, not the isolation.
+One caveat. HTTP/2 also has a connection-level window that all streams share. If a capture stream fills it, the control stream is blocked with it, the classic HTTP/2 starvation case. The CSMS must therefore keep sending connection-level `WINDOW_UPDATE` as normal and withhold only the *stream-level* credit of the capture stream. That is receiver behavior the CSMS must implement deliberately, not a guarantee the protocol hands you. A CSMS that simply stops reading the capture stream's socket gets starvation, not isolation.
 
 ### 7.4 Prioritization
 
@@ -582,11 +584,11 @@ stream 1 (control) :  priority = u=0, i=?0     ← highest urgency, not incremen
 stream 3 (capture) :  priority = u=6, i=?1     ← background, deliver as it arrives
 ```
 
-Two caveats, and the second is the one that bites.
+Two caveats apply; the second is the more important.
 
 *Prioritization is a hint.* Implementation quality varies, and RFC 7540's original priority tree was widely ignored and is deprecated by RFC 9113. Never rely on prioritization for a hard latency guarantee; rely on flow-control windows, which are mandatory.
 
-*RFC 9218 is primarily about responses, and capture data is a request.* Capture flows station→CSMS, so it travels in the request direction, where the scheme asks nothing of the receiver — a client "MAY use priority values to make local processing or scheduling choices about the requests it initiates". So for capture, prioritization is something the **station's own** HTTP/2 stack must implement when deciding which of its outgoing streams to serve; the CSMS cannot grant it. Prioritization signalled *to* the CSMS only helps in the CSMS→station direction — control messages on stream 1 ahead of injection commands on stream 7 (§7.2).
+*RFC 9218 is primarily about responses, and capture data is a request.* Capture flows station→CSMS, so it travels in the request direction, where the scheme asks nothing of the receiver — a client "MAY use priority values to make local processing or scheduling choices about the requests it initiates". So for capture, prioritization is something the **station's own** HTTP/2 stack must implement when deciding which of its outgoing streams to serve; the CSMS cannot grant it. Prioritization signaled *to* the CSMS only helps in the CSMS→station direction — control messages on stream 1 ahead of injection commands on stream 7 (§7.2).
 
 The practical consequence: on the upload path, the mechanism that actually protects control latency is the station scheduling its own send queue, backed by the flow-control windows of §7.3. Treat RFC 9218 as useful on the downlink and as a station-local implementation requirement on the uplink.
 
@@ -622,7 +624,7 @@ Multiplexing bulk capture onto the OCPP control connection over TCP can therefor
 
 RFC 9220 extends RFC 8441's mechanism to HTTP/3, so the stream model of chapter 7 carries over unchanged. What changes is underneath: QUIC streams are **independently delivered**. Loss on a capture stream delays that capture stream and nothing else. The OCPP control stream is unaffected.
 
-This is the decisive property. It converts §7.6's "multiplexing may hurt control latency" into "multiplexing cannot hurt control latency", which is what makes it acceptable to run a multi-megabyte forensic dump over the same connection that carries `RequestStopTransaction`.
+This is the decisive property. It converts §7.6's "multiplexing may hurt control latency" into "multiplexing cannot hurt control latency", which is what makes it acceptable to run a multi-megabyte forensic capture over the same connection that carries `RequestStopTransaction`.
 
 ### 8.2 Connection migration
 
@@ -636,10 +638,10 @@ RFC 9221 adds unreliable datagrams to QUIC, and capture has two genuinely differ
 
 | Class | Requirement | Carrier |
 |---|---|---|
-| **Forensic export** — the ring dump around a failure | Complete, ordered, verifiable. A gap invalidates the evidence | Reliable QUIC stream |
+| **Forensic export** — the ring capture around a failure | Complete, ordered, verifiable. A gap invalidates the evidence | Reliable QUIC stream |
 | **Live view** — an engineer watching a station in real time | Timely. A dropped frame is an inconvenience, a 5-second retransmission stall is the actual problem | QUIC datagrams |
 
-Today both would be forced onto the same reliable transport, and the live view inherits latency behaviour it does not want. Separating them costs nothing once the connection exists: same connection, same authentication, same lifecycle messages, different carrier per `NotifyPacketCaptureData` class.
+Today both would be forced onto the same reliable transport, and the live view inherits latency behavior it does not want. Separating them costs nothing once the connection exists: same connection, same authentication, same lifecycle messages, different carrier per `NotifyPacketCaptureData` class.
 
 Datagrams are bounded by the path MTU, so a chunk must fit in roughly 1200 bytes. That suits header-sliced live capture and rules out full-payload live capture — which is the correct trade anyway.
 
@@ -689,7 +691,7 @@ The capture content is identical across all four. Only the carrier changes.
 
 Everything to this point is read-only. This chapter is not. What is being proposed is a facility by which a remote party causes a charging station to emit arbitrary frames on a physical network interface.
 
-State it plainly: **this is a remote layer-2 packet injection primitive inside a device that is, under NIS2, part of an essential entity's infrastructure.** Built carelessly, a CSMS compromise becomes the ability to inject arbitrary frames on every EV-facing network in the fleet — and, if the interface allow-list is wrong, on the CPO's own operational network, using the charging station as a pivot into a network that is usually far less segmented than its owners believe.
+This is a remote layer-2 packet-injection primitive inside a device that NIS2 classifies as part of an essential entity's infrastructure. If it is built carelessly, an attacker who compromises the CSMS can inject arbitrary frames on every EV-facing network in the fleet. If the interface allow-list is also wrong, those frames reach the CPO's own operational network, using the charging station as a pivot into a network usually far less segmented than its owners believe.
 
 The diagnostic value is real. So is the risk. The design must make the dangerous configurations impossible rather than merely discouraged.
 
@@ -887,7 +889,7 @@ UDP        src <ephemeral>  dst 15118
 Payload    01 FE 90 00 00 00 00 02 00 00
 ```
 
-The source address matters. The SECC replies **unicast to the source**, so a source address that is not a plausible link-local address either gets no reply or gets one the station's own stack discards before the capture sees it — indistinguishable, from the CSMS, from "the SECC is broken". `sourceMode: LinkLocalGenerated` makes the station derive a valid link-local address from the generated test MAC and, critically, ensure its own stack does not swallow the reply.
+The source address matters. The SECC replies **unicast to the source**. If the source address is not a plausible link-local address, one of two things happens: the SECC does not reply, or it replies and the station's own IP stack discards the reply before the capture sees it. From the CSMS, both look like "the SECC is broken". `sourceMode: LinkLocalGenerated` makes the station derive a valid link-local address from the generated test MAC and, critically, ensure its own stack does not swallow the reply.
 
 **Observe.** The capture stream carries both frames. The CSMS parses the response payload:
 
@@ -914,7 +916,7 @@ This is precisely the closing of the loop promised in §1.3: the [companion pape
 
 The positive test above is the easy half. The interesting findings come from malformed input — which is why the `Transport` level permits arbitrary *payloads* inside well-formed framing.
 
-| # | Injected | Correct SECC behaviour | Finding if it does otherwise |
+| # | Injected | Correct SECC behavior | Finding if it does otherwise |
 |---|---|---|---|
 | 1 | Source `2001:db8::1` — not link-local | Ignore; `SDPCtrlr.LinkLocalSourceEnforced` must be `true` in production | Off-link SDP spoofing is possible |
 | 2 | `security = 0x10` (no TLS) with policy `TLSRequired` | Answer `0x00` or refuse | **Downgrade accepted** — the finding this whole apparatus exists to catch |
@@ -954,12 +956,12 @@ CSMS                                                Charging Station
   │◄─ NotifyNetworkScenarioResult(runId, verdicts) ──────────│
 ```
 
-A scenario is a **pre-installed, firmware-signed** routine — "SLAC negative test suite", "SDP policy conformance", "V2G TLS downgrade probe" — parameterised by the CSMS but not authored by it. The CSMS chooses which scenario and with what parameters; it does not supply the logic.
+A scenario is a **pre-installed, firmware-signed** routine — "SLAC negative test suite", "SDP policy conformance", "V2G TLS downgrade probe" — parameterized by the CSMS but not authored by it. The CSMS chooses which scenario and with what parameters; it does not supply the logic.
 
 This is the same principle as §3.3's rejection of CSMS-supplied BPF, applied to control flow rather than filters: **parameters may come from the network, code may not.** It preserves the constraint of §10.2 while making closed-loop testing possible, and it fits the existing self-test framing in [Advanced Diagnostics](../AdvancedDiagnostics/README.md).
 
 
-## 11. Device model
+## 11. Device Model
 
 ### 11.1 `PacketCaptureCtrlr` (per EVSE, plus a station-wide instance)
 
@@ -1000,7 +1002,7 @@ Access qualifiers: **RW** is a normal `SetVariables` write; **RW-signed** may be
 | `ActiveLeaseCount` | integer | RO, monitorable | |
 | `RejectedFrameCount` | integer | RO, monitorable | Filter rejections — a tripwire |
 
-The read-only `AllowedInterfaces` is the load-bearing entry in this table. Everything else in the constraint list can be re-derived if it is compromised; a writable interface list cannot.
+The read-only `AllowedInterfaces` is the load-bearing entry in this table. If any other control is compromised, the remaining controls still limit the damage. A writable interface list has no such backstop.
 
 ### 11.3 New security event types
 
@@ -1043,15 +1045,15 @@ The last row is the one that turns a diagnostic feature into a fleet-wide incide
 
 ### 12.2 Interaction with certificate reuse
 
-If an implementation follows A00.FR.428 and reuses the Charging Station Certificate as the ISO 15118 SECC certificate, and follows A00.FR.514 in omitting Extended Key Usage, then §3.6's secret export is logging sessions of a key that is simultaneously the station's OCPP identity. The [companion paper](README.md) argues that reuse should be prohibited rather than permitted; this chapter is a concrete reason why. Any station implementing secret export **should** refuse to do so while the SECC key is shared with the OCPP client identity.
+If an implementation follows A00.FR.428 and reuses the Charging Station Certificate as the ISO 15118 SECC certificate, and follows A00.FR.514 in omitting Extended Key Usage, then §3.6's secret export is logging sessions of a key that is simultaneously the station's OCPP identity. The [companion paper](README.md) argues that reuse should be prohibited rather than permitted; this chapter is a concrete reason why. Any station implementing secret export should refuse to do so while the SECC key is shared with the OCPP client identity.
 
 ### 12.3 Regulatory mapping
 
 - **EU CRA.** Capture and injection are security-relevant functions. They belong in the threat model, in the SBOM (the capture agent's libraries), and in vulnerability handling. The ability to permanently disable injection in firmware is a design-for-security argument in its own right.
 - **EU RED / EN 18031.** Access control (ACM) and authentication (AUM) on the lease mechanism; logging (LGM) on the security events of §11.3; resilience (RLM) on the rate limits and budgets; confidential cryptographic keys (CCK) on the TLS secret export path — which is the sharpest CCK question in this paper.
 - **NIS2.** The security events in §11.3 are exactly the machine-readable signals incident correlation needs, and exactly what `SecurityEventNotificationRequest` cannot currently carry attributably.
-- **GDPR.** §3.5. Capture is processing. Header-only default, bounded retention, pseudonymisation, and disclosure.
-- **National interception law.** Capturing an ISO 15118 session captures a communication between the station and a third party's vehicle. Owning one endpoint is not automatically a legal basis in every jurisdiction.
+- **GDPR.** §3.5. Capture is processing. Header-only default, bounded retention, pseudonymization, and disclosure.
+- **National interception law.** Capturing a V2G session captures a communication between the station and a third party's vehicle. Owning one endpoint is not automatically a legal basis in every jurisdiction.
 
 ### 12.4 Software separation
 

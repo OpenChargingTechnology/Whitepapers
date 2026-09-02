@@ -13,7 +13,7 @@ Throughout, it separates four things that OCPP tends to blur, and every proposed
 - **Effective state** (read-only): what is actually running after defaults, safety rules, and policy resolution;
 - **Telemetry** (read-only, monitorable): counters, timings, selected modes, and failures.
 
-Unless explicitly marked as a proposal, requirement identifiers refer to OCPP 2.1 Edition 2. The proposed components and variables in this document are not part of OCPP 2.1.
+Unless explicitly marked as a proposal, requirement identifiers refer to OCPP 2.1 Edition 2. The proposed components and variables in this document are not part of OCPP 2.1. Backticked uppercase keywords such as `SHOULD` and requirement identifiers quote the specification; lowercase "must" and "should" express this document's own recommendations.
 
 ## Summary
 
@@ -156,7 +156,7 @@ OCPP 2.1 does not define standardized components or variables for:
 - EXI schema-set identity, session-local `schemaID`, codec profile, encode/decode failures, resource-limit enforcement, or signed-element round-trip diagnostics;
 - a policy for choosing among ISO 15118 namespaces offered by an EV;
 - a structured policy for allowing or rejecting PnC-to-EIM fallback;
-- a V2G-session identifier that exists before an OCPP transaction and correlates SLAC, SDP, TLS, SAP/EXI, authorization, scheduling, and charge-loop events.
+- a V2G session identifier that exists before an OCPP transaction and correlates SLAC, SDP, TLS, SAP/EXI, authorization, scheduling, and charge-loop events.
 
 These functions are normally implemented inside the Charging Station. They can be exposed through custom Device Model components and variables, but OCPP 2.1 does not give them interoperable names, types, constraints, defaults, or conformance tests.
 
@@ -302,7 +302,7 @@ The secure default for a future management model should be:
 5. explicit, highly visible legacy enablement for any combined certificate;
 6. an audit event whenever combined identity use or a trust-anchor change is activated.
 
-Where an ISO 15118 certificate profile cannot use EKU, the remedy is separate keys and trust domains, not removal of the last remaining domain boundary from a shared key.
+If an ISO 15118 certificate profile cannot use EKU, the answer is separate keys and separate trust domains. The answer is not to share one key and thereby remove the last boundary between the OCPP and V2G domains.
 
 ## Proposed future management model
 
@@ -480,7 +480,7 @@ The policy is a matrix, not a set of global switches; see "Policy must be a matr
 | Variable | Type | Access | Instance | Application | Meaning and constraints |
 |---|---|---:|---|---|---|
 | `Enabled` | Boolean | RW | `<namespace>` | `OnIdle` | Enables TLS support for this namespace; it does not enable the ISO 15118 namespace itself |
-| `TLSVersionsAllowed` | MemberList | RW | `<namespace>` | `OnIdle` | Allowed subset of `TLSVersionsSupported`; it may not exclude a version required for conformance and keep the namespace enabled |
+| `TLSVersionsAllowed` | MemberList | RW | `<namespace>` | `OnIdle` | Allowed subset of `TLSVersionsSupported`. While the namespace is enabled, a version that the ISO 15118 profile requires cannot be removed from this list |
 | `CipherSuitesAllowed` | MemberList | RW | `<namespace>` | `OnIdle` | Allowed subset of `CipherSuitesSupported` and of the applicable ISO 15118 profile |
 | `CipherSuitePreference` | SequenceList | RW | `<namespace>` | `OnIdle` | Deterministic server preference restricted to `CipherSuitesAllowed`; ignored where the protocol fixes the selection behavior |
 | `SignatureAlgorithmsAllowed` | MemberList | RW | `<namespace>` | `OnIdle` | Allowed subset of `SignatureAlgorithmsSupported` and the profile requirements |
@@ -489,7 +489,7 @@ The policy is a matrix, not a set of global switches; see "Policy must be a matr
 | `StapledStatusPolicy` | OptionList | RW | `<namespace>` | `OnIdle` | `ProtocolDefault` or `RequireFresh`; `RequireFresh` fails closed when current status evidence for the SECC chain is unavailable |
 | `HandshakeTimeoutMs` | Integer | RW | `<namespace>` | `OnIdle` | Local TLS handshake budget in milliseconds, bounded by a standardized safe range and by the ISO 15118 communication-setup timer (`V2G_EVCC_CommunicationSetup`, about 20 s), not the 60-second sequence timeout |
 
-For ISO 15118-2, the effective TLS version is TLS 1.2. For ISO 15118-20, it is TLS 1.3. These are therefore separate namespace instances, not values in one global minimum-version switch. The allowed lists are useful for expressing exact profile capability, future revisions, and cryptographic deprecation, but never authorize cross-version downgrade. A TLS failure must not silently cause plaintext or EIM fallback; the deterministic policy matrix in `ISO15118Ctrlr` decides whether another previously allowed path exists.
+For ISO 15118-2, the effective TLS version is TLS 1.2. For ISO 15118-20, it is TLS 1.3. These are therefore separate namespace instances, not values in one global minimum-version switch. The allowed lists express exact profile capability, future revisions, and cryptographic deprecation. They never allow the TLS version of one namespace to be used for another, and they never authorize a downgrade. A TLS failure must not silently lead to plaintext or EIM. Whether another allowed path exists is decided only by the policy matrix in `ISO15118Ctrlr`.
 
 ##### Effective state and telemetry
 
@@ -498,7 +498,7 @@ For ISO 15118-2, the effective TLS version is TLS 1.2. For ISO 15118-20, it is T
 | `EffectiveTLSVersions` | MemberList | RO | `<namespace>` | Resolved list after capability, operator policy, conformance rules, and local security minima |
 | `EffectiveCipherSuites` | SequenceList | RO | `<namespace>` | Resolved ordered list used by the SECC |
 | `EffectivePeerAuthenticationMode` | OptionList | RO | `<namespace>` | Authentication mode actually enforced |
-| `State` | OptionList | RO | `<namespace>` | `Disabled`, `Ready`, `Negotiating`, `Established`, `Closing`, or `Failed` for the current EVSE session |
+| `State` | OptionList | RO | `<namespace>` | `Disabled`, `Ready`, `Negotiating`, `Established`, `Closing`, or `Failed` for the current V2G session on this EVSE |
 | `NegotiatedTLSVersion` | OptionList | RO | `<namespace>` | Version selected for the current or most recently completed handshake |
 | `NegotiatedCipherSuite` | OptionList | RO | `<namespace>` | Cipher suite selected for the current or most recently completed handshake |
 | `NegotiatedSignatureAlgorithm` | OptionList | RO | `<namespace>` | TLS signature algorithm selected for the current or most recently completed handshake |
@@ -577,7 +577,7 @@ Lenient parsing, ignored required fields, unchecked `maxOccurs`, unbounded alloc
 
 | Variable | Type | Access | Instance | Meaning |
 |---|---|---:|---|---|
-| `State` | OptionList | RO | none | `Disabled`, `Ready`, `NegotiatingSchema`, `Active`, or `Failed` for the current EVSE session |
+| `State` | OptionList | RO | none | `Disabled`, `Ready`, `NegotiatingSchema`, `Active`, or `Failed` for the current V2G session on this EVSE |
 | `SelectedSchemaId` | Integer | RO | none | Session-local `schemaID` returned by the `SupportedAppProtocol` handshake; `-1` when none is selected and otherwise meaningless without `ProtocolAgreed` |
 | `ActiveSchemaSetVersion` | String | RO | `<namespace>` | Schema bundle actually used after staged activation and local policy resolution |
 | `ActiveSchemaSetDigest` | String | RO | `<namespace>` | Digest of the active bundle, used for fleet comparison and event correlation |
@@ -611,7 +611,7 @@ The minimum reason-code registry should distinguish at least `MalformedSupported
 
 ##### Structured EXI failure reporting
 
-A `V2GExiDecodeFailed` or `V2GExiEncodeFailed` event should carry only:
+A `V2GEXIDecodeFailed` or `V2GEXIEncodeFailed` event should carry only:
 
 - `v2gSessionId`, EVSE, direction, and timestamp;
 - `ConnectedEV.ProtocolAgreed`, session-local `SelectedSchemaId`, and `ActiveSchemaSetDigest`;
@@ -675,7 +675,7 @@ The OCPP client certificate remains owned by the OCPP security controller. `V2GP
 | `TrustAnchorOverlapSeconds` | Integer | RW | `<trustDomain>` | atomic, `OnIdle` | Bounded overlap for `DualTrustWindow`; zero for other rollover policies |
 | `CertificateActivationPolicy` | OptionList | RW | `<certificatePurpose>` | atomic | `OnIdle`, `OnRestart`, or `ImmediateIfUnused`; activation during a session is prohibited |
 
-Remote policy may retain or strengthen identity separation. Activating `LegacyCombined` is a privileged local exception, must be time-bounded where possible, and generates a critical audit event; an ordinary `SetVariables` request cannot silently weaken the policy. Deleting the last valid trust anchor, activating an unvalidated chain, exporting a private key, accepting an expired or revoked certificate, and extending revocation freshness beyond `nextUpdate` are hard invariants rather than configurable options.
+Remote policy may retain or strengthen identity separation. Activating `LegacyCombined` is a privileged local exception, must be time-bounded where possible, and generates a critical audit event; an ordinary `SetVariables` request cannot silently weaken the policy. The following are hard rules, not configurable options. A station must never: delete the last valid trust anchor; activate a certificate chain that has not been validated; export a private key; accept an expired or revoked certificate; or treat revocation evidence as fresh beyond its `nextUpdate` time.
 
 ##### Effective state and telemetry
 
@@ -722,7 +722,15 @@ Remote policy may retain or strengthen identity separation. Activating `LegacyCo
 | Install or update an EV contract certificate | M01/M02 `Get15118EVCertificate` | Treat the EXI payload as an end-to-end application object; do not expose it in Device Model variables or diagnostic events |
 | Validate a contract centrally | C07 `Authorize` | Keep the PKI validation result separate from the business authorization result |
 
-The cross-controller boundary is strict: `SDPCtrlr` advertises and filters the transport security mode, `V2GTLSCtrlr` enforces the selected TLS profile, `V2GEXICtrlr` enforces the selected schema/codec profile, `V2GPKICtrlr` supplies identity and trust decisions, and `ISO15118Ctrlr` owns application-protocol, message-state, and PnC/EIM selection. None of these controllers may infer a fallback merely because the preceding layer failed.
+The cross-controller boundary is strict:
+
+- `SDPCtrlr` advertises and filters the transport security mode;
+- `V2GTLSCtrlr` enforces the selected TLS profile;
+- `V2GEXICtrlr` enforces the selected schema and codec profile;
+- `V2GPKICtrlr` supplies identity and trust decisions;
+- `ISO15118Ctrlr` owns application-protocol selection, message state, and the PnC/EIM decision.
+
+No controller may fall back to another path only because the layer below it failed.
 
 ### Policy must be a matrix
 
@@ -778,11 +786,11 @@ Suggested event semantics include:
 | `SlacValidationFailed` | Operational or security | Include reason and policy result |
 | `SdpSecurityPolicyViolation` | Security | A peer requested a mode prohibited by effective policy |
 | `SdpSourceScopeRejected` | Security/operational | Include source class, not a full identifying address unless needed |
-| `V2GTlsPolicyViolation` | Security | Split version, cipher, signature, and security-mode reasons |
+| `V2GTLSPolicyViolation` | Security | Split version, cipher, signature, and security-mode reasons |
 | `V2GSchemaNegotiationFailed` | Operational/security anomaly | Include protocol offers, selected policy, and reason without treating every incompatibility as an attack |
-| `V2GExiDecodeFailed` | Operational; security if malformed or repeated | Include stage, reason, safe location, size, and session-scoped fingerprint, never the payload |
-| `V2GExiResourceLimitExceeded` | Security/operational | Identify the exceeded size/time/nesting/list limit and whether detailed-event rate limiting was applied |
-| `V2GExiSignedElementRoundTripMismatch` | High-severity integrity event | Keep the EXI reproducibility failure distinct from PKI signature verification |
+| `V2GEXIDecodeFailed` | Operational; security if malformed or repeated | Include stage, reason, safe location, size, and session-scoped fingerprint, never the payload |
+| `V2GEXIResourceLimitExceeded` | Security/operational | Identify the exceeded size/time/nesting/list limit and whether detailed-event rate limiting was applied |
+| `V2GEXISignedElementRoundTripMismatch` | High-severity integrity event | Keep the EXI reproducibility failure distinct from PKI signature verification |
 | `V2GPeerCertificateValidationFailed` | Security | Identify certificate purpose and failure reason without sending the certificate |
 | `V2GTrustAnchorChanged` | High-severity security audit | Include old/new trust-store generation or hash, actor, and outcome |
 | `PnCFallbackExecuted` | Operational notice | Security only when unexpected or policy-forced by a suspicious failure |
@@ -822,7 +830,7 @@ A complete future management design also needs:
 - message-size and codec-latency histograms, with schema/namespace labels but without vehicle identifiers or decoded values;
 - bounded queues, deduplication, coalescing, and flood protection for events;
 - least-privilege access to policy changes and certificate operations;
-- retention limits, pseudonymization, and access control for `ConnectedEV.VehicleId`, vehicle certificates, offered protocols, and session traces;
+- retention limits, pseudonymization, and access control for `ConnectedEV.VehicleId`, vehicle certificates, offered protocols, and captures;
 - conformance tests for safe defaults, unsupported-policy rejection, partial failure, rollback, offline recovery, downgrade prevention, and event correlation.
 
 ## Incremental delivery
@@ -842,7 +850,7 @@ Phase 0 splits naturally in two. **Phase 0a** exposes only the read-only effecti
 
 - Standardize missing components, scopes, variables, enums, constraints, and defaults.
 - Add a structured security-event envelope or align security events with `EventDataType` while preserving guaranteed delivery.
-- Add V2G-session correlation and atomic policy bundles.
+- Add V2G session correlation and atomic policy bundles.
 - Define interoperability and negative-security test cases.
 
 ### Phase 2: certification and operations
