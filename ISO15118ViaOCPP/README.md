@@ -68,6 +68,8 @@ One consequence matters for correlation. An OCPP `transactionId` may not exist y
 - **Charging-station firmware implementers**: the controller tables, "Common conventions for the proposed controllers", and "Configuration must be atomic".
 - **Security and certification**: "Certificate domain separation", "Policy must be a matrix", and "Safety, resilience, and privacy".
 
+Unfamiliar acronyms are expanded in "Terminology and abbreviations" at the end.
+
 ## What OCPP 2.1 covers today
 
 | Area | OCPP location | Standardized management surface |
@@ -344,6 +346,25 @@ A bracketed suffix denotes a Variable instance, carried in the OCPP `Variable.in
 
 An unsupported value, a value outside the advertised capability, or a combination that would violate the applicable ISO 15118 profile must be rejected with `SetVariableStatus` and a machine-readable `statusInfo.reasonCode`. A policy change must not alter an active V2G session. It is applied `OnIdle`, at an explicitly agreed activation time, or as part of the atomic policy bundle described below.
 
+`OnIdle` has a precise meaning here. Idle means no V2G session is running on the addressed EVSE, and, where one SECC serves several EVSEs, on none of that SECC's EVSEs. An `OnIdle` write is accepted immediately as the variable's `Target` attribute, promoted to `Actual` at the next idle transition, and visible through both `Actual` and `PolicyRevisionApplied`. Applied policy persists across reboot; effective state, counters, and any active lease do not.
+
+**Secure defaults.** Every read-write policy variable has a defined default, and the defaults fail safe:
+
+| Variable | Default | Note |
+|---|---|---|
+| `SDPCtrlr.SecurityPolicy` | `TLSRequired` | `TLSAllowed` is opt-in; the ISO 15118-20 instance is fixed at `TLSRequired` |
+| `SDPCtrlr.RespondToUnicast` | `false` | |
+| `V2GTLSCtrlr.StapledStatusPolicy` | `ProtocolDefault` | |
+| `V2GEXICtrlr.ValidationMode` | `Strict` | |
+| `V2GEXICtrlr.DiagnosticDetail` | `Metadata` | never raw EXI |
+| `V2GEXICtrlr.FailureFingerprintPolicy` | `Disabled` | |
+| `V2GPKICtrlr.IdentitySeparationPolicy` | `SeparatePerPurpose` | |
+| `V2GPKICtrlr.RevocationUnavailableAction` | `ProtocolDefault` | not `Reject`, so C07 central/offline validation is not broken |
+| `V2GPKICtrlr.MaximumCachedRevocationAgeSeconds` | `86400` | hard cap `604800`, never beyond `nextUpdate` |
+| `ISO15118Ctrlr.FallbackPolicy` | `EIMOnBusinessRejection` | never on a cryptographic or transport-security failure |
+
+**Phase 0a: the smallest read-only subset.** A vendor can ship value before any policy variable exists, by exposing only effective state and telemetry: per controller, `Available` and `State`, the negotiated or effective values (`NegotiatedTLSVersion`, `EffectiveSecurityMode`, `ActiveSchemaSetDigest`, `EffectiveIdentitySeparation`), the last-result and last-reason variables, and the counters. This is enough for fleet monitoring and post-mortem diagnosis. Phase 0b then adds the operator-policy variables. See "Incremental delivery".
+
 #### Proposed `ISO15118Ctrlr` extensions
 
 `ISO15118Ctrlr` stays the umbrella controller. Every other proposed controller manages one layer and defers the cross-layer decisions to a deterministic policy matrix that lives here: which namespace is selected, whether authorization falls back from PnC to EIM, and whether any allowed path remains after a lower layer fails. OCPP 2.1 already exposes the capability view as `ProtocolSupported`. The following variables add the operator-policy and effective-state views that OCPP does not yet define. They do not duplicate the existing `ISO15118Ctrlr` variables.
@@ -466,7 +487,7 @@ The policy is a matrix, not a set of global switches; see "Policy must be a matr
 | `SignatureAlgorithmsCertAllowed` | MemberList | RW | `<namespace>` | `OnIdle` | Allowed subset for certificate-chain validation; this is distinct from TLS handshake signatures |
 | `PeerAuthenticationPolicy` | OptionList | RW | `<namespace>` | `OnIdle` | One advertised value such as `ServerOnly` or `Mutual`; a mode not permitted by the profile is rejected rather than emulated |
 | `StapledStatusPolicy` | OptionList | RW | `<namespace>` | `OnIdle` | `ProtocolDefault` or `RequireFresh`; `RequireFresh` fails closed when current status evidence for the SECC chain is unavailable |
-| `HandshakeTimeoutMs` | Integer | RW | `<namespace>` | `OnIdle` | Local handshake budget in milliseconds, bounded by a standardized safe range and by the ISO 15118 sequence timeout |
+| `HandshakeTimeoutMs` | Integer | RW | `<namespace>` | `OnIdle` | Local TLS handshake budget in milliseconds, bounded by a standardized safe range and by the ISO 15118 communication-setup timer (`V2G_EVCC_CommunicationSetup`, about 20 s), not the 60-second sequence timeout |
 
 For ISO 15118-2, the effective TLS version is TLS 1.2. For ISO 15118-20, it is TLS 1.3. These are therefore separate namespace instances, not values in one global minimum-version switch. The allowed lists are useful for expressing exact profile capability, future revisions, and cryptographic deprecation, but never authorize cross-version downgrade. A TLS failure must not silently cause plaintext or EIM fallback; the deterministic policy matrix in `ISO15118Ctrlr` decides whether another previously allowed path exists.
 
@@ -663,7 +684,7 @@ Remote policy may retain or strengthen identity separation. Activating `LegacyCo
 | `EffectiveIdentitySeparation` | OptionList | RO | none | Identity separation actually enforced after capability and local security policy |
 | `CombinedIdentityActive` | Boolean | RO, monitorable | none | A V2G certificate or key is currently shared with the OCPP client identity |
 | `CertificateState` | OptionList | RO | `<certificatePurpose>` | `Missing`, `Staged`, `Active`, `Expiring`, `Expired`, `Invalid`, or `Revoked` |
-| `ActiveCertificateId` | String | RO | `<certificatePurpose>` | Opaque identifier that can be reconciled with the M03 inventory; never DER, PEM, or private-key material |
+| `ActiveCertificateId` | String | RO | `<certificatePurpose>` | Opaque identifier that can be reconciled with the M03 inventory; never a DER (Distinguished Encoding Rules) or PEM certificate, nor private-key material |
 | `CertificateNotBefore` | DateTime | RO | `<certificatePurpose>` | Start of the active leaf certificate's validity interval |
 | `CertificateNotAfter` | DateTime | RO, monitorable | `<certificatePurpose>` | End of the active leaf certificate's validity interval |
 | `KeyProtectionLevel` | OptionList | RO | `<certificatePurpose>` | Effective protection of the active private key |
@@ -735,6 +756,8 @@ A future policy bundle needs:
 ### Structured session and event correlation
 
 Depending on `TxCtrlr.TxStartPoint`, an OCPP `transactionId` may not exist yet during SLAC, SDP, TLS, SAP/EXI, and early authorization. A future model therefore needs an opaque, locally generated, privacy-preserving `v2gSessionId` that exists from plug-in and can correlate the complete chain without exposing an eMAID, certificate, or stable vehicle identifier.
+
+Concretely, `v2gSessionId` is a 128-bit random value in lowercase hexadecimal, allocated once when the cable is plugged in (Control Pilot state B, or the first SLAC frame) and held across SLAC retries and any ISO 15118 pause/resume. It is never derived from the EVCCID, a MAC address, or an eMAID, and it is distinct from the ISO 15118 `SessionID` carried in `SessionSetupRes`. It appears in every `NotifyEvent` and `SecurityEventNotification` for the session, in the `transactionId` correlation once a transaction starts (through `customData`), and in the capture Custom Block. On a station whose SECC runs on a separate SoC, it is generated once and shared, so both sides label the same session identically.
 
 A structured ISO 15118 event should contain:
 
@@ -813,6 +836,8 @@ A complete future management design also needs:
 - Enforce distinct OCPP, ISO 15118-2, and ISO 15118-20 keys immediately, independent of future standardization.
 - For packet-level evidence that these policies are enforced, the capture lifecycle of [The ISO 15118 Tunnel](ISO15118Tunnel.md) is deployable on OCPP 2.1 as its transport profile 1, with no protocol change.
 
+Phase 0 splits naturally in two. **Phase 0a** exposes only the read-only effective-state and telemetry subset described in "Common conventions", which already delivers fleet monitoring and post-mortem diagnosis. **Phase 0b** adds the operator-policy variables and their safe defaults once the read side is trusted.
+
 ### Phase 1: proposed OCPP standardization
 
 - Standardize missing components, scopes, variables, enums, constraints, and defaults.
@@ -833,3 +858,31 @@ A complete future management design also needs:
 | P0 | Enforce separate certificate keys for the OCPP, ISO 15118-2, and ISO 15118-20 identities; use M03-M07 as the operational certificate protocol; distinguish `SecurityEventNotification` from `NotifyEvent` |
 | P1 | Define the versioned custom Device Model extension including `V2GEXICtrlr`, session correlation, policy matrix, structured event taxonomy, and atomic configuration workflow |
 | P2 | Standardize and certify the missing layer-management semantics across vendors |
+
+## Terminology and abbreviations
+
+| Term | Meaning |
+|---|---|
+| CSMS | Charging Station Management System, the operator's backend the station connects to over OCPP |
+| SECC | Supply Equipment Communication Controller, the ISO 15118 endpoint inside the charging station |
+| EVCC | Electric Vehicle Communication Controller, the ISO 15118 endpoint inside the vehicle |
+| EVCCID | The EVCC identifier, in practice the vehicle's MAC address; a stable vehicle identifier |
+| SLAC | Signal Level Attenuation Characterization (ISO 15118-3), the power-line step that pairs the vehicle with the station it is plugged into |
+| SDP | SECC Discovery Protocol, by which the vehicle finds the SECC and its transport-security mode over IPv6 link-local multicast |
+| V2GTP | Vehicle-to-Grid Transport Protocol, the small header that frames SDP and V2G messages |
+| SAP | `SupportedAppProtocol`, the ISO 15118 handshake that agrees the protocol namespace and version and binds a session-local `schemaID` |
+| EXI | Efficient XML Interchange, the binary encoding of every V2G application message |
+| schemaID | A number chosen by the vehicle in the SAP handshake, meaningful only within that session; not a fleet-wide schema version |
+| PnC | Plug & Charge, ISO 15118 authorization using a contract certificate in the vehicle |
+| EIM | External Identification Means, authorization by any other means (RFID, app, payment terminal) |
+| eMAID | e-Mobility Account Identifier, the identity in a PnC contract certificate; identifies the contract holder |
+| MO | Mobility Operator, the party that issues the contract certificate |
+| V2G | Vehicle-to-Grid; here, the ISO 15118 communication between vehicle and station, secured or not |
+| V2X | Bidirectional power transfer (vehicle to grid, home, or load) |
+| DER | Distributed Energy Resource. Note: in a certificate context, "DER" instead means Distinguished Encoding Rules, an X.509 encoding |
+| namespace | One ISO 15118 protocol and service profile, e.g. `ISO15118-2` or `ISO15118-20-DC` (see "Common conventions") |
+| management surface | The set of variables, messages, and events through which a CSMS can configure, observe, and control a function |
+| v2gSessionId | The proposed pre-transaction correlation identifier defined in "Structured session and event correlation" |
+| HSM / TPM | Hardware Security Module / Trusted Platform Module, hardware that holds a private key so it cannot be exported |
+| CSR | Certificate Signing Request, sent to have a certificate issued |
+| OCSP / CRL | Online Certificate Status Protocol / Certificate Revocation List, the two ways to check whether a certificate is revoked |

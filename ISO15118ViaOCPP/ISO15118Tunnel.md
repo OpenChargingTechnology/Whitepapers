@@ -11,7 +11,7 @@ Two questions carry most of the weight:
 - **Transport** (chapters 5–9): OCPP 2.1's new `SEND` message type is the deployable answer, binary WebSocket frames are the efficient answer, and HTTP/2 and HTTP/3 are the *correct* answer, because they are the only ones that stop a 4 MB capture dump from delaying a `RequestStartTransaction`.
 - **The reverse path** (chapter 10): remote raw-frame injection into critical infrastructure is a weapon before it is a diagnostic tool. The constraints come first, the API second.
 
-This paper is the packet-level counterpart to the controller proposals in [ISO 15118 via OCPP](README.md). That document retains the existing `ISO15118Ctrlr` as the umbrella controller and proposes `SLACCtrlr`, `SDPCtrlr`, `V2GTLSCtrlr`, `V2GEXICtrlr`, and `V2GPKICtrlr` for the currently unmanaged layers. This paper is about obtaining the evidence that the resulting configuration is actually being enforced.
+This paper is the packet-level counterpart to the controller proposals in [ISO 15118 via OCPP](README.md). That document retains the existing `ISO15118Ctrlr` as the umbrella controller and proposes `SLACCtrlr`, `SDPCtrlr`, `V2GTLSCtrlr`, `V2GEXICtrlr`, and `V2GPKICtrlr` for the currently unmanaged layers, and its "Terminology and abbreviations" section expands the acronyms used throughout both papers. This paper is about obtaining the evidence that the resulting configuration is actually being enforced.
 
 
 ## 1. Motivation
@@ -231,7 +231,7 @@ Use a **declarative filter** the station compiles itself:
   "etherTypes":     [ "0x88E1", "0x86DD" ],
   "ipProtocols":    [ "UDP", "TCP" ],
   "udpPorts":       [ 15118 ],
-  "tcpPorts":       [ 15118, 61341 ],
+  "tcpFlows":       [ "SeccListener" ],
   "snapLength":     128,
   "fullPacketFor":  [ "SLAC", "SDP", "TLSHandshake" ],
   "maxBytesPerSecond": 65536,
@@ -239,7 +239,7 @@ Use a **declarative filter** the station compiles itself:
 }
 ```
 
-The station validates this against its own policy, compiles it to whatever its kernel accepts, and rejects anything outside the allow-list. The expressiveness lost is small; almost every real diagnostic filter for this problem is "SLAC, SDP, and the V2G TCP connection".
+The station validates this against its own policy, compiles it to whatever its kernel accepts, and rejects anything outside the allow-list. The expressiveness lost is small; almost every real diagnostic filter for this problem is "SLAC, SDP, and the V2G TCP connection". `tcpFlows` uses symbolic selectors such as `SeccListener` rather than a raw port, because the SECC's TCP port is not fixed: it is announced dynamically in the SDP response, so only the station knows it at capture time.
 
 `snapLength` deserves emphasis. 128 bytes captures every Ethernet, IPv6, UDP, TCP and TLS record header, the entire V2GTP header, and the whole SDP payload in both directions — while capturing *no* application content. Header-only capture is the correct default and dramatically changes the privacy analysis in §3.5.
 
@@ -272,7 +272,8 @@ Practical consequences for the design:
 
 - **Header-only by default.** `snapLength: 128` collects almost everything diagnostically useful and almost nothing personal beyond identifiers.
 - **Full-payload capture is a distinct, more privileged mode** with its own device-model variable and its own security event on activation.
-- **Support pseudonymisation at the station**: consistent per-capture substitution of MAC addresses and EVCCIDs, so cross-session correlation is preserved for debugging without shipping the raw identifier. The mapping stays local.
+- **Support pseudonymisation at the station**, and make it layer-aware. Rewriting the Ethernet source and destination is not enough: the EV MAC also appears inside the SLAC management messages (`CM_SLAC_PARM.CNF`, `CM_ATTEN_CHAR.IND`, `CM_SLAC_MATCH.REQ`/`CNF` carry EV MAC, EVSE MAC, EV ID, and RunID), in the EUI-64 interface identifier of the EVCC's link-local IPv6 source address, and in the destination of the SECC's unicast SDP response. `PseudonymizationMode` must therefore substitute all of these consistently (re-deriving the link-local IID from the pseudonym MAC), state which fields it leaves untouched (for example the RunID), and hold the substitution mapping as a keyed derivation (an HMAC with a per-capture random key discarded at close for `PerCapture`; only the `PerStation` key is a stored secret, guarded like the TLS secrets of §3.6).
+- **Header-only capture still ships identifiers.** `snapLength: 128` keeps the SLAC and SDP payloads in full (they are short), so a "header-only" capture is not automatically anonymous; pseudonymisation, not slicing, is what removes the vehicle identifier. And `fullPacketFor` must include SLAC whenever EtherType `0x88E1` is filtered, because `CM_ATTEN_CHAR.IND` with a 58-group attenuation profile is about 129 bytes, just past the 128-byte snap length that §2.2 calls the most valuable frame.
 - **Retention must be bounded at the station and at the CSMS**, and stated.
 - **Every capture start is an auditable event**, not a silent config change.
 
@@ -407,8 +408,9 @@ CSMS                                              Charging Station
 | `filter` | CaptureFilterType | 1..1 | Declarative filter, §3.3 |
 | `trigger` | CaptureTriggerType | 0..1 | Required for `RingWithTrigger` |
 | `params` | CaptureStreamParamsType | 1..1 | Chunk sizing and rate, mirroring `PeriodicEventStreamParamsType` |
+| `transportProfile` | TransportProfileEnumType | 0..1 | `Send`, `BinaryFrame`, `HTTP2`, or `HTTP3` (chapter 9); absent means `Send` |
 | `expiryDateTime` | dateTime | 1..1 | Hard stop. **Not optional** — an unbounded capture is a bug |
-| `includeSecrets` | boolean | 0..1 | Default `false`; requires a signed command (§3.6) |
+| `includeSecrets` | SecretsTierEnumType | 0..1 | `None`, `HandshakeOnly`, or `All`; default `None`; anything else requires a signed command (§3.6) |
 
 **`OpenPacketCaptureResponse`** returns `status` (`Accepted`, `Rejected`, `NotSupported`, `TapPointUnavailable`, `Unauthorized`), plus the limits the station actually granted — `maxBytesPerSecond`, `maxTotalBytes`, `ringBytes`, `snapLength`. *The station always answers with what it will really do, never by echoing the request.* A station that silently truncates a 4 MB request to 512 kB produces captures whose gaps look like network failures.
 
@@ -419,11 +421,29 @@ CSMS                                              Charging Station
 | `id` | integer | 1..1 | Capture id |
 | `seqNo` | integer | 1..1 | Sequence number, from 0 |
 | `pending` | integer | 1..1 | Chunks still buffered at the station — the backpressure signal |
-| `basetime` | dateTime | 1..1 | Anchor for the timestamps inside the chunk |
+| `basetime` | dateTime | 1..1 | Informational wall-clock anchor for the chunk; the pcapng per-block timestamps are authoritative |
 | `data` | string | 1..1 | Base64-encoded pcapng blocks, whole blocks only |
 | `tbc` | boolean | 0..1 | "To be continued", as in `NotifyReport` |
 
 **`NotifyPacketCaptureStatus`** (SEND) reports `RingOverflow`, `TriggerFired`, `RateLimited`, `Expired`, `TapPointLost`, with the drop counts. Overflow must be reported as an event and *also* reflected in an Interface Statistics Block, so it survives into the file a forensic analyst opens six months later.
+
+The three capture modes of `CaptureModeEnumType` differ in when data leaves the station:
+
+| Mode | Behaviour |
+|---|---|
+| `Live` | Every matched frame is streamed as it is captured; a bounded, leased mode for a supervised session |
+| `RingWithTrigger` | Capture into the ring continuously; freeze and export a window around a `trigger` when it fires |
+| `RingOnDemand` | Capture into the ring continuously; export only on an explicit `ExportPacketCaptureRequest` |
+
+**`ExportPacketCaptureRequest`** (CALL) drives `RingOnDemand`, and freezes and ships the window already in the ring:
+
+| Field | Type | Card. | Description |
+|---|---|---|---|
+| `id` | integer | 1..1 | An open capture in `RingOnDemand` mode |
+| `preSeconds` | integer | 1..1 | Seconds before the freeze point to include |
+| `postSeconds` | integer | 0..1 | Seconds after the freeze point to keep capturing before export |
+
+**`ExportPacketCaptureResponse`** returns `status` and the window actually granted (`preSeconds`, `postSeconds`, `bytes`), again what the station will really do rather than an echo.
 
 ### 5.4 Sizing
 
@@ -450,6 +470,18 @@ There is no mechanism for the CSMS to say "stop sending until I catch up" other 
 `SEND`-based capture works, needs no changes to OCPP-J framing, and is the only option here deployable on an OCPP 2.1 stack today. Every station that implements OCPP 2.1 already has the message type.
 
 It is also, structurally, the wrong shape. It base64-encodes binary into JSON, it multiplexes bulk data onto the same ordered channel as control messages, and its flow control is a round-trip behind reality. Use it as the compatibility profile, not as the target architecture.
+
+### 5.7 Body types
+
+The messages above reference four composite types. They are given here so an implementer does not have to reverse-engineer them from the prose.
+
+**`CaptureFilterType`** is the declarative filter of §3.3: `tapPoint`, `etherTypes`, `ipProtocols`, `udpPorts`, `tcpFlows` (symbolic flow selectors such as `SeccListener`, not raw ports, because the SECC port is announced dynamically by SDP), `snapLength`, `fullPacketFor`, `maxBytesPerSecond`, and `maxTotalBytes`. The station compiles it and rejects anything outside its allow-list.
+
+**`CaptureTriggerType`** names the condition that freezes the ring in `RingWithTrigger` mode: a `kind` from a controlled set (`SlacMatchFailure`, `SdpTimeout`, `TlsAlert`, `SecurityEvent`, `TransactionFailed`, `DeviceModelMonitor`), the pre- and post-window in seconds, and an optional `v2gSessionId` to scope the trigger to one session.
+
+**`CaptureStreamParamsType`** mirrors `PeriodicEventStreamParamsType`: the chunk-size target in bytes and the maximum flush interval, so a CSMS that already drives periodic event streams reuses the same shape.
+
+**`TransportProfileEnumType`** is `Send`, `BinaryFrame`, `HTTP2`, `HTTP3` (chapter 9). The CSMS reads `PacketCaptureCtrlr.SupportedTransportProfiles`, sets `transportProfile` in `OpenPacketCaptureRequest`, and the `OpenPacketCaptureResponse` echoes the profile actually granted, so a station that cannot do HTTP/3 downgrades explicitly rather than failing. A UDP-blocked network (§8.5) is discovered this way and falls back to `HTTP2` or `Send`.
 
 
 ## 6. Transport B — binary WebSocket frames
@@ -480,12 +512,12 @@ Control stays in JSON — `OpenPacketCaptureRequest` gains `transport: "BinaryFr
 +---------------------------------------------------------------+
 ```
 
-- **Magic** `0x4F 0x43` lets a receiver reject binary frames that are not this protocol instead of misparsing them.
-- **Version** allows the framing to evolve independently of OCPP-J.
-- **Payload Type** distinguishes capture data from injection data (§10.5) and from future uses.
-- **Stream Id** correlates to the `id` from the JSON `OpenPacketCaptureRequest`, so authorization and lifecycle stay in the audited JSON channel. *Nothing is ever created by a binary frame.*
-- **Sequence Number** gives loss and reorder detection independent of the transport.
-- **Flags** carry `LAST_CHUNK`, `TRUNCATED`, `DROPS_OCCURRED`.
+- **Magic** `0x4F 0x43` (`"OC"`) lets a receiver reject binary frames that are not this protocol instead of misparsing them.
+- **Version** `0x01` allows the framing to evolve independently of OCPP-J.
+- **Payload Type** distinguishes uses: `0x01` capture data, `0x02` injection data (§10.5); values `0x03` and up are reserved.
+- **Stream Id** (32-bit) correlates to the `id` from the JSON `OpenPacketCaptureRequest`, so authorization and lifecycle stay in the audited JSON channel. *Nothing is ever created by a binary frame.*
+- **Sequence Number** (32-bit) gives loss and reorder detection independent of the transport.
+- **Flags** (8-bit) carry bit 0 `LAST_CHUNK`, bit 1 `TRUNCATED`, bit 2 `DROPS_OCCURRED`; the remaining bits and the 24-bit Reserved field are zero on send and ignored on receive, leaving room for an in-band backpressure counter in a later version.
 
 Keeping stream creation in JSON is the important design decision. It means the entire authorization surface stays in the message type that CSMS operators already log, audit and rate-limit, and a binary frame referencing an unknown stream id is simply discarded.
 
@@ -807,6 +839,14 @@ Expiry is enforced by the station against its own clock, so a CSMS that stops re
 
 For burst injection, a binary-framed or HTTP/2-streamed variant carries frames with payload type `Injection` on a dedicated stream, with the lease still established over the JSON channel. `RST_STREAM` then aborts a running burst immediately (§7.2).
 
+The three body types referenced above:
+
+**`SemanticFrameType`** (the `Semantic` level): a `kind` from a controlled set (`SdpRequest`, `SlacParmReq`, and so on), plus the semantic fields for that kind, for example `security` (`TLS` or `NoTLS`), `transportProtocol` (`TCP` or `UDP`), and `sourceMode`. The station encodes a well-formed frame; malformed output is impossible.
+
+**`TransportFrameType`** (the `Transport` level): `protocol` (`UDP` or `TCP`), `destination` (an address and port inside the lease `egressFilter`), `sourceMode` (`LinkLocalGenerated` derives a valid link-local source so the SECC's reply is not discarded), `hopLimit`, and a base64 `payload` that may be arbitrary, which is what negative testing needs.
+
+**`EgressFilterType`** (in the lease, not the frame): `allowedEtherTypes`, `allowedDestinations` (MAC, IP, and port ranges), and `allowedProtocols`. Every injected frame is checked against it before it leaves, and `InjectFrameResponse` names the rule that rejected one.
+
 ### 10.6 Worked example: testing SDP multicast
 
 This is the canonical test, and it exercises everything above.
@@ -932,27 +972,31 @@ This is the same principle as §3.3's rejection of CSMS-supplied BPF, applied to
 | `MaxConcurrentCaptures` | integer | RO | |
 | `MaxBytesPerSecond` | integer | RW | Station-enforced ceiling, independent of what a capture requests |
 | `DefaultSnapLength` | integer | RW | Default 128 (§3.3) |
-| `FullPayloadCaptureAllowed` | boolean | RW | Gate on capturing application content (§3.5) |
-| `SecretsExportAllowed` | OptionList | RW | TLS secret-export tier: `None`, `HandshakeOnly`, or `All` (§3.6); **signed command only**, and `All` needs a stronger unlock than `HandshakeOnly` |
-| `PseudonymizationMode` | OptionList | RW | `None`, `PerCapture`, `PerStation` |
+| `FullPayloadCaptureAllowed` | boolean | RW-signed | Gate on capturing application content (§3.5) |
+| `SecretsExportAllowed` | OptionList | RW-signed | TLS secret-export tier: `None`, `HandshakeOnly`, or `All` (§3.6); `All` needs a stronger unlock than `HandshakeOnly` |
+| `TlsSecretsExportActive` | OptionList | RO, monitorable | The tier actually in force right now, per EVSE; a transition away from `None` is a security event |
+| `PseudonymizationMode` | OptionList | RW | `None`, `PerCapture`, `PerStation` (§3.5) |
 | `MaxRetentionSeconds` | integer | RW | Station-side retention bound |
 | `DroppedFrameCount` | integer | RO, monitorable | Telemetry — must be exported, never silent |
+
+Access qualifiers: **RW** is a normal `SetVariables` write; **RW-signed** may be changed only by a signed command (Part 4 chapter 7, §10.4), never by a plain `SetVariables`; **RO-firmware** is fixed at build time and is itself the security control. A `SetVariables` that targets an RW-signed variable is rejected with a `reasonCode` of `SignedCommandRequired`.
 
 ### 11.2 `FrameInjectionCtrlr` (per EVSE)
 
 | Variable | Type | R/W | Purpose |
 |---|---|---|---|
-| `Enabled` | boolean | RW | Master switch; default `false` |
-| `AllowedInterfaces` | MemberList | **RO** | Fixed in firmware. Read-only is the security control (§10.2) |
-| `MaxInjectionLevel` | InjectionLevelEnumType | RW | Highest permitted level: `Replay`, `Semantic`, `Transport`, or `Raw`; may not be more permissive than the firmware ceiling. `Raw` needs a stronger unlock (separate signing key or physical presence) than `Transport` |
-| `AllowedEtherTypes` | MemberList | RW | Egress filter |
-| `AllowedDestinations` | MemberList | RW | Egress filter — MAC/IP/port allow-list |
+| `Enabled` | boolean | RW-signed | Master switch; default `false` |
+| `AllowedInterfaces` | MemberList | RO-firmware | Fixed in firmware. Read-only is the security control (§10.2) |
+| `AllowedDirections` | MemberList | RO-firmware | Which of `Egress` and `LocalIngress` this build permits (§10.4) |
+| `MaxInjectionLevel` | InjectionLevelEnumType | RW-signed | Highest permitted level: `Replay`, `Semantic`, `Transport`, or `Raw`; may not be more permissive than the firmware ceiling. `Raw` needs a stronger unlock (separate signing key or physical presence) than `Transport` |
+| `AllowedEtherTypes` | MemberList | RW-signed | Egress filter |
+| `AllowedDestinations` | MemberList | RW-signed | Egress filter — MAC/IP/port allow-list |
 | `MaxLeaseSeconds` | integer | RW | Hard ceiling on lease duration |
 | `MaxFramesPerLease` | integer | RW | Budget |
 | `MaxFramesPerSecond` | integer | RW | Rate limit |
-| `RequireSignedCommand` | boolean | RW | Default `true`; lowering it should itself require a signed command |
-| `RequireNoActiveTransaction` | boolean | RW | Interlock |
-| `RequireEgressCapture` | boolean | RW | Default `true` (§10.4) |
+| `RequireSignedCommand` | boolean | RW-signed | Default `true`; lowering it itself requires a signed command |
+| `RequireNoActiveTransaction` | boolean | RW-signed | Interlock |
+| `RequireEgressCapture` | boolean | RW-signed | Default `true` (§10.4) |
 | `ActiveLeaseCount` | integer | RO, monitorable | |
 | `RejectedFrameCount` | integer | RO, monitorable | Filter rejections — a tripwire |
 
@@ -966,7 +1010,7 @@ Extending the list proposed in the [companion paper](README.md):
 |---|---|---|
 | `PacketCaptureStarted` | low | Capture opened — id, tap point, filter digest |
 | `PacketCaptureFullPayloadEnabled` | medium | Application content is now being captured (§3.5) |
-| `TlsSecretsExportEnabled` | **high** | V2G session secrets are leaving the station (§3.6) |
+| `TlsSecretsExportEnabled` | **high** | V2G secrets are leaving the station; carries the tier `HandshakeOnly` or `All` (§3.6) |
 | `PacketCaptureRingOverflow` | medium | Frames were dropped — evidence is incomplete |
 | `FrameInjectionLeaseGranted` | **high** | Injection is now possible — lease id, level, interface, signer |
 | `FrameInjectionLeaseDenied` | medium | Signature, interlock or policy refused a lease |
@@ -975,6 +1019,10 @@ Extending the list proposed in the [companion paper](README.md):
 | `RawFrameInjectionUsed` | **high** | A `Raw` (level 4) frame was injected |
 
 Every one of these needs an `evseId`, which `SecurityEventNotificationRequest` does not have — reinforcing the argument in the [companion paper](README.md) that `evseId`, severity and a sequence number belong in that message. Smuggling them into 255 characters of `techInfo` is not a basis for NIS2 incident correlation.
+
+### 11.4 Persistence and reboot
+
+The dangerous state in this design is deliberately not durable. Injection leases and running captures do not survive a reboot: on boot the station has no lease, no open capture, and no connector interlock held for one. The `Enabled` gates and `SecretsExportAllowed` tier fall back to their safe defaults (`false` and `None`) rather than resuming, so a power cycle can never silently re-arm a capability that a signed command switched on. The firmware ceilings persist, because they are firmware: `AllowedInterfaces`, `AllowedDirections`, and the maxima that bound what any future lease may request. Each `RW-signed` variable reports `persistent` truthfully in its Device Model characteristics, so a CSMS never assumes a gate is still open after a reboot it did not observe.
 
 
 ## 12. Security and regulatory considerations
@@ -1010,6 +1058,19 @@ If an implementation follows A00.FR.428 and reuses the Charging Station Certific
 The capture agent needs raw socket access; the injection agent needs raw *write* access. Neither should share a fault domain with the OCPP client or the SECC. Separate processes, least privilege, no shared writable state, and independently updatable — which is the argument developed in [OCPP 2.x Firmware Updates with Software Separation](../FirmwareUpdateSeparation/README.md).
 
 An injection agent that can be updated independently of the OCPP client is also an injection agent that can be *removed* independently, which is how a deployment turns "we shipped this for commissioning" into "this is not present in production firmware".
+
+### 12.5 The station is untrusted input to the CSMS
+
+The threat model so far runs one way: a compromised CSMS attacking stations. The reverse deserves a sentence, because this feature hands a station a high-bandwidth channel into a CSMS parser. A compromised or faulty station controls every byte of the pcapng it uploads: block lengths, the number of blocks, custom-block Private Enterprise Numbers, and the `permessage-deflate` ratio. A CSMS that trusts those fields is a target.
+
+So the CSMS side has its own non-negotiable rules:
+
+- Bound chunk size, total capture size, and block count **before** allocating, from the limits it granted in `OpenPacketCaptureResponse`, not from any length field in the incoming data.
+- Cap decompression with an absolute output ceiling and a ratio limit, so a small compressed chunk cannot inflate into a memory-exhaustion attack.
+- Parse pcapng in a separate, least-privilege process that cannot reach the CSMS's own credentials or database, the mirror image of §12.4 on the station side.
+- Keep a CSMS-side ingest quota per station, independent of the station-enforced `maxBytesPerSecond`, so one station cannot starve ingestion for the fleet.
+
+A capture is evidence about the station, produced by the station. It is only as trustworthy as the firmware that wrote it; the assurance comes from firmware integrity and the software separation of §12.4, not from a signature the station applies to its own output.
 
 
 ## 13. Recommended path
