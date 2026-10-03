@@ -1148,7 +1148,7 @@ it out at plugfests, then propose it to the Open Charge Alliance. E1 to E3 can b
 ## 11. Implementation status
 
 As of: Hermod `22768a4a1`; WWCP_OCPP `6d12a82`, WWCP_Core `a83151c`, WWCP_Node `97d764b`;
-Styx `master`. W-1 as of WWCP_Core `b6b3b4e8` and WWCP_OCPP `b13c9ffe`.
+Styx `master`. W-1 as of WWCP_Core `5efb78cc` and WWCP_OCPP `b13c9ffe`.
 
 ### 11.1 Hermod and Styx: available
 
@@ -1193,7 +1193,7 @@ Styx `master`. W-1 as of WWCP_Core `b6b3b4e8` and WWCP_OCPP `b13c9ffe`.
 
 | No. | Gap |
 |---|---|
-| W-1 | Duplicate connections are handled per identity ("newest wins"), not per channel; `WWCPWebSocketServer.Supersedes` is the one place that decides which older connections a newer one replaces. Done in WWCP_Core `b6b3b4e8`: the identity is the last path segment, and the credentials (client certificate CN, else HTTP Basic username, else TOTP login) must name the same networking node or one allowed to connect as it (`AllowToActFor`, for a local controller per OCPP 2.1 Part 4 §6.2 and §6.5); otherwise 403 before the 101 where the server can check the credentials itself, and no registration where only the application can. A newer connection replaces the older ones in one step; a late close of an older connection does not take it down, and a connection that ends without a close frame is unregistered. Passwords and one-time passwords no longer appear in the debug log, and credentials in the query string are gone. Still open: a station certificate's CN is its serial number (OCPP 2.1 Part 2 A00.FR.511), so a serial number other than the identity needs `AllowToActFor`; no test covers the certificate path over TLS; `AOverlayWebSocketServer` still has the late-close race. |
+| W-1 | Duplicate connections are handled per identity ("newest wins"), not per channel; `WWCPWebSocketServer.Supersedes` is the one place that decides which older connections a newer one replaces. Done in WWCP_Core `b6b3b4e8`: the identity is the last path segment, and the credentials (client certificate CN, else HTTP Basic username, else TOTP login) must name the same networking node or one allowed to connect as it (`AllowToActFor`, for a local controller per OCPP 2.1 Part 4 §6.2 and §6.5); otherwise 403 before the 101 where the server can check the credentials itself, and no registration where only the application can. A newer connection replaces the older ones in one step; a late close of an older connection does not take it down, and a connection that ends without a close frame is unregistered, in `AOverlayWebSocketServer` too since `5efb78cc`. Passwords and one-time passwords no longer appear in the debug log, and credentials in the query string are gone. Still open: a station certificate's CN is its serial number (OCPP 2.1 Part 2 A00.FR.511), so a serial number other than the identity needs `AllowToActFor`; no test covers the certificate path over TLS. |
 | W-2 | Routing: all connections register with the same priority, so the last connection wins; the high-availability networking with several prioritized connections described in the overlay README is not implemented. |
 | W-3 | The OCPP 2.x reconnect back-off is not implemented (variables present, unread); `SetNetworkProfile` is a stub. |
 | W-4 | No limits per identity, no message rates, an unbounded table of outstanding requests. |
