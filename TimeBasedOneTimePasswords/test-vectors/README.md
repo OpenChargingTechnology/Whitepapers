@@ -28,8 +28,8 @@ python tools/generate-test-vectors.py --check   # drift guard
 
 ## totp-test-vectors.json — generation vectors
 
-Each vector: `input` → expected `previous`/`current`/`next` token and
-`remainingTimeSeconds`.
+Each vector: `input` → expected `previous`/`current`/`next` token,
+`remainingTimeSeconds` and `endTimeUnixSeconds`.
 
  * An **absent** optional field in `input` means: the harness passes
    null/undefined, so that the implementation's **own defaulting** is
@@ -38,6 +38,12 @@ Each vector: `input` → expected `previous`/`current`/`next` token and
  * `unixTimestampMillis` is the timestamp in Unix **milliseconds**;
    implementations floor it to whole seconds.
  * `tlsExporterMaterialHex` is the TLS exporter material as lowercase hex.
+ * `endTimeUnixSeconds` is the fixed end of the current window, `(S + 1) · V`
+   (spec section 4.1) — always `⌊unixTimestampMillis / 1000⌋ +
+   remainingTimeSeconds`. Harnesses check it against whatever end time or
+   duration their implementation reports: an implementation returning the
+   exact duration from the unfloored timestamp passes when that duration's
+   ceiling is `remainingTimeSeconds` and it ends at `endTimeUnixSeconds`.
  * `requires` lists capabilities a vector needs. A harness runs the vector
    iff its implementation provides **all** of them, and MUST fail (not skip)
    on capability names it does not know. Capabilities so far:

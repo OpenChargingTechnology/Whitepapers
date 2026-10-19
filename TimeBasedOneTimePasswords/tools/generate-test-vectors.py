@@ -111,12 +111,17 @@ def generate_totps(shared_secret: str,
     unix_s    = unix_ms // 1000
     slot      = unix_s  // validity
     remaining = validity - (unix_s % validity)
+    end       = (slot + 1) * validity          # spec section 4.1: a fixed instant
+
+    # The identity that makes the two fields one fact, not two.
+    assert end == unix_s + remaining
 
     return {
         "previous":              calc_slot_token((slot - 1) & MASK64, secret, length, alphabet, algorithm, material),
         "current":               calc_slot_token(slot,                secret, length, alphabet, algorithm, material),
         "next":                  calc_slot_token((slot + 1) & MASK64, secret, length, alphabet, algorithm, material),
-        "remainingTimeSeconds":  remaining
+        "remainingTimeSeconds":  remaining,
+        "endTimeUnixSeconds":    end
     }
 
 
@@ -153,6 +158,9 @@ def check_anchors() -> None:
 
     for inputs, (previous, current, next_, remaining) in ANCHORS:
         result = generate_totps(**inputs)
+        # The anchors predate endTimeUnixSeconds; it is derived (and
+        # self-checked) from the anchored remaining time.
+        result.pop("endTimeUnixSeconds")
         expected = {
             "previous":             previous,
             "current":              current,
@@ -346,9 +354,9 @@ def generation_vectors() -> list[dict]:
                "Unix time 2^31 - 1 (2038-01-19T03:14:07Z): no 32 bit rollover.",
                unix_ms=2147483647000),
 
-        # 23:59:28, not 23:59:59: in the very last slot of the calendar
-        # Hermod's EndTime (timestamp + remaining time) would leave the
-        # DateTime range - a documented deviation, see docs/spec-deviations.md.
+        # 23:59:28, not 23:59:59: the very last slot of the calendar ends at
+        # 10000-01-01T00:00:00Z, which Hermod's DateTimeOffset EndTime cannot
+        # represent - a documented deviation, see docs/spec-deviations.md.
         vector("timestamp-year-9999",
                "9999-12-31T23:59:28Z, the far end of the calendar.",
                unix_ms=253402300768000),

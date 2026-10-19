@@ -143,6 +143,26 @@ remainingTime  =  V − (T mod V)
 which equals the full validity time `V` when `T` falls exactly on a slot
 boundary.
 
+The current token's window **ends at a fixed instant**, the start of the
+next slot:
+
+```
+endTime  =  (S + 1) · V        Unix seconds;  equals  T + remainingTime
+```
+
+Every caller within the same slot MUST be told the same `endTime`;
+implementations MUST NOT derive it from the unfloored timestamp (`t +
+remainingTime` with `t` carrying a sub-second fraction moves the end by up
+to a second, differently for every caller).
+
+`remainingTime` is the whole-second count defined above. Implementations
+that return it as a **duration** measured from an unfloored timestamp `t`
+MAY report the exact `endTime − t` instead; its ceiling is always
+`remainingTime` (`⌈endTime − t⌉ = endTime − ⌊t⌋`), so the two never
+disagree about the window, and the exact form never over-states what is
+left. The test vectors carry both `remainingTimeSeconds` and
+`endTimeUnixSeconds`.
+
 ### 4.2. One token for one slot
 
 For a slot number `S`, the token is derived as follows:
