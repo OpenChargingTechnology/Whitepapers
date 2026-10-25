@@ -138,6 +138,58 @@
             "roundtripHex": "A161747818323032352D31322D31355430393A35343A30302E3030305A"
         },
         {
+            "id": "tag1-epoch-float-written-millisecond",
+            "description": "Tag 1 over a float is rounded to the microsecond before it is truncated: 1724096411.001 is a double a little below .001 and is written .001, not .000 (metrological-text §3.1)",
+            "cborHex": "A16174C1FB41D9B0E7E6C01062",
+            "roundtrip": false,
+            "json": "{\"t\":\"2024-08-19T19:40:11.001Z\"}",
+            "roundtripHex": "A161747818323032342D30382D31395431393A34303A31312E3030315A"
+        },
+        {
+            "id": "tag1-epoch-float-product-below",
+            "description": "Tag 1 over a float: 1075906714.949 times 1000 rounds below 1075906714949, and the text is still .949 (metrological-text §3.1)",
+            "cborHex": "A16174C1FB41D0084226BCBC6A",
+            "roundtrip": false,
+            "json": "{\"t\":\"2004-02-04T14:58:34.949Z\"}",
+            "roundtripHex": "A161747818323030342D30322D30345431343A35383A33342E3934395A"
+        },
+        {
+            "id": "tag1-epoch-float-truncated",
+            "description": "Tag 1 over a float: below the millisecond the rest is truncated, not rounded - 1.9996 s is .999, not 2.000 (metrological-text §3.1)",
+            "cborHex": "A16174C1FB3FFFFE5C91D14E3C",
+            "roundtrip": false,
+            "json": "{\"t\":\"1970-01-01T00:00:01.999Z\"}",
+            "roundtripHex": "A161747818313937302D30312D30315430303A30303A30312E3939395A"
+        },
+        {
+            "id": "tag1-epoch-float-before-epoch",
+            "description": "Tag 1 over a float before 1970 is truncated toward the past: -0.0005 s is 23:59:59.999 of the day before (metrological-text §3.1)",
+            "cborHex": "A16174C1FBBF40624DD2F1A9FC",
+            "roundtrip": false,
+            "json": "{\"t\":\"1969-12-31T23:59:59.999Z\"}",
+            "roundtripHex": "A161747818313936392D31322D33315432333A35393A35392E3939395A"
+        },
+        {
+            "id": "tag1-epoch-half-float",
+            "description": "Tag 1 over a half-precision float, 1.5 s (metrological-text §3.1)",
+            "cborHex": "A16174C1F93E00",
+            "roundtrip": false,
+            "json": "{\"t\":\"1970-01-01T00:00:01.500Z\"}",
+            "roundtripHex": "A161747818313937302D30312D30315430303A30303A30312E3530305A"
+        },
+        {
+            "id": "tag1-epoch-nan",
+            "description": "Tag 1 over NaN denotes no instant and must be refused (metrological-text §3.1)",
+            "cborHex": "A16174C1F97E00",
+            "expectToJsonError": true
+        },
+        {
+            "id": "tag1-epoch-infinity",
+            "description": "Tag 1 over an infinity denotes no instant and must be refused (metrological-text §3.1)",
+            "cborHex": "A16174C1F97C00",
+            "expectToJsonError": true
+        },
+        {
             "id": "string-that-reads-as-reading",
             "description": "The '1 h' hazard: a text string that parses as a reading comes back as tag 44252",
             "source": "metrological-text §3.2",

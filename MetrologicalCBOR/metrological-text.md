@@ -255,6 +255,20 @@ denotes, written `YYYY-MM-DDThh:mm:ss.fffZ` — UTC, millisecond precision,
 sub-millisecond content truncated — so that every implementation writes the
 same text.
 
+When tag 1 wraps a floating-point number, the seconds it holds are first
+rounded to the nearest microsecond, halves away from zero, and only the rest
+below the millisecond is then truncated — toward the past, for an instant
+before 1970 as for one after it. Truncating the binary value itself is not the
+rule, because it names the wrong millisecond: `1724096411.001` is a double a
+little below `.001`, as is about every other value written with three
+decimals, and would become `.000`. Multiplying by 1000 before truncating is
+not the rule either, because the product is rounded too and falls on either
+side. Rounding to the microsecond recovers what was written for every instant
+before 2242, up to which a double of epoch seconds resolves better than a
+microsecond; beyond that the text is still a function of the bytes, which is
+what this rule is for. A floating-point NaN or infinity denotes no instant, and
+a converter MUST refuse it.
+
 **Escaping.** A converter SHOULD escape only what [RFC 8259] Section 7
 requires — the quotation mark, the reverse solidus, and the characters below
 U+0020 — preferring the two-character forms (`\n`, `\t`, …) where Section 7
