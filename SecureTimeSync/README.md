@@ -39,9 +39,12 @@ The NTS-KE phase establishes a secure channel to derive cryptographic keys and p
 The client, an OCPP Charging Station or an OCPP Local Controller, initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by validating its certificate, mitigating MITM risks. Which root certification authorities (root CAs) are used to validate the server certificate is an configuration option. For security reasons this should not be the entire World Wide Web root CA bundle used within web browsers.
 
 Then the client sends an NTS-KE request message, which includes:
+- The protocol it wants keys for, NTPv4 (NTS Next Protocol Negotiation).
 - Supported cryptographic algorithms (e.g., AES-SIV-CMAC for message authentication).
-- A unique client identifier or nonce to prevent replay attacks.
+- Optionally the NTP server and port it would prefer (NTPv4 Server Negotiation and NTPv4 Port Negotiation, [RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915) §4.1.7 and §4.1.8).
 - Optional parameters, such as a request for an additional digital signed NTP response.
+
+The NTS-KE request carries no nonce. Protection against replay belongs to the NTS-protected NTP phase, where every request carries a Unique Identifier extension field (RFC 8915 §5.3).
 
 #### Key Derivation
 A set of cryptographic keys for Client-to-Server (C2S) and Server-to-Client (S2C) encryption will be deviated from the key material of the TLS connection and later be used to encrypt and authenticate the NTP communication via an [Authenticated Encryption with Associated Data (AEAD)](https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)) algorithm. This method is based on TLS 1.3 exporter mechanism, as defined in [RFC 8446](https://datatracker.ietf.org/doc/html/rfc8446), using `EXPORTER-network-time-security` as constant.
@@ -56,7 +59,7 @@ The server responds with:
 relies purely on the client to store cookies containing key material or references to it.
 - The NTS client stores these cookies within a secure storage.
 
-Some NTS-KE servers also support a no-longer-standardized way to return NTP server addresses and UDP ports. This feature can be used, but charging station operators have to provide fall-back mechanisms.
+The NTS-KE response may also name the NTP server and port that will accept the cookies (NTPv4 Server Negotiation and NTPv4 Port Negotiation records, RFC 8915 §4.1.7 and §4.1.8). Both records are part of the standard. Without them, the client uses the NTP service at the address of the NTS-KE server, on port 123.
  
 
 ### 2.2 NTS-Protected NTP Phase
@@ -125,8 +128,8 @@ The *Instance* of the component is mandatory and is used as *"NTPClientIdentific
 | Variable Name     | req/opt  | Mutability | Data Type  | JSON Type     | Default Value | Values List                  | Description |
 |-------------------|----------|------------|------------|---------------|---------------|------------------------------|-------------|
 | *Instance*        | required | ro         | String | String | ""            | -                            | Used as *"NTP Client Identification"*. |
-| ServerURL         | required | rw         | URL | String     | ""            | -                            | The NTP/NTS server URL. May depend on the device’s country or location. |
-| ServerPort        | optional | rw         | UInt16 | Number      | ""            | -                            | The optional NTP/NTS server port. |
+| ServerURL         | required | rw         | Hostname | String     | ""            | -                            | The server to ask, as a host name or an IP address, not a URL. In mode *NTSv4* this is the NTS-KE server, unless *NTSKEServerURL* names another one. The NTP server is then the one the NTS-KE response names (NTPv4 Server Negotiation, RFC 8915 §4.1.7), or the address of the NTS-KE server when the response names none. In modes *NTPv4* and *NTPv4TLS* it is the NTP server. May depend on the device’s country or location. |
+| ServerPort        | optional | rw         | UInt16 | Number      | 123           | -                            | The NTP port. In mode *NTSv4* the port the NTS-KE response names (NTPv4 Port Negotiation, RFC 8915 §4.1.8) takes precedence, and this value is only what the client asks for. |
 | Mode              | optional | rw         | String     | "NTSv4"       | "NTPv4", "NTSv4", "NTPv4TLS" | The optional NTP/NTS server mode. NTPv4 may be prohibited unless additional security measures are implemented! |
 | DelayAsymmetry    | optional | rw         | milliseconds | Integer    | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). (in milliseconds). |
 | DelayVarAsymmetry | optional | rw         | Float | Number | - | - | These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
@@ -135,8 +138,8 @@ The *Instance* of the component is mandatory and is used as *"NTPClientIdentific
 | MaxInterval       | optional | rw         | seconds | Number | - | - | The maximal time span between randomized NTP/NTS time sync requests (in seconds). |
 | Preflight         | optional | rw         | Byte | Number | - | - | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a preflight NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. (in seconds). |
 | ErrorLogging      | optional | rw         | UInt16 | Number | - | - | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
-| NTSKEServerURL    | optional | rw         | URL | String | ""            | - | The optional NTSKE server URL. When empty and the mode is NTSv4, the ServerURL will be used for NTS-KE. |
-| NTSKEServerPort   | optional | rw         | UInt16 | Number | ""            | -                            | The optional NTS-KE server port. |
+| NTSKEServerURL    | optional | rw         | Hostname | String | ""            | - | An NTS-KE server other than *ServerURL*, as a host name or an IP address. When it is set in mode *NTSv4*, the client asks this server for the keys and cookies, and asks for *ServerURL* as its NTP server (NTPv4 Server Negotiation in the request). The NTP server it then uses is still the one the NTS-KE response names, or the address of this NTS-KE server when the response names none (RFC 8915 §4.1.7). When it is empty, *ServerURL* is the NTS-KE server. |
+| NTSKEServerPort   | optional | rw         | UInt16 | Number | 4460          | -                            | The NTS-KE port. |
 | RootCAs           | optional | rw         | String | String | "" | - | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of NetworkTimeRootCertificate rootCAs is used and when this list is empty the system default list of rootCAs is used (not recommended)! |
 | NoCertTimeCheckAfterReboot | optional | rw         | Boolean | Boolean | "" | - | Whether the notBefore and notAfter timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
 | MinRefresh | optional | rw         | seconds | Number | - | - | Refreshing the NTS keys and cookies should be started after the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
@@ -244,6 +247,8 @@ See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWC
 The following table gives an overview how the NTP/NTP client configuration can be mapped onto OCPP v1.6+SE configuration keys and values.
 
 If a CSL (comma separated list) configuration setting is shorter than expected, e.g. the "ntp.ports" list is shorter than the "ntp.servers" list, the last value in the list is applied to all remaining items (here: servers). Empty entries are filled with the previous value, starting from the default value. Lists that are longer than expected will result in an error.
+
+Servers and ports mean what they mean in 3.2.1. In mode *NTSv4* the NTS-KE servers are those of `ntske.<group>.servers`, or those of `ntp.<group>.servers` when it is empty. The NTP server finally used is the one the NTS-KE response names.
 
 #### 3.3.1 Common Configuration Keys
 

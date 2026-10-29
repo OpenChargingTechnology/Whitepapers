@@ -179,7 +179,7 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
 - Rate-Limit-Policy: Avoiding Denail-of-Service by friendly clients.
 - Emergency Policy: Time-Source-Loss, CA-Compromise, Massive DDoS-Attacks
 - Source-Transparency (GNSS / Holdover)
-- Definierte Quorum- & Degradationslogik *(min-servers: 2, max_offset_ns: 50)*
+- Defined quorum and degradation logic: for the provider's servers among themselves *(at least 2 agreeing, at most 50 ns apart)* and for clients *(at least 2 agreeing, at most 100 ms apart)*, see below
 - Multiple servers should deliver the exact same information.
 - Multiple digital signatures with different crypto algorithms.
 - Signature(s) over deterministic, byte-exact canonical JSON representation (see: RFC 8785)
@@ -213,11 +213,17 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
     "attestations":             [ "https://time.ptb.de/attestations" ],
 
 
-    "tlsMinVersion":            1.2,
+    "httpsTLSMinVersion":       1.2,
     "quorum": {
-        "minAgreeingServers":         2
-        "maxPairwiseOffset_ns":      50
-        "maxServerUncertainty_ns":  500
+        "servers": {
+            "minAgreeingServers":         2,
+            "maxPairwiseOffset_ns":      50,
+            "maxServerUncertainty_ns":  500
+        },
+        "clients": {
+            "minAgreeingServers":         2,
+            "maxPairwiseOffset_ms":     100
+        }
     },
 
     "hosts": [
@@ -229,10 +235,10 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
                 "tcpPort":     123
             },
             "ntske": {
-                "port":        4460,
-                "alpn":        "ntlske"
-            },
-            "tlsMinVersion":   1.2
+                "port":           4460,
+                "alpn":           "ntske/1",
+                "tlsMinVersion":  1.3
+            }
         }
 
     ],
@@ -241,6 +247,10 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
     ]
 }
 ```
+
+`quorum.servers` is what the provider's own servers are held to among themselves, measured against its references: nanoseconds. A client cannot measure that across networks with asymmetric delays. What it can compare are the offsets several servers gave it in one round, in milliseconds. That is `quorum.clients`, which corresponds to *MinServers* and *MaxDeviation* of the NTP Client Group Controller in the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper.
+
+NTS-KE always runs over TLS 1.3 or later ([RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915) §3), so `hosts[].ntske.tlsMinVersion` cannot be lower than 1.3. `httpsTLSMinVersion` applies only to the HTTPS endpoints of the policy itself: status, reports, reporting and attestations. The ALPN of NTS-KE is `ntske/1`.
 
 #### 5.1.3 Minimal Decision Rules
 
@@ -489,6 +499,16 @@ The client **MUST** compute the intersection of:
 If this intersection is empty, the client **MUST** treat the configuration as invalid, **MUST NOT** use the issued NTS cookies, and **MUST NOT** proceed with authenticated NTP using those cookies.
 
 
+##### Static and Operator-Managed Configurations
+
+Not every client discovers its servers via DNS SRV. In managed networks (section 4.2) the operator often configures them, e.g. via OCPP (see the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper, section 3). A client may also have no applicable NTS policy document at all. Applied literally, the intersections above would then be empty, and every such configuration would be invalid. Therefore:
+
+- A configured list takes the place of the DNS SRV results of the same kind: a list of NTS-KE servers that of `_ntske._tcp`, a list of NTP servers that of `_ntp._udp`.
+- A set the client does not use takes no part in an intersection: no DNS SRV discovery of that kind, or no applicable policy document. Such a set is no constraint, and it is not an empty set.
+- The NTP server named by the NTS-KE server always takes part. When the NTS-KE server names none, it is the address of the NTS-KE server itself (RFC 8915 §4.1.7).
+- The rules about an empty intersection apply to the intersection of the sets in use.
+
+
 #### 5.2.3 DNS Service Binding (DNS-SVCB)
 
 DNS SVCB (RFC 9460) is a modern variant of DNS SRV for publishing connection parameters (e.g., ALPN, port, address hints) that are directly relevant to **NTS-KE over TLS**. SVCB can therefore provide a single, cacheable, operator-controlled record that combines:
@@ -499,22 +519,34 @@ DNS SVCB (RFC 9460) is a modern variant of DNS SRV for publishing connection par
 - port selection
 - optional address hints (IPv4/IPv6)
 
-```
-nts.ptb.de.  300 IN SVCB 1 ntske.ptb.de. alpn="ntske/1" port=4460 ipv4hint=192.53.103.108 ipv6hint=2001:638:902:abcd::1
-```
-
-As DNS SVCB records do not have an explicit weight field like DNS SRV records, weighting is done by record multiplicity to model unequal hardware capacity or the gradual rollout of new servers.
+SVCB for a protocol other than HTTPS needs a mapping. It defines the owner name a client queries, the parameters that apply, and the name the client validates the server certificate against: the target name, or the service name as HTTPS does with the origin. This paper uses the owner name `_ntske.<service name>`, after the naming of RFC 9460 §2.3. The client validates the certificate against the service name it was configured with, here `nts.ptb.de`, as HTTPS does with the origin. Validating against the target name instead is safe only when the SVCB answer is DNSSEC-validated. Otherwise whoever forges the answer also chooses the name the certificate is checked against.
 
 ```
-nts.ptb.de.  300 IN SVCB 1 ntske-fast.ptb.de. alpn="ntske/1" port=4460
-nts.ptb.de.  300 IN SVCB 1 ntske-fast.ptb.de. alpn="ntske/1" port=4460
-nts.ptb.de.  300 IN SVCB 1 ntske-slow.ptb.de. alpn="ntske/1" port=4460
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske.ptb.de. alpn="ntske/1" port=4460 ipv4hint=192.53.103.108 ipv6hint=2001:638:902:abcd::1
 ```
 
-Expected client behavior:
+SVCB records have no weight field, and repeating a record cannot stand in for one. An RRset never holds two identical records, and name servers suppress duplicates (RFC 2181 §5). These three lines are therefore two records of equal priority:
 
-- ntske-fast is selected ~66% of the time
-- ntske-slow ~33%
+```
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske-fast.ptb.de. alpn="ntske/1" port=4460
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske-fast.ptb.de. alpn="ntske/1" port=4460
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske-slow.ptb.de. alpn="ntske/1" port=4460
+```
+
+Unequal hardware capacity or the gradual rollout of new servers is modelled instead with distinct target names for the same server. Because the certificate is validated against the service name, the extra target names need not be in it:
+
+```
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske-fast-a.ptb.de. alpn="ntske/1" port=4460
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske-fast-b.ptb.de. alpn="ntske/1" port=4460
+_ntske.nts.ptb.de.  300 IN SVCB 1 ntske-slow.ptb.de.   alpn="ntske/1" port=4460
+```
+
+With `ntske-fast-a` and `ntske-fast-b` naming the same server, the expected client behavior is:
+
+- the fast server is selected ~66% of the time
+- the slow server ~33%
+
+Alternatives are SvcPriority (the larger servers first, the smaller ones only as fallback) and DNS SRV, whose weight field exists for exactly this purpose (5.2.2).
 
 
 #### 5.2.4 DNS-based Authentication of Named Entities (DANE)
