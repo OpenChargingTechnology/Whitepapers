@@ -226,7 +226,7 @@ The same certificate can belong to multiple groups, but must be uploaded separat
         "certificate": {
             "description": "A PEM encoded X.509 certificate.",
             "type": "string",
-            "maxLength": 11000
+            "maxLength": 10000
         },
         "customData": {
             "$ref": "#/definitions/CustomDataType"
@@ -360,7 +360,7 @@ The same certificate can belong to multiple groups, but must be uploaded separat
     "certificate": {
       "description": "A PEM encoded X.509 certificate.",
       "type": "string",
-      "maxLength": 11000
+      "maxLength": 5500
     }
   },
   "required": [

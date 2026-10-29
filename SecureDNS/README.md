@@ -6,7 +6,7 @@ This white paper offers a technical guide for configuring electric vehicle (EV) 
 
 - **Encrypted transports**: [DNS-over-TLS (DoT)](https://datatracker.ietf.org/doc/html/rfc7858) and [DNS-over-HTTPS (DoH)](https://datatracker.ietf.org/doc/html/rfc8484) towards a small set of configured, CPO-controlled or otherwise trusted recursive resolvers, using the *strict* usage profile of [RFC 8310](https://datatracker.ietf.org/doc/html/rfc8310): a resolver that cannot be authenticated is not used.
 - **Server authentication beyond the Web PKI**: dedicated root CAs for name servers, certificate and root CA *pinning* per server, *trust on first use* and change detection for server certificates.
-- **A mapping onto the OCPP v2.x Device Model** with two new logical components, `DNSClientCtrlr` and `DNSServerCtrlr`, and onto OCPP v1.6+SE configuration keys, together with a small extension of *InstallCertificateRequest* for name server root CAs.
+- **A mapping onto the OCPP v2.x Device Model** with two new logical components, `DNSClientController` and `DNSServerController`, and onto OCPP v1.6+SE configuration keys, together with a small extension of *InstallCertificateRequest* for name server root CAs.
 
 The paper also includes operational guidance for firewalls, private APNs and CPO-operated resolvers, and concludes with test criteria for validating an implementation. All statements about *the reference implementation* refer to the open source C# implementation in [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) and [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/DNS), which runs on charging stations, OCPP Local Controllers, energy meters and vehicles alike.
 <!--  -->
@@ -86,7 +86,7 @@ A charging station may be configured with several name servers (the reference im
 
 > The security of name resolution is the security of the **weakest** configured server.
 
-When one encrypted and one clear text server are configured, an on-path attacker simply answers faster on the clear text path. Mixed sets must therefore be avoided. A charging station *should* warn about a configuration that mixes encrypted and unencrypted transports, and *may* offer to refuse unencrypted servers altogether (`DNSClientCtrlr.EncryptedOnly`, section 3.1.1). Priority bands as known from the Secure Time Synchronization paper (servers with lower priority values are asked first, servers with equal values in parallel) are an optional extension for deployments that need a fallback resolver.
+When one encrypted and one clear text server are configured, an on-path attacker simply answers faster on the clear text path. Mixed sets must therefore be avoided. A charging station *should* warn about a configuration that mixes encrypted and unencrypted transports, and *may* offer to refuse unencrypted servers altogether (`DNSClientController.EncryptedOnly`, section 3.1.1). Priority bands as known from the Secure Time Synchronization paper (servers with lower priority values are asked first, servers with equal values in parallel) are an optional extension for deployments that need a fallback resolver.
 
 
 ### 2.5 Bootstrapping
@@ -100,7 +100,7 @@ Networks can also announce encrypted resolvers, via DHCP and IPv6 router adverti
 
 Encrypted transports authenticate the *resolver*, not the *data*: a compromised or misconfigured resolver can still return wrong answers. [DNSSEC](https://datatracker.ietf.org/doc/html/rfc4033) authenticates the data itself, from the root zone down.
 
-- A charging station can set the *DNSSEC OK* (DO) bit ([RFC 3225](https://datatracker.ietf.org/doc/html/rfc3225), [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891)) to receive the signatures together with the answers (`DNSClientCtrlr.DNSSECOK`).
+- A charging station can set the *DNSSEC OK* (DO) bit ([RFC 3225](https://datatracker.ietf.org/doc/html/rfc3225), [RFC 6891](https://datatracker.ietf.org/doc/html/rfc6891)) to receive the signatures together with the answers (`DNSClientController.DNSSECOK`).
 - The *Authenticated Data* (AD) bit of an answer is only meaningful when the channel to a validating resolver is itself authenticated ([RFC 6840 §5.8](https://datatracker.ietf.org/doc/html/rfc6840#section-5.8)), i.e. over DoT or DoH with strict authentication.
 - Local validation on the charging station, including the automated trust anchor rollover of [RFC 5011](https://datatracker.ietf.org/doc/html/rfc5011), is required before DANE (TLSA) or DNS-published policies can be trusted.
 
@@ -131,14 +131,14 @@ Encrypted transports authenticate the *resolver*, not the *data*: a compromised 
 
 As with time synchronization, OCPP v1.6+SE and v2.x differ fundamentally in how a charging station is configured: OCPP v1.6 uses a flat key-value store, OCPP v2.x its Device Model. Both are covered. The reference implementation keeps one configuration section (`dns`, see section 3.4) and maps both OCPP variants onto it, so the web interface, the configuration file and OCPP can never disagree.
 
-OCPP v2.x does not define any component for name resolution, and the `NetworkConnectionProfile` of *SetNetworkProfileRequest* has no DNS settings. This paper therefore defines two new logical components.
+OCPP v2.x does not define any component for name resolution, and the `NetworkConnectionProfile` of *SetNetworkProfileRequest* has no DNS settings. This paper therefore defines two new logical components. Their names end in `…Controller`, like those of the [Secure Time Synchronization](../SecureTimeSync/README.md) paper, so that both extensions are named alike.
 
 
 ### 3.1 OCPP v2.x Client Configuration
 
 #### 3.1.1 DNS Client Controller
 
-The component `DNSClientCtrlr` has no instance. It holds what applies to name resolution as a whole.
+The component `DNSClientController` has no instance. It holds what applies to name resolution as a whole.
 
 | Variable Name      | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
 |--------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
@@ -150,11 +150,11 @@ The component `DNSClientCtrlr` has no instance. It holds what applies to name re
 | DNSSECOK           | optional | rw         | boolean    | false         | -                    | Whether the *DNSSEC OK* (DO) bit is set, i.e. whether signatures are requested. | `dns.dnssecOK` |
 | FollowCNAMEs       | optional | rw         | boolean    | true          | -                    | Whether CNAME and DNAME chains are followed. | `dns.followCNAMEs` |
 | MaxCNAMEFollows    | optional | rw         | integer    | 8             | 0 … 255              | The maximal length of a followed alias chain. | `dns.maxCNAMEFollows` |
-| MaxServers         | optional | ro         | integer    | 16            | -                    | The number of `DNSServerCtrlr` instances this charging station offers. | constant, 16 |
+| MaxServers         | optional | ro         | integer    | 16            | -                    | The number of `DNSServerController` instances this charging station offers. | constant, 16 |
 | UDPPayloadSize     | optional | ro         | integer    | -             | -                    | The EDNS(0) UDP payload size advertised in queries. | fixed at start |
 | ClientSubnet       | optional | ro         | string     | ""            | -                    | The EDNS Client Subnet sent with every query, e.g. `"203.0.113.0/24"`; empty when none is sent. | fixed at start |
 | EncryptedOnly      | optional | rw         | boolean    | false         | -                    | When `true`, configuring a server with an unencrypted transport (`UDP`, `TCP`) is refused, and servers already configured with one are no longer asked. See section 2.4. | *not implemented* |
-| ServerSource       | optional | rw         | OptionList | `System`      | `System`, `Manual`   | `System`: the name servers of the operating system or the network configuration (e.g. DHCP), comparable to `ClockCtrlr.NtpSource`. `Manual`: the servers of the `DNSServerCtrlr` instances. | *read-only*: `Manual` once servers are configured |
+| ServerSource       | optional | rw         | OptionList | `System`      | `System`, `Manual`   | `System`: the name servers of the operating system or the network configuration (e.g. DHCP), comparable to `ClockCtrlr.NtpSource`. `Manual`: the servers of the `DNSServerController` instances. | *read-only*: `Manual` once servers are configured |
 
 Changing `Enabled`, `QueryTimeout` or any other setting takes effect immediately, without a reboot, for every service of the charging station that resolves names.
 
@@ -163,7 +163,7 @@ See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWC
 
 #### 3.1.2 DNS Server Controller
 
-The component `DNSServerCtrlr` exists in the fixed instances `"1"` … `"<MaxServers>"`. Each instance is a *slot* for one name server. A slot whose `Address` is empty is unused. The Device Model has no way to create component instances via *SetVariablesRequest*; fixed slots make adding a server an ordinary *SetVariables* of its `Address` — comparable to the configuration slots of *SetNetworkProfileRequest*.
+The component `DNSServerController` exists in the fixed instances `"1"` … `"<MaxServers>"`. Each instance is a *slot* for one name server. A slot whose `Address` is empty is unused. The Device Model has no way to create component instances via *SetVariablesRequest*; fixed slots make adding a server an ordinary *SetVariables* of its `Address` — comparable to the configuration slots of *SetNetworkProfileRequest*.
 
 All servers of all used slots are asked in parallel (section 2.4); the slot number is an identifier, not a priority. A charging station may compact the used slots after a request, i.e. servers behind an emptied slot move up. Within one request, slot numbers keep referring to the servers they referred to at its start. A CSMS should therefore send the complete intended list of servers in one *SetVariablesRequest* and read it back afterwards.
 
@@ -172,7 +172,7 @@ All servers of all used slots are asked in parallel (section 2.4); the slot numb
 | Address            | required | rw         | string     | ""            | ≤ 253 characters     | The IP address (IPv4 or IPv6) or the domain name of the name server. Empty: the slot is unused. IP addresses are recommended (section 2.5). | `dns.servers[n].address` |
 | Port               | optional | rw         | integer    | *(by transport)* | 1 … 65535         | The port of the name server. When not set: 53 for `UDP`/`TCP`, 853 for `TLS`, 443 for `HTTPS*`. | `dns.servers[n].port` |
 | Transport          | optional | rw         | OptionList | `UDP`         | `UDP`, `TCP`, `TLS`, `HTTPS`, `HTTPS_GET` | The transport, see section 2.1. The `valuesList` shall list only what the charging station supports. | `dns.servers[n].transport` |
-| QueryTimeout       | optional | rw         | decimal    | *(DNSClientCtrlr.QueryTimeout)* | 0.1 … 120 (s) | How long a query to this server may take. Unit: `s`. | `dns.servers[n].queryTimeoutSeconds` |
+| QueryTimeout       | optional | rw         | decimal    | *(DNSClientController.QueryTimeout)* | 0.1 … 120 (s) | How long a query to this server may take. Unit: `s`. | `dns.servers[n].queryTimeoutSeconds` |
 | CertificatePins    | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints (64 hexadecimal digits, with or without colons) of the certificates this server may show. Only allowed for `TLS` and `HTTPS*`. | `certificateFingerprint(s)` |
 | RootPins           | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the root CA certificates this server's chain may end at. Only allowed for `TLS` and `HTTPS*`. | `rootFingerprint(s)` |
 | OnPinMismatch      | optional | rw         | OptionList | `Refuse`      | `Refuse`, `Record`, `Accept` | What a pin mismatch leads to, see section 2.3. Only allowed when the server is held to a pin or learns one. | `onMismatch` |
@@ -201,13 +201,14 @@ See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWC
 Several variables of one name server depend on each other: a pin is only allowed for an encrypted transport, the default port depends on the transport, and `OnPinMismatch` only makes sense with a pin. Applied one by one, a change from `UDP` to `TLS` with a root pin succeeds or fails depending on the order of the *SetVariableData* entries. Therefore:
 
 - **`IndependentRequests`** (standard OCPP, and the default): the entries are applied one by one, in the order of the request, each validated against the configuration as it is after the entries before it, each with its own result. A CSMS has to order them: set the transport before the pins, and remove the pins before switching a server to an unencrypted transport. One exception: all entries for a slot that is unused before the request are applied **together with its `Address`**, so that adding an encrypted server never passes through a clear text one. Entries for an unused slot without an `Address` in the same request are `Rejected`.
-- **`ACID`** (the *DataConsistencyModel* of [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md)): all entries of the request that address `DNSClientCtrlr` or `DNSServerCtrlr` are validated and applied as **one change**: either all of them are accepted, persisted and put into effect together, or none is. The entries that caused the refusal are `Rejected`, all others `Rolledback`.
+- **`ACID`** (the *DataConsistencyModel* of [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md)): all entries of the request that address `DNSClientController` or `DNSServerController` are validated and applied as **one change**: either all of them are accepted, persisted and put into effect together, or none is. The entries that caused the refusal are `Rejected`, all others `Rolledback`.
 - **`BASE`**: like `ACID`, but each component instance is one change of its own.
-- A refused entry is `Rejected`; its `statusInfo.additionalInfo` (at most 512 characters in OCPP 2.0.1, 1024 in OCPP 2.1) says what is wrong, e.g. *"'DNSServerCtrlr[2]' is held to a certificate and asked over UDP, which shows none."*. Entries that are wrong by themselves get the usual results: `UnknownComponent` for an instance beyond `MaxServers`, `UnknownVariable`, `NotSupportedAttributeType` for anything but `Actual`, `Rejected` for a read-only variable, `Rejected` with `reasonCode` `InvalidValue` for a value that cannot be parsed (e.g. `"yes"` for a boolean) and `ValueOutOfRange` for one out of range.
+- A refused entry is `Rejected`; its `statusInfo.additionalInfo` (at most 512 characters in OCPP 2.0.1, 1024 in OCPP 2.1) says what is wrong, e.g. *"'DNSServerController[2]' is held to a certificate and asked over UDP, which shows none."*. Entries that are wrong by themselves get the usual results: `UnknownComponent` for an instance beyond `MaxServers`, `UnknownVariable`, `NotSupportedAttributeType` for anything but `Actual`, `Rejected` for a read-only variable, `Rejected` with `reasonCode` `InvalidValue` for a value that cannot be parsed (e.g. `"yes"` for a boolean) and `ValueOutOfRange` for one out of range.
 - *SetVariableData* of other components in the same request are not affected.
 - A change that could not be persisted SHALL be rejected with `reasonCode` `InternalError`, and SHALL NOT be put into effect: what is in effect must survive a reboot.
 - Emptying the `Address` of every slot SHALL be rejected: a charging station without name servers cannot reach its CSMS by name.
-- Switching name resolution off (`DNSClientCtrlr.Enabled = false`) SHALL be rejected while a CSMS connection of the charging station is dialled by a domain name. It has the same effect.
+- Switching name resolution off (`DNSClientController.Enabled = false`) SHALL be rejected while a CSMS connection of the charging station is dialled by a domain name. It has the same effect.
+- No switch withholds name resolution from the CSMS: it may change every writable variable of both components. What protects the charging station is the rule below and the security log (section 2.8), which records every change and who made it.
 - **A CSMS must not cut itself off.** Name servers that cannot answer, or whose certificates are refused, disconnect the charging station from its CSMS. This does not happen at once, because the open WebSocket connection stays up, but at the next reconnect, possibly days later. Before a change via OCPP is put into effect, the charging station SHALL therefore resolve the host names of its configured CSMS connections through the configuration as it would be after the change, within a bounded time (e.g. 10 seconds). When a name that resolves now would no longer resolve, the change SHALL be rejected: all its entries are `Rejected` with `reasonCode` `CSMSUnreachable`, and `additionalInfo` names the host and what each name server came to, e.g. *"'csms.example.com' would not resolve: tls://192.0.2.53:853 untrusted."*. Names that do not resolve now do not block a change, so that a CSMS can repair a broken configuration. *SetNetworkProfileRequest* has a fallback for the same risk (`NetworkConfigurationPriority`); name resolution has none.
 
 *InstallCertificateRequest*
@@ -287,21 +288,21 @@ Pin lists cannot be written as entries of a comma separated list of servers, so 
 
 | Key Name | req/opt | Accessibility | Type | Default Value | Example | Description |
 |----------|---------|---------------|------|---------------|---------|-------------|
-| dns.enabled             | required | rw | Boolean    | true      | -                                   | See `DNSClientCtrlr.Enabled`. |
-| dns.servers             | optional | rw | CSL String | ""        | "192.0.2.53, 198.51.100.53"         | The name servers, see `DNSServerCtrlr.Address`. |
-| dns.ports               | optional | rw | CSL String | ""        | "853, 853"                          | See `DNSServerCtrlr.Port`. |
-| dns.transports          | optional | rw | CSL String | "UDP"     | "TLS, TLS"                          | See `DNSServerCtrlr.Transport`. |
+| dns.enabled             | required | rw | Boolean    | true      | -                                   | See `DNSClientController.Enabled`. |
+| dns.servers             | optional | rw | CSL String | ""        | "192.0.2.53, 198.51.100.53"         | The name servers, see `DNSServerController.Address`. |
+| dns.ports               | optional | rw | CSL String | ""        | "853, 853"                          | See `DNSServerController.Port`. |
+| dns.transports          | optional | rw | CSL String | "UDP"     | "TLS, TLS"                          | See `DNSServerController.Transport`. |
 | dns.queryTimeouts       | optional | rw | CSL String | ""        | "2, 3"                              | Per server, in seconds; empty: `dns.queryTimeout`. |
-| dns.queryTimeout        | optional | rw | Decimal    | *(system)* | 3                                  | See `DNSClientCtrlr.QueryTimeout`. |
-| dns.maxRetries          | optional | rw | Integer    | 1         | -                                   | See `DNSClientCtrlr.MaxRetries`. |
-| dns.recursionDesired    | optional | rw | String     | "Set"     | "Default"                           | See `DNSClientCtrlr.RecursionDesired`. |
-| dns.useCache            | optional | rw | Boolean    | true      | -                                   | See `DNSClientCtrlr.UseCache`. |
-| dns.dnssecOK            | optional | rw | Boolean    | false     | -                                   | See `DNSClientCtrlr.DNSSECOK`. |
-| dns.followCNAMEs        | optional | rw | Boolean    | true      | -                                   | See `DNSClientCtrlr.FollowCNAMEs`. |
-| dns.maxCNAMEFollows     | optional | rw | Integer    | 8         | -                                   | See `DNSClientCtrlr.MaxCNAMEFollows`. |
-| dns.encryptedOnly       | optional | rw | Boolean    | false     | -                                   | See `DNSClientCtrlr.EncryptedOnly`. |
-| dns.onPinMismatch       | optional | rw | CSL String | "Refuse"  | "Refuse, Record"                    | See `DNSServerCtrlr.OnPinMismatch`. |
-| dns.trustOnFirstUse     | optional | rw | CSL String | "None"    | "Root, None"                        | See `DNSServerCtrlr.TrustOnFirstUse`. |
+| dns.queryTimeout        | optional | rw | Decimal    | *(system)* | 3                                  | See `DNSClientController.QueryTimeout`. |
+| dns.maxRetries          | optional | rw | Integer    | 1         | -                                   | See `DNSClientController.MaxRetries`. |
+| dns.recursionDesired    | optional | rw | String     | "Set"     | "Default"                           | See `DNSClientController.RecursionDesired`. |
+| dns.useCache            | optional | rw | Boolean    | true      | -                                   | See `DNSClientController.UseCache`. |
+| dns.dnssecOK            | optional | rw | Boolean    | false     | -                                   | See `DNSClientController.DNSSECOK`. |
+| dns.followCNAMEs        | optional | rw | Boolean    | true      | -                                   | See `DNSClientController.FollowCNAMEs`. |
+| dns.maxCNAMEFollows     | optional | rw | Integer    | 8         | -                                   | See `DNSClientController.MaxCNAMEFollows`. |
+| dns.encryptedOnly       | optional | rw | Boolean    | false     | -                                   | See `DNSClientController.EncryptedOnly`. |
+| dns.onPinMismatch       | optional | rw | CSL String | "Refuse"  | "Refuse, Record"                    | See `DNSServerController.OnPinMismatch`. |
+| dns.trustOnFirstUse     | optional | rw | CSL String | "None"    | "Root, None"                        | See `DNSServerController.TrustOnFirstUse`. |
 | dns.certificatePins.*n* | optional | rw | CSL String | ""        | "41C7…3F61"                         | The certificate pins of the *n*-th server. |
 | dns.rootPins.*n*        | optional | rw | CSL String | ""        | "9D2E…D8E"                          | The root pins of the *n*-th server. |
 
@@ -319,15 +320,15 @@ Two CPO-operated resolvers reached over DNS-over-TLS, both issued certificates f
 ```json
 {
   "setVariableData": [
-    { "component": { "name": "DNSServerCtrlr", "instance": "1" }, "variable": { "name": "Address"         }, "attributeValue": "192.0.2.53" },
-    { "component": { "name": "DNSServerCtrlr", "instance": "1" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
-    { "component": { "name": "DNSServerCtrlr", "instance": "1" }, "variable": { "name": "RootPins"        }, "attributeValue": "9D2E4F6A8B0C1D3E5F7A9B1C3D5E7F9A0B2C4D6E8F0A1B3C5D7E9F1A2B4C6D8E" },
-    { "component": { "name": "DNSServerCtrlr", "instance": "2" }, "variable": { "name": "Address"         }, "attributeValue": "198.51.100.53" },
-    { "component": { "name": "DNSServerCtrlr", "instance": "2" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
-    { "component": { "name": "DNSServerCtrlr", "instance": "2" }, "variable": { "name": "TrustOnFirstUse" }, "attributeValue": "Root" },
-    { "component": { "name": "DNSServerCtrlr", "instance": "3" }, "variable": { "name": "Address"         }, "attributeValue": "" },
-    { "component": { "name": "DNSClientCtrlr" },                  "variable": { "name": "DNSSECOK"        }, "attributeValue": "true" },
-    { "component": { "name": "DNSClientCtrlr" },                  "variable": { "name": "QueryTimeout"    }, "attributeValue": "3" }
+    { "component": { "name": "DNSServerController", "instance": "1" }, "variable": { "name": "Address"         }, "attributeValue": "192.0.2.53" },
+    { "component": { "name": "DNSServerController", "instance": "1" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
+    { "component": { "name": "DNSServerController", "instance": "1" }, "variable": { "name": "RootPins"        }, "attributeValue": "9D2E4F6A8B0C1D3E5F7A9B1C3D5E7F9A0B2C4D6E8F0A1B3C5D7E9F1A2B4C6D8E" },
+    { "component": { "name": "DNSServerController", "instance": "2" }, "variable": { "name": "Address"         }, "attributeValue": "198.51.100.53" },
+    { "component": { "name": "DNSServerController", "instance": "2" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
+    { "component": { "name": "DNSServerController", "instance": "2" }, "variable": { "name": "TrustOnFirstUse" }, "attributeValue": "Root" },
+    { "component": { "name": "DNSServerController", "instance": "3" }, "variable": { "name": "Address"         }, "attributeValue": "" },
+    { "component": { "name": "DNSClientController" },                  "variable": { "name": "DNSSECOK"        }, "attributeValue": "true" },
+    { "component": { "name": "DNSClientController" },                  "variable": { "name": "QueryTimeout"    }, "attributeValue": "3" }
   ]
 }
 ```
@@ -391,7 +392,7 @@ forward-zone:
     forward-addr: 198.51.100.53@853#resolver2.cpo.example
 ```
 
-The name after `#` is the authentication domain name of RFC 8310 (`DNSServerCtrlr.AuthenticationName`). Unbound additionally validates DNSSEC locally, with an RFC 5011 managed trust anchor.
+The name after `#` is the authentication domain name of RFC 8310 (`DNSServerController.AuthenticationName`). Unbound additionally validates DNSSEC locally, with an RFC 5011 managed trust anchor.
 
 
 ## 4. Operational Guide
@@ -445,7 +446,7 @@ When no name server can be reached or authenticated, a charging station cannot r
 | T15 | More than `MaxServers` servers, more than 16 pins, timeouts out of range. | Rejected with `ValueOutOfRange`. |
 | T16 | Configuration change via the local web interface. | Security log names who changed what; `ReconfigurationOfSecurityParameters` to the CSMS. |
 | T17 | Persistence fails (e.g. read-only file system). | `InternalError`; nothing changed in effect. |
-| T18 | *GetBaseReport(FullInventory)*. | `DNSClientCtrlr` and all `MaxServers` instances of `DNSServerCtrlr`, with characteristics and value lists. |
+| T18 | *GetBaseReport(FullInventory)*. | `DNSClientController` and all `MaxServers` instances of `DNSServerController`, with characteristics and value lists. |
 | T19 | `Enabled = false` while the CSMS is dialled by its domain name. | Rejected. |
 | T20 | Via OCPP, replace the name servers by one whose certificate is untrusted, while the CSMS is dialled by its domain name. Then the same with a server that works. | First: all entries `Rejected` with `reasonCode` `CSMSUnreachable`, configuration unchanged. Then: `Accepted`. |
 | T21 | *DeleteCertificate* of the `NameServerRootCertificate` that every configured server's chain ends at, while the CSMS is dialled by its domain name. | `Failed`; the root CA is kept. |
@@ -461,11 +462,10 @@ When no name server can be reached or authenticated, a charging station cannot r
 ## ToDo's
 
 - Define DNS-over-QUIC (RFC 9250) as a further transport.
-- Local DNSSEC validation in the reference implementation, and a variable that requires it (`DNSClientCtrlr.RequireDNSSEC`?) for names used by DANE or by DNS-published policies.
+- Local DNSSEC validation in the reference implementation, and a variable that requires it (`DNSClientController.RequireDNSSEC`?) for names used by DANE or by DNS-published policies.
 - Revocation checks for chains to root CAs of the operating system in the reference implementation (section 2.3).
 - A variable that leaves the root CAs of the operating system out for name servers, so that only `NameServerRootCertificate` root CAs and pinned roots vouch for them.
 - SPKI pins of RFC 7858 §4.2 as a second notation for pins.
 - Decide whether `Priority` bands (section 2.4) become required, and whether a station may then fall back from an encrypted band to a clear text band at all.
 - Whether name servers should be configurable per `NetworkConnectionProfile` (e.g. a resolver reachable only through a VPN).
 - Accepting encrypted resolvers announced by the network (RFC 9462, RFC 9463) — under which conditions.
-- Align the component names of the Secure Time Synchronization paper (`NTPClientController`, `NTPClientGroupController`) with the OCPP convention used here (`…Ctrlr`).
