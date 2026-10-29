@@ -41,7 +41,7 @@ This paper therefore treats the name servers of a charging station like any othe
 | `HTTPS_GET` | [RFC 8484 §4.1](https://datatracker.ietf.org/doc/html/rfc8484#section-4.1) | 443 | yes | DoH using `GET` with a base64url encoded query. |
 | `HTTPS_JSON` | *(proprietary)* | 443 | yes | The JSON APIs of some public resolvers (`application/dns-json`). Not standardized, should only be used for diagnostics. |
 
-DNS-over-QUIC ([RFC 9250](https://datatracker.ietf.org/doc/html/rfc9250)) is out of scope of this version of the paper. The reference implementation also knows unencrypted `HTTP` variants of DoH; they exist for tests and should not be offered via OCPP.
+DNS-over-QUIC ([RFC 9250](https://datatracker.ietf.org/doc/html/rfc9250)) is out of scope of this version of the paper. `HTTPS_JSON` should not be offered via OCPP. The reference implementation also knows unencrypted `HTTP` variants of DoH, which exist for tests, and `HTTPS_Binary`, a second name for `HTTPS`; neither should be offered via OCPP either.
 
 Encrypted connections are kept open between queries ([RFC 7858 §3.4](https://datatracker.ietf.org/doc/html/rfc7858#section-3.4), [RFC 7828](https://datatracker.ietf.org/doc/html/rfc7828)), so the TLS handshake — and the certificate validation described below — happens once per connection, not once per query.
 
@@ -56,12 +56,12 @@ Encrypted connections are kept open between queries ([RFC 7858 §3.4](https://da
 At every TLS handshake with an encrypted name server, the charging station asks three questions, in this order. A *no* to any of them ends the handshake.
 
 1. **Is the certificate issued for the server?** The certificate must be issued for the name or the IP address the server is dialled at. This check is never relaxed, neither by a pin nor by any other configuration option: a certificate for another host is a certificate for another host. When a name server is configured by its IP address, its certificate therefore needs an IP address *Subject Alternative Name*. Many public DoT resolvers have one; CPO-operated resolvers must be issued one.
-2. **Does its chain end at a trusted root?** Either at a root CA of the operating system, or at a root CA that was installed specifically for name servers (see `NameServerRootCertificate` in section 3.1.3), or at a root CA the server is pinned to (see below) that is known to the station. Root CAs installed for other purposes, e.g. for NTS-KE servers or for the CSMS, do not vouch for name servers.
+2. **Does its chain end at a trusted root?** Either at a root CA of the operating system, or at a root CA that was installed specifically for name servers (see `NameServerRootCertificate` in section 3.1.3), or at a root CA the server is pinned to (see below) that is known to the station. Root CAs installed for other purposes, e.g. for NTS-KE servers or for the CSMS, do not vouch for name servers. On most systems the root CAs of the operating system are the complete Web PKI bundle, i.e. the overly broad trust of section 1, so a server whose chain ends there should be held to root pins (section 4.3). *(Reference implementation: a root CA of the station's own store that was installed without a purpose vouches for every purpose, name servers included.)*
 3. **Is it a certificate, and a root, the server is held to?** Each server can be held to
    - one or more **certificate pins**: SHA-256 fingerprints of the DER encoded server certificates it may show, e.g. the current one and an announced successor, and/or
    - one or more **root pins**: SHA-256 fingerprints of the DER encoded root CA certificates its chain may end at, e.g. the current root CA and its announced successor.
 
-   A pin only ever *narrows* what is accepted. A pinned certificate that chains to no trusted root is still refused. Fingerprints are taken over the whole certificate, which is what certificate authorities, browsers and `openssl x509 -fingerprint -sha256` display. (DANE users will recognise the equivalents of the TLSA selectors `3 0 1` and `2 0 1`.)
+   A pin only ever *narrows* what is accepted. A pinned certificate that chains to no trusted root is still refused. Fingerprints are taken over the whole certificate, which is what certificate authorities, browsers and `openssl x509 -fingerprint -sha256` display. (DANE users will recognise the equivalents of the TLSA selectors `3 0 1` and `2 0 1`.) They are not the SPKI pins of the out-of-band key-pinned privacy profile of [RFC 7858 §4.2](https://datatracker.ietf.org/doc/html/rfc7858#section-4.2), which are base64 encoded SHA-256 hashes of the *SubjectPublicKeyInfo* as in [RFC 7469](https://datatracker.ietf.org/doc/html/rfc7469): a pin set published in that format cannot be used as it is. A certificate pin no longer matches once the server certificate is renewed, even with the same key; root pins survive such renewals.
 
 What a pin mismatch leads to is configurable per server:
 
@@ -77,7 +77,7 @@ What a pin mismatch leads to is configurable per server:
 
 **Change detection.** Independent of pins, the station remembers per server the certificate and root CA it was last believed with, and since when, across reboots. A server showing another certificate than before is logged as a warning, even if no pin forbids it. This turns the silent replacement of a resolver — or of its certificate — into an auditable event.
 
-**Revocation.** Revocation should be checked where an OCSP responder or CRL is reachable. A root CA of one's own often has no revocation infrastructure; a status that cannot be obtained should not be held against the certificate, but a certificate that is known to be revoked must be refused. *(Reference implementation: so for chains that end at a root CA of the station's own store; chains to roots of the operating system are judged by the operating system.)*
+**Revocation.** Revocation should be checked where an OCSP responder or CRL is reachable. A root CA of one's own often has no revocation infrastructure; a status that cannot be obtained should not be held against the certificate, but a certificate that is known to be revoked must be refused. *(Reference implementation: so for chains that end at a root CA of the station's own store. Chains to root CAs of the operating system are currently not checked for revocation.)*
 
 
 ### 2.4 Multiple Name Servers
@@ -91,7 +91,7 @@ When one encrypted and one clear text server are configured, an on-path attacker
 
 ### 2.5 Bootstrapping
 
-A name server configured by its domain name is a name that has to be resolved first — by a resolver that is not yet authenticated. RFC 8310 §7 discusses this bootstrap problem. Charging stations should therefore configure their name servers **by IP address** and authenticate them by a certificate issued for that address, by pins, or both. An optional *authentication domain name* (ADN) as defined by RFC 8310 — the name the certificate is checked against when the server is dialled by its address — is described as an optional variable in section 3.1.2.
+A name server configured by its domain name is a name that has to be resolved first — by a resolver that is not yet authenticated. RFC 8310 §7 discusses this bootstrap problem. Charging stations should therefore configure their name servers **by IP address**, and authenticate them by a certificate issued for that address, narrowed by pins where possible. A pin never replaces the name check of section 2.3: without an authentication domain name, a server dialled by its address needs that address in its certificate. An optional *authentication domain name* (ADN) as defined by RFC 8310 — the name the certificate is checked against when the server is dialled by its address — is described as an optional variable in section 3.1.2.
 
 Networks can also announce encrypted resolvers, via DHCP and IPv6 router advertisements ([RFC 9463, DNR](https://datatracker.ietf.org/doc/html/rfc9463)) or via the resolver itself ([RFC 9462, DDR](https://datatracker.ietf.org/doc/html/rfc9462)). Whether a charging station may accept such announcements is a policy decision of the CPO; the safe default is to use only resolvers configured via OCPP or by the manufacturer.
 
@@ -114,6 +114,8 @@ Encrypted transports authenticate the *resolver*, not the *data*: a compromised 
 - **DNS Cookies** ([RFC 7873](https://datatracker.ietf.org/doc/html/rfc7873)) are sent with every query and make off-path spoofing of UDP answers harder.
 - **EDNS Client Subnet** ([RFC 7871](https://datatracker.ietf.org/doc/html/rfc7871)) leaks the station's network to the resolver and to authoritative servers. It shall be disabled by default.
 - **Padding** ([RFC 7830](https://datatracker.ietf.org/doc/html/rfc7830), [RFC 8467](https://datatracker.ietf.org/doc/html/rfc8467)) hides the length of queries and answers on encrypted transports.
+
+*Reference implementation*: All of the above. Queries are padded on TCP, TLS and HTTPS, and connections follow the `edns-tcp-keepalive` option of [RFC 7828](https://datatracker.ietf.org/doc/html/rfc7828).
 
 
 ### 2.8 Logging
@@ -140,10 +142,10 @@ The component `DNSClientCtrlr` has no instance. It holds what applies to name re
 
 | Variable Name      | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
 |--------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
-| Enabled            | required | rw         | boolean    | true          | -                    | Whether the charging station resolves names at all. While `false`, no name server is asked; the configured servers are kept and used again when switched back on. | `dns.enabled` |
-| QueryTimeout       | optional | rw         | decimal    | *(system)*    | 0.1 … 120 (s)        | How long one query may take, unless a server has a timeout of its own. Unit: `s`. | `dns.queryTimeoutSeconds` |
+| Enabled            | required | rw         | boolean    | true          | -                    | Whether the charging station resolves names at all. While `false`, no name server is asked and no name is resolved, the name of the CSMS included (section 3.1.3); the configured servers are kept and used again when switched back on. | `dns.enabled` |
+| QueryTimeout       | optional | rw         | decimal    | *(system)*    | 0.1 … 120 (s)        | How long one query may take, unless a server has a timeout of its own. Unit: `s`. | `dns.queryTimeoutSeconds`, 10 s when not set |
 | MaxRetries         | optional | rw         | integer    | 1             | 0 … 255              | How often a server that did not answer, or answered `SERVFAIL`, is asked again. | `dns.maxRetries` |
-| RecursionDesired   | optional | rw         | OptionList | `Default`     | `Set`, `Unset`, `Default` | Whether the RD bit is set (`Set`), cleared (`Unset`), or left to the implementation (`Default`). | `dns.recursionDesired` (`true` / `false` / `null`) |
+| RecursionDesired   | optional | rw         | OptionList | `Set`         | `Set`, `Unset`, `Default` | Whether the RD bit is set (`Set`), cleared (`Unset`), or left to the implementation (`Default`). | `dns.recursionDesired` (`true` / `false` / `null`) |
 | UseCache           | optional | rw         | boolean    | true          | -                    | Whether answers are cached for their time to live. | `dns.useCache` |
 | DNSSECOK           | optional | rw         | boolean    | false         | -                    | Whether the *DNSSEC OK* (DO) bit is set, i.e. whether signatures are requested. | `dns.dnssecOK` |
 | FollowCNAMEs       | optional | rw         | boolean    | true          | -                    | Whether CNAME and DNAME chains are followed. | `dns.followCNAMEs` |
@@ -169,7 +171,7 @@ All servers of all used slots are asked in parallel (section 2.4); the slot numb
 |--------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
 | Address            | required | rw         | string     | ""            | ≤ 253 characters     | The IP address (IPv4 or IPv6) or the domain name of the name server. Empty: the slot is unused. IP addresses are recommended (section 2.5). | `dns.servers[n].address` |
 | Port               | optional | rw         | integer    | *(by transport)* | 1 … 65535         | The port of the name server. When not set: 53 for `UDP`/`TCP`, 853 for `TLS`, 443 for `HTTPS*`. | `dns.servers[n].port` |
-| Transport          | optional | rw         | OptionList | `UDP`         | `UDP`, `TCP`, `TLS`, `HTTPS`, `HTTPS_GET`, `HTTPS_JSON` | The transport, see section 2.1. The `valuesList` shall list only what the charging station supports. | `dns.servers[n].transport` |
+| Transport          | optional | rw         | OptionList | `UDP`         | `UDP`, `TCP`, `TLS`, `HTTPS`, `HTTPS_GET` | The transport, see section 2.1. The `valuesList` shall list only what the charging station supports. | `dns.servers[n].transport` |
 | QueryTimeout       | optional | rw         | decimal    | *(DNSClientCtrlr.QueryTimeout)* | 0.1 … 120 (s) | How long a query to this server may take. Unit: `s`. | `dns.servers[n].queryTimeoutSeconds` |
 | CertificatePins    | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints (64 hexadecimal digits, with or without colons) of the certificates this server may show. Only allowed for `TLS` and `HTTPS*`. | `certificateFingerprint(s)` |
 | RootPins           | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the root CA certificates this server's chain may end at. Only allowed for `TLS` and `HTTPS*`. | `rootFingerprint(s)` |
@@ -185,7 +187,7 @@ All servers of all used slots are asked in parallel (section 2.4); the slot numb
 | RootFingerprint    | optional | ro         | string     | ""            | -                    | The SHA-256 fingerprint of the root CA the chain ended at. | last verdict |
 | KnownSince         | optional | ro         | dateTime   | -             | -                    | Since when the server is believed with its current certificate (change detection, section 2.3). | known servers |
 
-The value of `CertificatePins` and `RootPins` is a comma separated list of fingerprints and not a `MemberList`, because a `MemberList` only takes values of the `valuesList`. Writing a list is limited by the 1000 characters of `SetVariableData.attributeValue` (or less, see `DeviceDataCtrlr.ConfigurationValueSize`): at most 15 fingerprints without colons fit. Reading is limited by `ReportingValueSize`.
+The value of `CertificatePins` and `RootPins` is a comma separated list of fingerprints and not a `MemberList`, because a `MemberList` only takes values of the `valuesList`. Writing a list is limited by `SetVariableData.attributeValue`, 1000 characters in OCPP 2.0.1 and 2500 in OCPP 2.1, or less (see `DeviceDataCtrlr.ConfigurationValueSize`). In OCPP 2.0.1 at most 15 fingerprints without colons fit; in OCPP 2.1 all 16 fit, with colons as well. Reading is limited by `ReportingValueSize`: 16 fingerprints without colons take 1039 characters.
 
 When *trust on first use* learns a pin, the value of `CertificatePins` or `RootPins` changes without any request of the CSMS. A CSMS that wants to know can set a `Delta` monitor on these variables.
 
@@ -201,14 +203,16 @@ Several variables of one name server depend on each other: a pin is only allowed
 - **`IndependentRequests`** (standard OCPP, and the default): the entries are applied one by one, in the order of the request, each validated against the configuration as it is after the entries before it, each with its own result. A CSMS has to order them: set the transport before the pins, and remove the pins before switching a server to an unencrypted transport. One exception: all entries for a slot that is unused before the request are applied **together with its `Address`**, so that adding an encrypted server never passes through a clear text one. Entries for an unused slot without an `Address` in the same request are `Rejected`.
 - **`ACID`** (the *DataConsistencyModel* of [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md)): all entries of the request that address `DNSClientCtrlr` or `DNSServerCtrlr` are validated and applied as **one change**: either all of them are accepted, persisted and put into effect together, or none is. The entries that caused the refusal are `Rejected`, all others `Rolledback`.
 - **`BASE`**: like `ACID`, but each component instance is one change of its own.
-- A refused entry is `Rejected`; its `statusInfo.additionalInfo` (at most 512 characters) says what is wrong, e.g. *"'DNSServerCtrlr[2]' is held to a certificate and asked over UDP, which shows none."*. Entries that are wrong by themselves get the usual results: `UnknownComponent` for an instance beyond `MaxServers`, `UnknownVariable`, `NotSupportedAttributeType` for anything but `Actual`, `Rejected` for a read-only variable, `Rejected` with `reasonCode` `InvalidValue` for a value that cannot be parsed (e.g. `"yes"` for a boolean) and `ValueOutOfRange` for one out of range.
+- A refused entry is `Rejected`; its `statusInfo.additionalInfo` (at most 512 characters in OCPP 2.0.1, 1024 in OCPP 2.1) says what is wrong, e.g. *"'DNSServerCtrlr[2]' is held to a certificate and asked over UDP, which shows none."*. Entries that are wrong by themselves get the usual results: `UnknownComponent` for an instance beyond `MaxServers`, `UnknownVariable`, `NotSupportedAttributeType` for anything but `Actual`, `Rejected` for a read-only variable, `Rejected` with `reasonCode` `InvalidValue` for a value that cannot be parsed (e.g. `"yes"` for a boolean) and `ValueOutOfRange` for one out of range.
 - *SetVariableData* of other components in the same request are not affected.
 - A change that could not be persisted SHALL be rejected with `reasonCode` `InternalError`, and SHALL NOT be put into effect: what is in effect must survive a reboot.
-- Emptying the `Address` of every slot while `DNSClientCtrlr.Enabled` is `true` SHALL be rejected: a charging station without name servers cannot reach its CSMS by name. The CSMS shall switch name resolution off instead.
+- Emptying the `Address` of every slot SHALL be rejected: a charging station without name servers cannot reach its CSMS by name.
+- Switching name resolution off (`DNSClientCtrlr.Enabled = false`) SHALL be rejected while a CSMS connection of the charging station is dialled by a domain name. It has the same effect.
+- **A CSMS must not cut itself off.** Name servers that cannot answer, or whose certificates are refused, disconnect the charging station from its CSMS. This does not happen at once, because the open WebSocket connection stays up, but at the next reconnect, possibly days later. Before a change via OCPP is put into effect, the charging station SHALL therefore resolve the host names of its configured CSMS connections through the configuration as it would be after the change, within a bounded time (e.g. 10 seconds). When a name that resolves now would no longer resolve, the change SHALL be rejected: all its entries are `Rejected` with `reasonCode` `CSMSUnreachable`, and `additionalInfo` names the host and what each name server came to, e.g. *"'csms.example.com' would not resolve: tls://192.0.2.53:853 untrusted."*. Names that do not resolve now do not block a change, so that a CSMS can repair a broken configuration. *SetNetworkProfileRequest* has a fallback for the same risk (`NetworkConfigurationPriority`); name resolution has none.
 
 *InstallCertificateRequest*
 
-The *InstallCertificateUseEnumType* is extended by `"NameServerRootCertificate"`, analogous to the `"NetworkTimeRootCertificate"` of the Secure Time Synchronization paper, and uses the same optional `certificateGroup` property. A root CA of this type vouches for name servers only, not for the CSMS, not for NTS-KE servers. *GetInstalledCertificateIdsRequest* and *DeleteCertificateRequest* accept the new type as well.
+The *InstallCertificateUseEnumType* is extended by `"NameServerRootCertificate"`, analogous to the `"NetworkTimeRootCertificate"` of the Secure Time Synchronization paper, and uses the same optional `certificateGroup` property. A root CA of this type vouches for name servers only, not for the CSMS, not for NTS-KE servers. *GetInstalledCertificateIdsRequest* and *DeleteCertificateRequest* accept the new type as well. Deleting a root CA that the chain of a configured name server ends at is subject to the same check as a change of the configuration (section 3.1.3, "A CSMS must not cut itself off"), and is answered `Failed` when the check fails.
 
 ```
 {
@@ -247,7 +251,7 @@ The *InstallCertificateUseEnumType* is extended by `"NameServerRootCertificate"`
         "certificate": {
             "description": "A PEM encoded X.509 certificate.",
             "type": "string",
-            "maxLength": 11000
+            "maxLength": 10000
         },
         "customData": {
             "$ref": "#/definitions/CustomDataType"
@@ -290,7 +294,7 @@ Pin lists cannot be written as entries of a comma separated list of servers, so 
 | dns.queryTimeouts       | optional | rw | CSL String | ""        | "2, 3"                              | Per server, in seconds; empty: `dns.queryTimeout`. |
 | dns.queryTimeout        | optional | rw | Decimal    | *(system)* | 3                                  | See `DNSClientCtrlr.QueryTimeout`. |
 | dns.maxRetries          | optional | rw | Integer    | 1         | -                                   | See `DNSClientCtrlr.MaxRetries`. |
-| dns.recursionDesired    | optional | rw | String     | "Default" | "Set"                               | See `DNSClientCtrlr.RecursionDesired`. |
+| dns.recursionDesired    | optional | rw | String     | "Set"     | "Default"                           | See `DNSClientCtrlr.RecursionDesired`. |
 | dns.useCache            | optional | rw | Boolean    | true      | -                                   | See `DNSClientCtrlr.UseCache`. |
 | dns.dnssecOK            | optional | rw | Boolean    | false     | -                                   | See `DNSClientCtrlr.DNSSECOK`. |
 | dns.followCNAMEs        | optional | rw | Boolean    | true      | -                                   | See `DNSClientCtrlr.FollowCNAMEs`. |
@@ -301,7 +305,7 @@ Pin lists cannot be written as entries of a comma separated list of servers, so 
 | dns.certificatePins.*n* | optional | rw | CSL String | ""        | "41C7…3F61"                         | The certificate pins of the *n*-th server. |
 | dns.rootPins.*n*        | optional | rw | CSL String | ""        | "9D2E…D8E"                          | The root pins of the *n*-th server. |
 
-A *ChangeConfiguration.req* changes one key at a time, so the order-dependency described in section 3.1.3 cannot be avoided by a transaction. A charging station SHALL therefore validate each key against the configuration as it would be after the change, and SHALL answer `Rejected` when the result would be inconsistent (e.g. a pin for a server that is still asked over UDP). A CSMS has to change the transports before it sets pins, and remove pins before it switches a server back to an unencrypted transport.
+A *ChangeConfiguration.req* changes one key at a time, so the order-dependency described in section 3.1.3 cannot be avoided by a transaction. A charging station SHALL therefore validate each key against the configuration as it would be after the change, and SHALL answer `Rejected` when the result would be inconsistent (e.g. a pin for a server that is still asked over UDP). A CSMS has to change the transports before it sets pins, and remove pins before it switches a server back to an unencrypted transport. The rules of section 3.1.3 for emptying the list of servers, for switching name resolution off and for the host names of the CSMS apply as well; in OCPP v1.6 `Rejected` carries no reason.
 
 *InstallCertificate.req* of the OCPP v1.6 Security Extensions is extended by `"NameServerRootCertificate"` and `certificateGroup` in the same way as shown for the Secure Time Synchronization paper.
 
@@ -362,7 +366,7 @@ Every key is optional; what the section does not mention is left as the charging
 
 ### 3.5 Example Configuration Using systemd-resolved or Unbound
 
-For Linux based charging stations that use the resolver of the operating system, the following configurations implement the strict profile. Neither supports pinning; both validate against a CA bundle, which should contain only the root CAs of the configured resolvers.
+For Linux based charging stations that use the resolver of the operating system, the following configurations implement the strict profile. Neither supports pinning. Unbound validates against the CA bundle given as `tls-cert-bundle`, which should contain only the root CAs of the configured resolvers; systemd-resolved validates against the CA bundle of the operating system, which cannot be narrowed per resolver.
 
 ```
 # /etc/systemd/resolved.conf
@@ -416,7 +420,7 @@ Public DoT/DoH resolvers are acceptable where no CPO resolver is reachable. They
 
 ### 4.4 Failure Behaviour
 
-When no name server can be reached or authenticated, a charging station cannot reach its CSMS by name. Charging must continue as defined for an offline CSMS connection. The charging station should keep trying, log the start and the end of the outage, and report it once the CSMS is reachable again.
+When no name server can be reached or authenticated, a charging station cannot reach its CSMS by name. Charging must continue as defined for an offline CSMS connection. The charging station should keep trying, log the start and the end of the outage, and report it once the CSMS is reachable again. Section 3.1.3 keeps a CSMS from causing such an outage by a change of the configuration.
 
 
 ## 5. Test Criteria
@@ -437,11 +441,14 @@ When no name server can be reached or authenticated, a charging station cannot r
 | T11 | Pins of a server are changed while a DoT connection to it is open. | The connection is closed; the next query makes a new handshake judged by the new pins. |
 | T12 | One encrypted and one clear text server; attacker answers on UDP first. | Documented weakness (section 2.4); with `EncryptedOnly = true` the clear text server is refused. |
 | T13 | Block TCP port 853. | No fallback to UDP port 53. |
-| T14 | Empty every `Address` with `Enabled = true`. | Rejected. `Enabled = false` is accepted, the servers are kept. |
+| T14 | Empty every `Address`, once with `Enabled = true` and once with `Enabled = false`. | Rejected both times; the servers are kept. |
 | T15 | More than `MaxServers` servers, more than 16 pins, timeouts out of range. | Rejected with `ValueOutOfRange`. |
 | T16 | Configuration change via the local web interface. | Security log names who changed what; `ReconfigurationOfSecurityParameters` to the CSMS. |
 | T17 | Persistence fails (e.g. read-only file system). | `InternalError`; nothing changed in effect. |
 | T18 | *GetBaseReport(FullInventory)*. | `DNSClientCtrlr` and all `MaxServers` instances of `DNSServerCtrlr`, with characteristics and value lists. |
+| T19 | `Enabled = false` while the CSMS is dialled by its domain name. | Rejected. |
+| T20 | Via OCPP, replace the name servers by one whose certificate is untrusted, while the CSMS is dialled by its domain name. Then the same with a server that works. | First: all entries `Rejected` with `reasonCode` `CSMSUnreachable`, configuration unchanged. Then: `Accepted`. |
+| T21 | *DeleteCertificate* of the `NameServerRootCertificate` that every configured server's chain ends at, while the CSMS is dialled by its domain name. | `Failed`; the root CA is kept. |
 
 
 ## 6. Relation to Other White Papers
@@ -455,6 +462,9 @@ When no name server can be reached or authenticated, a charging station cannot r
 
 - Define DNS-over-QUIC (RFC 9250) as a further transport.
 - Local DNSSEC validation in the reference implementation, and a variable that requires it (`DNSClientCtrlr.RequireDNSSEC`?) for names used by DANE or by DNS-published policies.
+- Revocation checks for chains to root CAs of the operating system in the reference implementation (section 2.3).
+- A variable that leaves the root CAs of the operating system out for name servers, so that only `NameServerRootCertificate` root CAs and pinned roots vouch for them.
+- SPKI pins of RFC 7858 §4.2 as a second notation for pins.
 - Decide whether `Priority` bands (section 2.4) become required, and whether a station may then fall back from an encrypted band to a clear text band at all.
 - Whether name servers should be configurable per `NetworkConnectionProfile` (e.g. a resolver reachable only through a VPN).
 - Accepting encrypted resolvers announced by the network (RFC 9462, RFC 9463) — under which conditions.
