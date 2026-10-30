@@ -77,6 +77,8 @@ What a pin mismatch leads to is configurable per server:
 
 **Change detection.** Independent of pins, the station remembers per server the certificate and root CA it was last believed with, and since when, across reboots. A server showing another certificate than before is logged as a warning, even if no pin forbids it. This turns the silent replacement of a resolver — or of its certificate — into an auditable event.
 
+**Time servers.** The [Secure Time Synchronization](../SecureTimeSync/README.md) paper holds NTS-KE and NTP-over-TLS servers to pins, `OnPinMismatch` and trust on first use that mean the same as here (its section 3.2.4), and reports a changed certificate in the same way (its section 3.2.6).
+
 **Revocation.** Revocation should be checked where an OCSP responder or CRL is reachable. A root CA of one's own often has no revocation infrastructure; a status that cannot be obtained should not be held against the certificate, but a certificate that is known to be revoked must be refused. *(Reference implementation: so for chains that end at a root CA of the station's own store. Chains to root CAs of the operating system are currently not checked for revocation.)*
 
 
@@ -187,7 +189,7 @@ All servers of all used slots are asked in parallel (section 2.4); the slot numb
 | RootFingerprint    | optional | ro         | string     | ""            | -                    | The SHA-256 fingerprint of the root CA the chain ended at. | last verdict |
 | KnownSince         | optional | ro         | dateTime   | -             | -                    | Since when the server is believed with its current certificate (change detection, section 2.3). | known servers |
 
-The value of `CertificatePins` and `RootPins` is a comma separated list of fingerprints and not a `MemberList`, because a `MemberList` only takes values of the `valuesList`. Writing a list is limited by `SetVariableData.attributeValue`, 1000 characters in OCPP 2.0.1 and 2500 in OCPP 2.1, or less (see `DeviceDataCtrlr.ConfigurationValueSize`). In OCPP 2.0.1 at most 15 fingerprints without colons fit; in OCPP 2.1 all 16 fit, with colons as well. Reading is limited by `ReportingValueSize`: 16 fingerprints without colons take 1039 characters.
+The value of `CertificatePins` and `RootPins` is a comma separated list of fingerprints and not a `MemberList`, because a `MemberList` only takes values of the `valuesList`. Writing a list is limited by `SetVariableData.attributeValue`, 1000 characters in OCPP 2.0.1 and 2500 in OCPP 2.1, or less (see `DeviceDataCtrlr.ConfigurationValueSize`). In OCPP 2.0.1 at most 15 fingerprints without colons fit; in OCPP 2.1 all 16 fit, with colons as well. Reading is limited by `ReportingValueSize`: 16 fingerprints without colons take 1039 characters. The [Secure Time Synchronization](../SecureTimeSync/README.md) paper writes its lists in the same way, for the same reason (its section 3.2).
 
 When *trust on first use* learns a pin, the value of `CertificatePins` or `RootPins` changes without any request of the CSMS. A CSMS that wants to know can set a `Delta` monitor on these variables.
 
@@ -278,6 +280,8 @@ The following *SecurityEventNotificationRequest* types are used. `Reconfiguratio
 | `InvalidNameServerCertificate` | A TLS handshake with a name server was refused: wrong name, untrusted chain, no certificate, or a pin mismatch with `OnPinMismatch = Refuse`. Sent once per change of the verdict, not at every attempt. |
 | `NameServerPinMismatchTolerated` | A server was used despite a pin mismatch (`Record` or `Accept`). |
 | `NameServerCertificateChanged` | A server was believed with another certificate or root CA than before. |
+
+The [Secure Time Synchronization](../SecureTimeSync/README.md) paper proposes the same events for time servers, `InvalidTimeServerCertificate` and `TimeServerCertificateChanged` (its section 3.2.6). It has no counterpart of `NameServerPinMismatchTolerated`.
 
 
 ### 3.2 OCPP v1.6+SE Client Configuration
@@ -454,7 +458,7 @@ When no name server can be reached or authenticated, a charging station cannot r
 
 ## 6. Relation to Other White Papers
 
-- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): NTS-KE servers are found by name. The `NetworkTimeRootCertificate` and the `certificateGroup` extension are reused here; pins, `OnPinMismatch` and trust on first use apply to NTS-KE servers in the same way in the reference implementation.
+- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): NTS-KE servers are found by name. The `NetworkTimeRootCertificate` and the `certificateGroup` extension are reused here. Its components are named alike, its NTP Client Controller (section 3.2.4) holds time servers to pins, `OnPinMismatch` and trust on first use that mean the same as in section 2.3, and its `InvalidTimeServerCertificate` and `TimeServerCertificateChanged` (section 3.2.6) are the twins of the events of section 3.1.4.
 - [Critical Legal Time Services](../CriticalLegalTimeServices/): SRV, SVCB, TXT and TLSA based discovery of time servers requires authenticated name resolution and, for TLSA, DNSSEC validation (section 2.6).
 - [TLS Configuration for OCPP](../TLSConfiguration/README.md): the questions raised there about root CA groups, pinning and notifications on certificate changes are answered here for name servers, and could be answered the same way for every other TLS server a charging station connects to.
 
