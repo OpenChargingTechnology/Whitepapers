@@ -34,7 +34,7 @@ NIS2 explicitly targets such asymmetries. Its intent is not merely to increase u
 
 ### 1.3 Time as a Horizontal Coupling Point
 
-Unlike many other infrastructure services, time acts as a **horizontal coupling point**** across organizational and sectoral boundaries. Charging infrastructure, backend systems, roaming platforms, payment services, grid interfaces, and audit systems all rely on a shared temporal reference.
+Unlike many other infrastructure services, time acts as a **horizontal coupling point** across organizational and sectoral boundaries. Charging infrastructure, backend systems, roaming platforms, payment services, grid interfaces, and audit systems all rely on a shared temporal reference.
 
 This means that a single faulty or malicious time source can simultaneously affect multiple independent operators and legal domains. The impact is not vertical (one operator fails internally), but horizontal: many compliant systems produce legally inconsistent results at the same time.
 
@@ -81,31 +81,51 @@ This shift in priorities is the conceptual foundation for adopting **Network Tim
 
 |Risk|Impact|Likelihood|Evaluation|
 |---|---|---|---|
-|GNSS Spoofing|sehr hoch|mittel|kritisch|
-|Soft-/Hardware Error|sehr hoch|niedrig|kritisch|
-|Time-Regression/Holdover Drift|mittel|mittel|mittel|
-|PKI CA Compromise|sehr hoch|niedrig|hoch|
-|Key-Compromise or Configuration Mistakes|mittel|mittel|mittel|
-|Missing Audit Trails|sehr hoch|hoch|kritisch|
-|Men-in-the-Middle, Replay- or Delay-Attacks|hoch|hoch|kritisch|
-|Denial-of-Service Attacks|hoch|hoch|kritisch|
-|Internal Attackers|hoch|niedrig|mittel|
+|GNSS Spoofing|very high|medium|critical|
+|Soft-/Hardware Error|very high|low|critical|
+|Time-Regression/Holdover Drift|medium|medium|medium|
+|PKI CA Compromise|very high|low|high|
+|Key-Compromise or Configuration Mistakes|medium|medium|medium|
+|Missing Audit Trails|very high|high|critical|
+|Man-in-the-Middle, Replay- or Delay-Attacks|high|high|critical|
+|Denial-of-Service Attacks|high|high|critical|
+|Internal Attackers|high|low|medium|
 
 ### 3.1 GNSS Spoofing
 
-### 3.2. Soft-/Hardware Error
+Many time servers take their time from satellite navigation receivers (GNSS). A forged satellite signal can shift the time of such a server slowly enough to pass its plausibility checks, and every client of the server follows it, authenticated by NTS. NTS protects the path from the server to the client, not the source of the server's time. Mitigations are references that do not depend on GNSS, such as the atomic clocks of a national metrology institute, the disclosure of the sources a server uses (*source transparency*, section 5.1), and clients that require several independent servers to agree (quorum, section 5.1).
 
-### 3.3. Time-Regression/Holdover Drift
+### 3.2 Soft-/Hardware Error
 
-### 3.4. PKI CA Compromise
+A faulty server, firmware or oscillator delivers wrong time that is correctly signed. A client cannot tell it from right time by its authentication. Mitigations are a quorum of several servers that must agree (section 5.1), the detection of disagreement by the provider and by its clients, and a status API that tells clients when a server is unhealthy (section 5.3).
 
-### 3.5. Key-Compromise or Configuration Mistakes
+### 3.3 Time-Regression/Holdover Drift
 
-### 3.6. Men-in-the-Middle, Replay- or Delay-Attacks
+A server that loses its reference continues on its own oscillator (*holdover*) and drifts slowly, and a time that steps backwards breaks the order of events and log entries. Mitigations are servers that disclose when they are in holdover (sections 5.1 and 5.3), and clients that record every larger correction or offset of their clock in their metrological log.
 
-### 3.7. Denial-of-Service Attacks
+### 3.4 PKI CA Compromise
 
-### 3.8. Internal Attackers
+A compromised or careless certification authority can issue a certificate for the name of a time server to an attacker, who can then answer NTS-KE requests with keys of their own. The more root CAs a client trusts, the greater this risk. Mitigations are clients that trust only the root CAs that issue certificates for time servers, pins of root CAs or of certificates, root CAs and certificates published via DANE (section 5.2.4), and an emergency policy for a compromised CA (section 5.1).
+
+### 3.5 Key-Compromise or Configuration Mistakes
+
+A stolen server key, or a client configured with wrong servers or with too wide a trust, defeats NTS without breaking it. Mitigations are a key rotation policy (section 5.1), clients that log every change of their configuration and of the certificates their servers show, and configurations that the operator distributes and monitors (section 4.2).
+
+### 3.6 Missing Audit Trails
+
+Without a record of which servers were asked, what they answered and how far the clock was off, an operator cannot show afterwards that its time was right, even when it was, and the burden of proof falls on it (section 1.2). Mitigations are a secure metrological log on the client that records every check, every run of errors, every disagreement between servers and every change of the configuration and of certificates, and a history on the provider's side (section 5.4).
+
+### 3.7 Man-in-the-Middle, Replay- or Delay-Attacks
+
+NTS prevents forged and replayed responses. It cannot prevent an attacker on the path from delaying packets: a delay added in one direction shifts the measured offset by half of it, and the response still authenticates. Mitigations are several servers reached over different network paths, an upper bound on the round trip time that a client accepts, and the quorum and the bound on the spread between servers of section 5.1.
+
+### 3.8 Denial-of-Service Attacks
+
+Time servers are public and answer anybody, which makes them targets of denial-of-service attacks, and NTS-KE adds TLS handshakes that are expensive for the server. A client that cannot reach any server loses legal time after a while. Mitigations are many servers on the provider's side, rate limits that friendly clients respect (section 5.1), cookies that spare clients repeated handshakes, and clients that fail closed and say so instead of accepting any time.
+
+### 3.9 Internal Attackers
+
+Staff or service providers with access to servers, keys or client configurations can change time without breaking any cryptography. Mitigations are a separation of duties, signed and published policies (section 5.1), and a history of which time was delivered when (section 5.4), so that changes leave traces outside the reach of a single person.
 
 
 
@@ -141,7 +161,7 @@ In such settings, many security-relevant parameters can be centrally managed. Ti
 
 As a consequence, the relative importance of external mechanisms such as public DNS may be reduced, while **operator-controlled configuration and governance mechanisms** become more significant. Security controls can be adapted to the specific risk profile, topology, and regulatory exposure of the operator’s infrastructure.
 
-This also shifts the locus of responsibility. While manufacturers must still provide secure and capable implementations, many of the identified requirements are best implemented and enforced by the CPO. These requirements can be communicated to charging stations dynamically via OCPP rather than being statically embedded in the device firmware. This allows operators to align time security policies with their broader cybersecurity governance, incident handling processes, and NIS2 compliance strategies.
+This also shifts the locus of responsibility. While manufacturers must still provide secure and capable implementations, many of the identified requirements are best implemented and enforced by the CPO. These requirements can be communicated to charging stations dynamically via OCPP rather than being statically embedded in the device firmware; section 3 of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper defines how. Every such change of the legal time configuration is recorded in the charging station's secure metrological log, naming who made it, so that control by the operator does not come at the cost of evidence. This allows operators to align time security policies with their broader cybersecurity governance, incident handling processes, and NIS2 compliance strategies.
 
 However, this flexibility comes with a caveat: the underlying time mechanisms must remain robust even if operator controls fail or are misconfigured. A layered approach is therefore required, where manufacturer-provided security guarantees form a hard minimum baseline, and operator-managed controls provide additional resilience and policy enforcement on top.
 
@@ -159,12 +179,12 @@ NTS solves:
 - Scaling to millions of NTP/NTS clients
 
 NTS does not solve:
-- Erkennung falscher, aber korrekt signierter Zeit
-- Koordination mehrerer Zeitserver
-- Nachweis warum Zeit vertrauenswürdig war
-- Gerichtsfeste Beweisführung
+- Detecting wrong but correctly signed time
+- Coordinating several time servers
+- Proving why a time was trustworthy
+- Evidence that holds up in court
 
-➡️ Resilienz entsteht erst durch zusätzliche Audit-, Konsistenz- und Governance-Schnittstellen.
+➡️ Resilience only comes from additional audit, consistency and governance interfaces.
 
 
 ### 5.1 NTS-Policy via a Signed HTTPS JSON document
@@ -176,7 +196,7 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
 - Emergency Contact Infos
 - ***Available DNS-based solutions***
 - Key Rotation Policy
-- Rate-Limit-Policy: Avoiding Denail-of-Service by friendly clients.
+- Rate-Limit-Policy: Avoiding Denial-of-Service by friendly clients.
 - Emergency Policy: Time-Source-Loss, CA-Compromise, Massive DDoS-Attacks
 - Source-Transparency (GNSS / Holdover)
 - Defined quorum and degradation logic: for the provider's servers among themselves *(at least 2 agreeing, at most 50 ns apart)* and for clients *(at least 2 agreeing, at most 100 ms apart)*, see below
@@ -185,10 +205,12 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
 - Signature(s) over deterministic, byte-exact canonical JSON representation (see: RFC 8785)
 
 
-#### 5.1.2 JSON Example
+#### 5.1.1 JSON Example
 
 ```
 {
+    "id":                    "ptb-nts-2026",
+
     "contact":               ...
 
     "releaseDate":           ...
@@ -248,17 +270,21 @@ Yet, DNS stays primary source! *See also: Strict Transport Security (MTA-STS)*.
 }
 ```
 
+`id` names this version of the policy. It MUST equal the `id` of the `_nts-policy` TXT record through which the policy was found (section 5.2.1), and of every status document that refers to it (section 5.3).
+
 `quorum.servers` is what the provider's own servers are held to among themselves, measured against its references: nanoseconds. A client cannot measure that across networks with asymmetric delays. What it can compare are the offsets several servers gave it in one round, in milliseconds. That is `quorum.clients`, which corresponds to *MinServers* and *MaxDeviation* of the NTP Client Group Controller in the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper.
 
 NTS-KE always runs over TLS 1.3 or later ([RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915) §3), so `hosts[].ntske.tlsMinVersion` cannot be lower than 1.3. `httpsTLSMinVersion` applies only to the HTTPS endpoints of the policy itself: status, reports, reporting and attestations. The ALPN of NTS-KE is `ntske/1`.
 
-#### 5.1.3 Minimal Decision Rules
+#### 5.1.2 Minimal Decision Rules
+
+The observations are fields of the status document (section 5.3). A status document whose `id` differs from that of the policy, or whose signatures do not verify, is ignored.
 
 |Observation|Action|
 |-|-|
-| reports.overall_level=OUTAGE      | No acceptance of time syncs for calibration law relevant use cases |
-| status.quorum_agreement.ok=false  | Only „best-effort“ logging, no evidence based time stamps |
-| status.health.level=RED           | Remove this server from the NTP/NTS pool |
+| `level` = `OUTAGE`                     | No acceptance of time syncs for calibration law relevant use cases |
+| `quorum.ok` = `false`                  | Only "best-effort" logging, no evidence based time stamps |
+| `hosts[].level` = `OUTAGE` for a host  | Remove this server from the NTP/NTS pool |
 
 
 ### 5.2 DNS-based Solutions
@@ -273,7 +299,7 @@ DNS-based solutions are the default way to distribute information in the Interne
 The `_nts-policy` DNS TXT record is intended **solely for policy discovery**, not as an authoritative security policy container.
 
 ```
-_nts-policy.ptbtime1.ptb.de. IN TXT "v=NTSPv1; id=ptb-nts-2025;
+_nts-policy.ptbtime1.ptb.de. IN TXT "v=NTSPv1; id=ptb-nts-2025"
 ```
 => Policy-URL: https://ptbtime1.ptb.de/.well-known/nts-policy.json    
    Expected version identification `ptb-nts-2025`.
@@ -391,6 +417,8 @@ A valid `_nts-policy` TXT record **MUST** contain the following parameters:
 
 If either parameter is missing, the record **MUST** be rejected.
 
+`v` **MUST** be the first parameter and `id` the second, as the ABNF above requires. All other parameters may follow in any order.
+
 ###### 4. Version Handling
 
 The `v` parameter **MUST** have the exact value `NTSPv1`.
@@ -405,7 +433,13 @@ If the `uri` parameter is absent and the `d` parameter is present, the client **
 
 https://<d>/.well-known/nts-policy.json
 
-If both `uri` nor `d` are absent, the client MUST derive the policy retrieval URI from the base domain name associated with the _nts-policy owner name that was queried.
+If neither `uri` nor `d` is present, the client **MUST** derive the policy URI from the owner name that was queried, without its first label `_nts-policy`:
+
+https://<owner name without `_nts-policy.`>/.well-known/nts-policy.json
+
+For `_nts-policy.ptbtime1.ptb.de.` this is `https://ptbtime1.ptb.de/.well-known/nts-policy.json`, as in the first example above.
+
+The `id` of the retrieved policy document (section 5.1) **MUST** equal the `id` parameter of the record. Otherwise the client **MUST NOT** apply the policy.
 
 ###### 6. Whitespace Handling
 
@@ -552,9 +586,9 @@ Alternatives are SvcPriority (the larger servers first, the smaller ones only as
 #### 5.2.4 DNS-based Authentication of Named Entities (DANE)
 
 ```
-_4460._tcp.ntske.ptb.de.  86400 IN TLSA 3 1 1 <sha256-des-aktuellen-leaf-keys>
-_4460._tcp.ntske.ptb.de.  86400 IN TLSA 2 0 1 <sha256-der-ptb-root-ca>
-_4460._tcp.ntske.ptb.de.  86400 IN TLSA 2 1 1 <sha256-des-ptb-root-public-keys>
+_4460._tcp.ntske.ptb.de.  86400 IN TLSA 3 1 1 <sha256-of-the-current-leaf-public-key>
+_4460._tcp.ntske.ptb.de.  86400 IN TLSA 2 0 1 <sha256-of-the-ptb-root-ca-certificate>
+_4460._tcp.ntske.ptb.de.  86400 IN TLSA 2 1 1 <sha256-of-the-ptb-root-ca-public-key>
 ```
 
 #### 5.2.5 DNSSEC
@@ -565,29 +599,60 @@ Useful!
 
 ### 5.3 Status-Monitoring-API
 
-- HTTPS JSON API(primary)
-- HTML for user-friedlyness
+- HTTPS JSON API (primary)
+- HTML for user-friendliness
 
 ```
-GET https://time1.ptb.de/status
+GET https://time.ptb.de/status
 ```
 
 - Server/Service Availability
 - Max. Offset, Max. Jitter, Offset-Drift-Alarms
 - Source Transparency
 - Source-Disagreement-Detection
-- Client kann qualifiziert entscheiden, ob Zeit verwendbar ist => Voraussetzung für automatisierte Trust-Policies.
-- NIS2-konforme Transparenz
+- Clients can decide on a sound basis whether a time is usable, which is the prerequisite for automated trust policies.
+- Transparency as NIS2 expects it
+
+The status document is signed like the policy (section 5.1). At least the fields the decision rules of section 5.1.2 refer to must be present:
+
+```
+{
+    "id":            "ptb-nts-2026",
+    "generatedAt":   "2026-10-30T12:00:00Z",
+
+    "level":         "OK",
+
+    "quorum": {
+        "ok":                      true,
+        "agreeingServers":         4,
+        "maxPairwiseOffset_ns":   12
+    },
+
+    "hosts": [
+        { "hostname": "time1.ptb.de",  "level": "OK"       },
+        { "hostname": "time2.ptb.de",  "level": "DEGRADED" }
+    ],
+
+    "signatures": [
+        ...
+    ]
+}
+```
+
+- `id`: the `id` of the policy the document belongs to (section 5.1).
+- `level`: the state of the service as a whole: `OK`, `DEGRADED` or `OUTAGE`.
+- `quorum.ok`: whether the provider's servers currently meet `quorum.servers` of the policy.
+- `hosts[].level`: the state of each host of the policy, with the same values as `level`.
 
 
 ### 5.4 Logging and Traceability API (History)
 
 Signed HTTPS JSON documents.
 
-- Vergangene Status-Events
-- „Welche Zeit wurde wann mit welcher Quelle und mit welcher Qualität ausgeliefert?“ (Time Attestation)
+- Past status events
+- "Which time was delivered when, from which source and with which quality?" (Time Attestation)
 - Incident-Disclosure API
 - Security Advisories
 - CVE-Handling
-- Auditierbarkeit
+- Auditability
 

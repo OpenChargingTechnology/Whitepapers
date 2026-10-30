@@ -23,6 +23,8 @@ Additionally, the paper includes a comprehensive **operational guide** tailored 
 
 An alternative approach centers on integrating charging infrastructure with a local Smart Meter Gateway (SMGW) using NTP-over-TLS. This method is particularly relevant within the German regulatory framework, where compliance with the Mess- und Eichrecht (calibration law) requires metrologically traceable and verifiable time sources. By leveraging the SMGW — which already synchronizes time via operationally trusted channels and is subject to strict regulatory controls — charging stations can obtain a secure and regulation-compliant time reference without needing direct access to public NTS servers. However, this approach comes with certain limitations. First, it introduces a single-point-of-failure by making the system dependent on the availability and correct configuration of a single SMGW, which may not be practical in heterogeneous or non-residential deployment scenarios. Second, it imposes additional legal restrictions on how the system can be used.
 
+Why time has to be treated as legal evidence, why a charging station must rather refuse time than accept wrong time, and what a provider of legal time should publish for its clients is the subject of the companion white paper [Critical Legal Time Services](../CriticalLegalTimeServices/README.md). This paper is its counterpart on the side of the charging station: how the requirements found there are configured via OCPP.
+
 The paper concludes with recommended testing parameters to validate these configurations, ensuring robust and compliant time synchronization.
 
 
@@ -36,7 +38,7 @@ The NTS-KE phase establishes a secure channel to derive cryptographic keys and p
 
 
 #### NTS-KE Request:
-The client, an OCPP Charging Station or an OCPP Local Controller, initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by validating its certificate, mitigating MITM risks. Which root certification authorities (root CAs) are used to validate the server certificate is an configuration option. For security reasons this should not be the entire World Wide Web root CA bundle used within web browsers.
+The client, an OCPP Charging Station or an OCPP Local Controller, initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by validating its certificate, mitigating MITM risks. Which root certification authorities (root CAs) are used to validate the server certificate is a configuration option. For security reasons this should not be the entire World Wide Web root CA bundle used within web browsers.
 
 Then the client sends an NTS-KE request message, which includes:
 - The protocol it wants keys for, NTPv4 (NTS Next Protocol Negotiation).
@@ -47,7 +49,7 @@ Then the client sends an NTS-KE request message, which includes:
 The NTS-KE request carries no nonce. Protection against replay belongs to the NTS-protected NTP phase, where every request carries a Unique Identifier extension field (RFC 8915 §5.3).
 
 #### Key Derivation
-A set of cryptographic keys for Client-to-Server (C2S) and Server-to-Client (S2C) encryption will be deviated from the key material of the TLS connection and later be used to encrypt and authenticate the NTP communication via an [Authenticated Encryption with Associated Data (AEAD)](https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)) algorithm. This method is based on TLS 1.3 exporter mechanism, as defined in [RFC 8446](https://datatracker.ietf.org/doc/html/rfc8446), using `EXPORTER-network-time-security` as constant.
+A set of cryptographic keys for Client-to-Server (C2S) and Server-to-Client (S2C) encryption will be derived from the key material of the TLS connection and later be used to encrypt and authenticate the NTP communication via an [Authenticated Encryption with Associated Data (AEAD)](https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)) algorithm. This method is based on TLS 1.3 exporter mechanism, as defined in [RFC 8446](https://datatracker.ietf.org/doc/html/rfc8446), using `EXPORTER-network-time-security` as constant.
 
 Some NTS-KE servers also support a non-standardized way to generate both keys at the server and include them in the NTS-KE response. Supporting this feature can be an option for TLS libraries that do not support the key-exporter functions.
 
@@ -67,7 +69,7 @@ The NTS-KE response may also name the NTP server and port that will accept the c
 The NTS-protected NTP phase uses the keys and cookies obtained from NTS-KE to secure time synchronization queries over UDP port 123, maintaining low latency.
 
 
-#### NTS-Protected NTS Request
+#### NTS-Protected NTP Request
 
 The client sends an NTP packet to the specified NTP server, augmented with NTS extensions:
 - The packet includes a standard NTPv4 header with timestamp fields.
@@ -76,7 +78,7 @@ The client sends an NTP packet to the specified NTP server, augmented with NTS e
 - An NTS authenticator extension, using the C2S key to compute a message authentication code (MAC) via authenticated encryption (e.g., AES-SIV-CMAC).
 
 
-#### NTS-Protected NTS Response
+#### NTS-Protected NTP Response
 
 The server verifies the cookie and the AEAD MAC, ensuring the request’s authenticity and integrity and responds with:
 - A standard NTPv4 response containing timestamps (origin, receive, transmit, and reference).
@@ -96,13 +98,18 @@ repeated NTS-KE negotiations.
 
 **Error Handling**: If the response fails authentication or contains invalid data (e.g., high jitter or stratum), the client discards it and may query another server from its configured pool, leveraging prioritized parallel querying for reliability.
 
-**Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Clock adjustments over a defined threshold (e.g. 5 seconds) should be logged as security critical event and appended to the metrological log book.
+**Setting or Verifying the Clock**: A charging station may also leave the discipline of its clock to the operating system, e.g. to chrony (section 3.4), and use NTS only to *verify* it. At every check it then measures the offset of its own clock against the servers of a group and decides whether its time is legal time (section 3.2.3), without setting the clock itself. This is an admissible variant of the process above, and a well auditable one: the metrological log records not what the clock was set to, but how far the clock was from the legal time sources, measured with authenticated responses. The thresholds below then apply to the measured offset instead of to a correction. *Reference implementation*: verifies; the clock is set by the operating system.
+
+**Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Three quantities must be kept apart:
+- The **correction** of the station's clock or, where the clock is only verified, its measured **offset**. One equal to or greater than a threshold (e.g. 5 seconds) shall be logged as a security critical event and appended to the metrological log book. In OCPP v2.x this threshold is the standard variable `ClockCtrlr.TimeAdjustmentReportingThreshold`, and such a correction or offset is reported as the security event `SettingSystemTime` (sections 3.2.1 and 3.2.6).
+- The **spread** between the servers of a group in one round: how far their answers are apart (`MaxDeviation`, section 3.2.3).
+- The **tolerance**: how far the station's own clock may be from the time of the legal group and still count as legal time (`LegalTimeTolerance`, section 3.2.3).
 
 **Notes**
-- Am 8. Februar 2036 beginnt die NTP Ära "1". Hier ist Aufmerksamkeit bei der Konvertierung in die Systemzeit und umgekehrt notwendig.
-- Am 19. Januar 2038 um 3:14:08 Uhr UTC sind Implementierungen, die vorzeichenbehaftete 32 bit UTC Counter verwenden, von einem Überlauf betroffen.
-- Falls Schaltsekunden-Ankündigungen bei der Konvertierung in die Systemzeit ausgewertet werden, sollte der Synchronisation mit der Systemzeit besondere Aufmerksamkeit geschenkt werden.
-- [RFC5905] Annex A.5.1 und A.5.1.1 geben Hinweise zur Plausibilisierung empfangener Nachrichten, bevor diese zur Zeitsynchronisation verwendet werden.
+- On 8 February 2036 the NTP era 1 begins. Converting NTP timestamps into system time and back needs particular care then.
+- On 19 January 2038 at 03:14:08 UTC, implementations that count seconds in signed 32 bit integers overflow.
+- Where leap second announcements are evaluated when converting into system time, the synchronization with the system time needs particular care.
+- [RFC 5905](https://datatracker.ietf.org/doc/html/rfc5905) Appendix A.5.1 and A.5.1.1 give hints on checking received messages for plausibility before they are used for time synchronization.
 
 
 ## 3. Network Time Security OCPP Client Configuration
@@ -111,9 +118,14 @@ OCPP v1.6+SE and v2.x are very different in the way a charging station is config
 
 Since OCPP time synchronization serves two main use cases: ***legal time*** for billing and ***local time*** for load balancing, many settings are organized around these purposes and can differ significantly. In practice, it is often beneficial to synchronize local time every few seconds, whereas legal time may only need to be synchronized once or twice per hour, or on demand, e.g. shortly before scheduled dynamic tariff changes will be applied.
 
-All changes of the NTP/NTS configuration settings and all NTP server certificate changes shall be logged within the default security log.
+**Logging.** Each group of time servers (section 3.2.3) writes to one log: the **secure metrological log** (section 4) for the legal group, the **security log** for every other group. This applies to
+- every change of the configuration of the group, naming what changed and who changed it: the CSMS via OCPP, a local web interface, a service technician,
+- every new, changed or refused certificate of one of its servers, and every pin mismatch (section 3.2.4),
+- the start and the end of a run of failed measurements (`ErrorLogging`, `MaxErrors`), and every spread equal to or greater than `MaxDeviation`.
 
-Changed NTP time sync rootCA certificates have to be logged within the secure metrological log.
+Changes of the root CA certificates for time servers (`NetworkTimeRootCertificate`, section 3.2.5) are always written to the secure metrological log, because they decide which servers can vouch for the legal time.
+
+**Who may change the legal group.** The CSMS may change the legal group via OCPP like any other group; there is no switch that locks it. What protects legal time is not a lock but the record: every change of the legal group is an entry in the metrological log that names who made it, and changes made by anybody but the CSMS are reported to the CSMS (section 3.2.6).
 
 
 
@@ -121,53 +133,159 @@ Changed NTP time sync rootCA certificates have to be logged within the secure me
 
 ### 3.2 OCPP v2.x Client Configuration
 
-#### 3.2.1 NTP Client Controller
+OCPP v2.x already has the standard component `ClockCtrlr`, with one list of NTP servers. This paper adds three logical components for groups of time servers, and relates `ClockCtrlr` to them:
 
-The *Instance* of the component is mandatory and is used as *"NTPClientIdentification"*. This will later be used within the "NTP Client Group Controller".
+| Component | Instance | What it holds | How instances come and go |
+|-----------|----------|---------------|---------------------------|
+| `ClockCtrlr` *(OCPP standard)* | none | The clock of the charging station, and the legal group as a CSMS sees it that does not know this paper. | fixed |
+| `NTPController` | none | Time synchronization as a whole: which groups exist, and whether the time is legal time. | fixed |
+| `NTPClientGroupController` | the group id, e.g. `legal`, `local` | One group of time servers: its quorum, its schedule, its error handling. | via `NTPController.ClientGroups` |
+| `NTPClientController` | the client id | One time server of exactly one group. | via `NTPClientGroupController.Clients` |
 
-| Variable Name     | req/opt  | Mutability | Data Type  | JSON Type     | Default Value | Values List                  | Description |
-|-------------------|----------|------------|------------|---------------|---------------|------------------------------|-------------|
-| *Instance*        | required | ro         | String | String | ""            | -                            | Used as *"NTP Client Identification"*. |
-| ServerURL         | required | rw         | Hostname | String     | ""            | -                            | The server to ask, as a host name or an IP address, not a URL. In mode *NTSv4* this is the NTS-KE server, unless *NTSKEServerURL* names another one. The NTP server is then the one the NTS-KE response names (NTPv4 Server Negotiation, RFC 8915 §4.1.7), or the address of the NTS-KE server when the response names none. In modes *NTPv4* and *NTPv4TLS* it is the NTP server. May depend on the device’s country or location. |
-| ServerPort        | optional | rw         | UInt16 | Number      | 123           | -                            | The NTP port. In mode *NTSv4* the port the NTS-KE response names (NTPv4 Port Negotiation, RFC 8915 §4.1.8) takes precedence, and this value is only what the client asks for. |
-| Mode              | optional | rw         | String     | "NTSv4"       | "NTPv4", "NTSv4", "NTPv4TLS" | The optional NTP/NTS server mode. NTPv4 may be prohibited unless additional security measures are implemented! |
-| DelayAsymmetry    | optional | rw         | milliseconds | Integer    | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). (in milliseconds). |
-| DelayVarAsymmetry | optional | rw         | Float | Number | - | - | These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
-| Priority          | optional | rw         | Byte | Number | - | - | The optional priority of the NTP/NTS server. Servers with lower values are queried first. Servers with the same value are queried in parallel. |
-| MinInterval       | optional | rw         | seconds | Number | - | - | The minimal time span between randomized NTP/NTS time sync requests (in seconds). |
-| MaxInterval       | optional | rw         | seconds | Number | - | - | The maximal time span between randomized NTP/NTS time sync requests (in seconds). |
-| Preflight         | optional | rw         | Byte | Number | - | - | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a preflight NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. (in seconds). |
-| ErrorLogging      | optional | rw         | UInt16 | Number | - | - | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
-| NTSKEServerURL    | optional | rw         | Hostname | String | ""            | - | An NTS-KE server other than *ServerURL*, as a host name or an IP address. When it is set in mode *NTSv4*, the client asks this server for the keys and cookies, and asks for *ServerURL* as its NTP server (NTPv4 Server Negotiation in the request). The NTP server it then uses is still the one the NTS-KE response names, or the address of this NTS-KE server when the response names none (RFC 8915 §4.1.7). When it is empty, *ServerURL* is the NTS-KE server. |
-| NTSKEServerPort   | optional | rw         | UInt16 | Number | 4460          | -                            | The NTS-KE port. |
-| RootCAs           | optional | rw         | String | String | "" | - | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of NetworkTimeRootCertificate rootCAs is used and when this list is empty the system default list of rootCAs is used (not recommended)! |
-| NoCertTimeCheckAfterReboot | optional | rw         | Boolean | Boolean | "" | - | Whether the notBefore and notAfter timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
-| MinRefresh | optional | rw         | seconds | Number | - | - | Refreshing the NTS keys and cookies should be started after the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
-| MaxRefresh | optional | rw         | seconds | Number | - | - | Refreshing the NTS keys and cookies must be completed within the given time span since the last NTS-KE handshakes (randomly between given min and max values). |
-| AEADAlgorithm | optional | rw         | String | String | "AES-SIV-CMAC-256" | "AES-SIV-CMAC-256", "AES-128-GCM-SIV" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. |
-| SignedResponses | optional | rw         | Boolean | Boolean | - | - | Whether NTS responses shall be digital signed. |
+The names of the new components end in `…Controller` rather than in the `…Ctrlr` of the standard components, as in earlier versions of this paper and in its reference implementation. The components of the [Secure Name Resolution](../SecureDNS/README.md) white paper are named alike.
 
-See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Components/Logical/NTPClientController.cs)
+**Creating and removing instances.** The Device Model has no way to create component instances via *SetVariablesRequest*. Groups and clients therefore come into existence through a list variable of the component above them: a new id in `NTPController.ClientGroups` creates a group, a new id in `NTPClientGroupController.Clients` creates a client of that group, and an id taken out of such a list removes the instance. A *GetBaseReportRequest* afterwards reports the new instances. Ids are case-insensitive strings of at most 50 characters, the length of a component instance in OCPP. A client id is unique across all groups. It should not be derived from the host name of its server, because a new host name would then rename the instance.
+
+**A client belongs to exactly one group.** In earlier versions of this paper groups could share clients. But the priorities of clients are only meaningful within one group, and the quorum and the error counters belong to the group, so a client shared by two groups would have to mean two things at once. When two groups are to ask the same server, each of them gets a client of its own for it.
+
+**Lists.** The value of a list variable of this paper (`ClientGroups`, `Clients`, `CertificatePins`, `RootPins`) is a comma separated list and not a `MemberList`, because a `MemberList` only takes values of its `valuesList`. Writing a list is limited by `SetVariableData.attributeValue` (1000 characters in OCPP 2.0.1, 2500 in OCPP 2.1), reading it by `ReportingValueSize`.
+
+*Reference implementation*: The column *Reference Implementation* of the following tables names the key of the configuration section `nts.groups.<group id>` of [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node/blob/master/WWCP_Node/Configuration/NTSConfiguration.cs) that a variable is read from and written to. The web interface, the HTTP API and OCPP all change this one section, so they can never disagree. Group ids are lower case letters, digits and hyphens, beginning with a letter, at most 32 characters. A client is an entry of the group's `servers` list, identified by its `id` (*not implemented yet*: by its host name). Two clients with the same host name share their NTS-KE state: cookies, keys and certificate judgements.
 
 
-#### 3.2.2 NTP Client Group Controller
+#### 3.2.1 Clock Controller
 
-The *Instance* of the component is mandatory and is used as *"NTPClientGroupIdentification"*.    
-Well-known values are: *"legal"* and *"local"*.
+A CSMS that does not know this paper knows only the standard component `ClockCtrlr`. The charging station fills it from the legal group, so that every CSMS sees where the legal time comes from, and it takes changes of `NtpServerUri` into the legal group.
 
-| Variable Name     | req/opt  | Mutability | Data Type          | JSON Type          | Default Value | Values List                  | Description |
-|-------------------|----------|------------|--------------------|--------------------|---------------|------------------------------|-------------|
-| *Instance*        | required | ro         | String | String | ""            | -                            | Used as *"NTP Client Group Identification"*. |
-| Clients           | required | rw         | List&lt;String&gt; | String | ""            | -                            | The list of *"NTP Client Identifications"*. |
-| MinServers | optional | rw           | Byte | Number | 1                  | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
-| MaxDeviation | optional | rw | Seconds | Number | 60 | 60 | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
-| ErrorLogging | optional | rw           | UInt16    | Number | 5                | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
-| MaxErrors | optional | rw           | UInt16    | Number | 10             |  20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
+| Variable Name | Relation to this paper |
+|---------------|------------------------|
+| DateTime | The clock of the charging station. |
+| TimeSource | Contains `NTP` while the legal group is enabled. The source is decided by the groups of this paper, so a value other than the current one may be `Rejected`. |
+| NtpSource | `manual`: the servers are those of the legal group, not ones received via DHCP. |
+| NtpServerUri | The enabled clients of the legal group, by position (see below). |
+| TimeAdjustmentReportingThreshold | The threshold of section 2.2: a correction of the clock, or a measured offset, equal to or greater than this many seconds is logged in the metrological log and reported as the security event `SettingSystemTime` (section 3.2.6). |
+| TimeOffset, TimeZone, NextTimeOffsetTransitionDateTime | Local time; not affected by this paper. |
+
+**Writing `NtpServerUri`.** In OCPP the instance of `NtpServerUri` is a single digit, the NTP priority (1 = highest). A group, however, asks the clients of one `Priority` together, and their answers must reach the quorum `MinServers` on their own (section 3.2.3). A priority of its own for every server would make sets of one server, which never reach a quorum of two. The instance therefore stands for the position in the order in which the legal group asks its clients: by `Priority`, then in the order of `Clients`.
+
+- `NtpServerUri[k]` is the k-th enabled client of the legal group, written as `nts://` and its `ServerURL`, followed by `:` and its `NTSKEServerPort` when that is not 4460. Up to nine clients are shown. When fewer than nine are enabled, the next instance is reported with an empty value, so that a CSMS sees where a server can be added.
+- Setting `[k]` of an existing client replaces its `ServerURL`, and its `NTSKEServerPort` when the value names a port. The client keeps its id, its `Priority`, its `RootCAs` and `RootPins`, `OnPinMismatch` and `TrustOnFirstUse`. It loses its `CertificatePins`, which name a certificate of the old server.
+- Setting the first empty instance adds an enabled client with that server, in mode `NTSv4`, with the default ports and with the `Priority` of the last client, so that it counts towards the same quorum. Setting an instance beyond it is `Rejected`.
+- Setting `[k]` to `""` removes the k-th client; the clients behind it move up one position.
+- Values are host names, IP addresses, or `nts://` followed by one of them and an optional `:port`. `ntp://` and every other scheme are `Rejected` with `reasonCode` `InvalidValue`: the legal group must not use NTP without NTS (`Mode`, section 3.2.4).
+- Every change of `NtpServerUri` is applied on its own, so a CSMS can use `IndependentRequests`. A change is `Rejected` when it would leave fewer enabled clients than `MinServers`.
+
+What `NtpServerUri` cannot express, such as further priorities, the NTP port, pins, the quorum or more than nine servers, is changed via the components of this paper.
+
+
+#### 3.2.2 NTP Controller
+
+The component `NTPController` has no instance. It holds what applies to time synchronization as a whole.
+
+| Variable Name     | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
+|-------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
+| ClientGroups      | required | rw         | string     | "legal"       | comma separated ids, each ≤ 50 characters | The ids of the `NTPClientGroupController` instances. A new id creates a group, disabled and without clients. An id taken out removes the group; this is `Rejected` while the group is enabled. | the groups of `nts.groups` |
+| SuggestedGroups   | optional | ro         | string     | "local"       | comma separated ids  | Group ids the charging station knows a meaning for and does not have yet. | `legal`, `local` and `grid`, minus the existing groups |
+| LegalTime         | optional | ro         | boolean    | false         | -                    | Whether the time of the charging station is legal time now (section 3.2.3). Can be monitored. | `legal` of the clock |
+| LegalTimeReason   | optional | ro         | OptionList | ""            | `NotClaimed`, `Disabled`, `NeverChecked`, `Stale`, `OffBy` | Why the time is not legal time: the legal group names no `LegalTimeAuthority`, it is disabled, it was never checked, its last check is older than `LegalTimeMaxAge`, or the clock was further than `LegalTimeTolerance` from it. Empty while the time is legal time. | `why` of the clock: `notClaimed`, `ntsOff`, `neverChecked`, `stale`, `offBy` |
+
+
+#### 3.2.3 NTP Client Group Controller
+
+The *Instance* of the component is the group id. Well-known ids are:
+- `legal`: the group whose time is legal time, e.g. the time servers of a national metrology institute. Dynamic tariffs and everything else calibration law rests on use its time.
+- `local`: servers on site, e.g. OCPP Local Controllers acting as auxiliary NTS servers, for a time that is consistent across the charging stations of a location, e.g. for local load management.
+
+Further groups may be defined, e.g. `grid` for the time source of a grid operator.
+
+**Rounds.** The clients of a group are asked together, in rounds. A round asks the enabled clients of the lowest `Priority` in parallel. When fewer than `MinServers` of them answer, the clients of the next priority are asked, and so on. The time of the round is that of the first priority whose answers reach the quorum. When none does, the round fails, and counts as a measurement error for `ErrorLogging` and `MaxErrors`.
+
+**Legal time.** The time of the charging station is legal time only while all of the following hold; otherwise it is not, and `NTPController.LegalTimeReason` says why:
+- the legal group names a `LegalTimeAuthority`: the operator states who stands behind its servers, which the charging station cannot find out by itself;
+- the legal group is enabled;
+- its last round that produced a time is no older than `LegalTimeMaxAge`;
+- in that round, the clock of the charging station was no further than `LegalTimeTolerance` from the time of the group.
+
+A time that is not legal time must not be used for anything calibration law rests on: correctness takes precedence over continuity (*fail closed*, [Critical Legal Time Services](../CriticalLegalTimeServices/README.md) section 1.4).
+
+The variables marked *legal only* exist only in the instance `legal`; in any other instance they are `UnknownVariable`.
+
+| Variable Name      | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
+|--------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
+| Enabled            | optional | rw         | boolean    | true          | -                    | Whether the group is asked. A disabled group keeps its clients. A group created via `NTPController.ClientGroups` starts disabled, and a group must be disabled before it is removed. | `enabled` |
+| Clients            | required | rw         | string     | ""            | comma separated client ids | The ids of the `NTPClientController` instances of this group. A new id creates a client, which needs its `ServerURL` in the same request (section 3.2.5). An id taken out removes the client. The order is the order in which clients of the same `Priority` are listed (section 3.2.1); it is not a priority. | the entries of `servers` |
+| MinServers         | optional | rw         | integer    | 2             | 1 … 255              | The quorum: how many clients of one priority must answer in a round for its time to count. A change that leaves an enabled group with fewer enabled clients is `Rejected`. | `minServers`; when not set, lowered to the number of enabled clients |
+| MaxDeviation       | optional | rw         | decimal    | 60            | 0.001 … 3600 (s)     | The spread between the answers of one round that is accepted silently: the difference between the largest and the smallest offset the clients of the deciding priority gave. A spread equal to or greater than it is recorded in the log of the group. It is not the offset of the station's own clock, which is held to `LegalTimeTolerance`. Unit: `s`. | `maxDeviationSeconds` |
+| MinInterval        | optional | rw         | integer    | -             | 10 … 86400 (s)       | The shortest time between the start of two rounds. Unit: `s`. | `checkEverySeconds` (see `MaxInterval`) |
+| MaxInterval        | optional | rw         | integer    | -             | 10 … 86400 (s)       | The longest time between the start of two rounds. Each round is due at a random time between `MinInterval` and `MaxInterval` after the last one, so that many charging stations do not ask the same servers at the same moment. For the legal group, `MaxInterval` shall be shorter than `LegalTimeMaxAge`, or the time ceases to be legal time between two rounds. Unit: `s`. | `checkEverySeconds`, 900 s when not set: one fixed period. Both variables are reported as it, and only the same value can be written to both, in one `ACID` request. |
+| Preflight          | optional | rw         | integer    | -             | 1 … 86400 (s)        | Occasional requests to an NTP/NTS server may be delayed by network caching effects such as ARP or DNS resolution, firewall state establishment or TLS tunnel setup. After this long without a round, every client is first sent a *preflight* NTP packet whose response is ignored, so that these delays stay out of the measurement. Not set: no preflight packets. Unit: `s`. | *not implemented* |
+| Timeout            | optional | rw         | decimal    | -             | 0.1 … 3600 (s)       | How long one exchange with a client may take. Unit: `s`. | `timeoutSeconds`, 10 s when not set |
+| ErrorLogging       | optional | rw         | integer    | 5             | 1 … 65535            | The number of consecutive failed rounds that leads to an entry in the log of the group (section 3). When a round produces a time again, another entry is added. | `errorLogging` |
+| MaxErrors          | optional | rw         | integer    | 10; 50 for `local` | 1 … 65535       | The number of consecutive failed rounds after which what rests on the time of the group is limited, until a round produces a time again: dynamic tariff changes for the legal group, load management for the local group. The start and the end are entered in the log of the group, shown by `Limited` and reported as security events (section 3.2.6). | `maxErrors` |
+| Limited            | optional | ro         | boolean    | false         | -                    | `true` from the moment `MaxErrors` is reached until a round produces a time again. Can be monitored. | `limited` |
+| ErrorsInARow       | optional | ro         | integer    | 0             | -                    | The number of consecutive failed rounds so far. | `errorsInARow` |
+| LastCheck          | optional | ro         | dateTime   | -             | -                    | When the last round that produced a time took place. | `checkedAt` |
+| LastOffset         | optional | ro         | decimal    | -             | -                    | The offset of the station's clock against the time of that round. Unit: `s`. | `offset_ms`, in milliseconds |
+| LegalTimeAuthority | optional, *legal only* | rw | string | ""        | ≤ 80 characters      | Who stands behind the time of the group, e.g. `"PTB"`. Without it the time is not legal time. An empty value removes it. | `legalTimeAuthority` |
+| LegalTimeTolerance | optional, *legal only* | rw | decimal | 1        | 0.001 … 60 (s)       | How far the station's own clock may be from the time of the group and still be legal time. Unit: `s`. | `legalTimeToleranceSeconds` |
+| LegalTimeMaxAge    | optional, *legal only* | rw | integer | 3600     | 10 … 86400 (s)       | How old the last round that produced a time may be and still be legal time. PTB-A 50.7, section 3.1.7, recommends connecting to the PTB time servers hourly. Unit: `s`. | `legalTimeMaxAgeSeconds` |
 
 See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Components/Logical/NTPClientGroupController.cs)
 
 
-#### 3.2.3 OCPP v2.x Command Extensions
+#### 3.2.4 NTP Client Controller
+
+The *Instance* of the component is the client id (section 3.2). A client is one time server of exactly one group, and is listed in that group's `Clients`.
+
+| Variable Name     | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
+|-------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
+| Enabled           | optional | rw         | boolean    | true          | -                    | Whether the client is asked. A disabled client keeps its configuration. | `servers[n].enabled` |
+| ServerURL         | required | rw         | string     | ""            | ≤ 253 characters     | The server to ask, as a host name or an IP address, not a URL. In mode *NTSv4* this is the NTS-KE server, unless *NTSKEServerURL* names another one. The NTP server is then the one the NTS-KE response names (NTPv4 Server Negotiation, RFC 8915 §4.1.7), or the address of the NTS-KE server when the response names none. In modes *NTPv4* and *NTPv4TLS* it is the NTP server. May depend on the device’s country or location. | `servers[n].hostname`, the NTS-KE server |
+| ServerPort        | optional | rw         | integer    | 123           | 1 … 65535            | The NTP port. In mode *NTSv4* the port the NTS-KE response names (NTPv4 Port Negotiation, RFC 8915 §4.1.8) takes precedence, and this value is only what the client asks for. | `servers[n].ntpPort` |
+| Mode              | optional | rw         | OptionList | `NTSv4`       | `NTPv4`, `NTSv4`, `NTPv4TLS` | `NTSv4`: NTS ([RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915)). `NTPv4TLS`: NTP over TLS to a smart meter gateway (section 6). `NTPv4`: NTP without any authentication. Clients of the legal group MUST NOT use `NTPv4`; other clients should not, unless further security measures protect it. The `valuesList` shall list only what the charging station supports. | `NTSv4` only |
+| Priority          | optional | rw         | integer    | 0             | 0 … 255              | Clients with lower values are asked first. Clients with the same value are asked in parallel, and their answers must reach the quorum of the group on their own (section 3.2.3). | `servers[n].priority` |
+| DelayAsymmetry    | optional | rw         | decimal    | 0             | -                    | A correction applied to the offsets measured with this server, to compensate known stable asymmetries in network or processing delays. For example, if packets sent to the server were on average delayed by 100 microseconds more than packets sent back, the correction would be -0.05 (-50 microseconds). Unit: `ms`. | *not implemented* |
+| DelayVarAsymmetry | optional | rw         | decimal    | 0             | -                    | Fine-tunes the offset calculation when the variability of network delays is greater in one direction than in the other. Use only if the network is known to have a consistent asymmetry. | *not implemented* |
+| NTSKEServerURL    | optional | rw         | string     | ""            | ≤ 253 characters     | An NTS-KE server other than *ServerURL*, as a host name or an IP address. When it is set in mode *NTSv4*, the client asks this server for the keys and cookies, and asks for *ServerURL* as its NTP server (NTPv4 Server Negotiation in the request). The NTP server it then uses is still the one the NTS-KE response names, or the address of this NTS-KE server when the response names none (RFC 8915 §4.1.7). When it is empty, *ServerURL* is the NTS-KE server. | *not implemented*: the NTS-KE server is `hostname` |
+| NTSKEServerPort   | optional | rw         | integer    | 4460          | 1 … 65535            | The NTS-KE port. | `servers[n].ntsKEPort` |
+| RootCAs           | optional | rw         | string     | ""            | ≤ 50 characters      | The `certificateGroup` of `NetworkTimeRootCertificate` root CAs (section 3.2.5) the certificate of the NTS-KE or NTP-over-TLS server must chain to. When it is not set, every `NetworkTimeRootCertificate` root CA may vouch for the server, and when there are none, the root CAs of the system (not recommended). | *not implemented*: root pins instead |
+| CertificatePins   | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints (64 hexadecimal digits, with or without colons) of the certificates the server may show. Only for *NTSv4* and *NTPv4TLS*. | `servers[n].certificates` |
+| RootPins          | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the root CA certificates the server's chain may end at. Only for *NTSv4* and *NTPv4TLS*. | `servers[n].roots` |
+| OnPinMismatch     | optional | rw         | OptionList | `Refuse`      | `Refuse`, `Record`, `Accept` | What a pin mismatch leads to. `Refuse`: the server is not used. `Record`: it is used, and the mismatch is entered in the secure metrological log as evidence. `Accept`: it is used, and the mismatch is entered in the log of the group. | `servers[n].onMismatch`; every mismatch of a time server is entered in the metrological log |
+| TrustOnFirstUse   | optional | rw         | OptionList | `None`        | `None`, `Root`, `Certificate` | Whether the client learns a root pin or a certificate pin from the first certificate the server is believed with. When a pin of that kind is set already, nothing is learned. | `servers[n].trustOnFirstUse` |
+| NoCertTimeCheckAfterReboot | optional | rw | boolean  | false         | -                    | Whether the *notBefore* and *notAfter* checks of NTS-KE and NTP-over-TLS server certificates can be skipped for the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. | *not implemented* |
+| MinRefresh        | optional | rw         | integer    | 43200         | ≥ 60 (s)             | The time since the last NTS-KE handshake after which a new one is started, at a random time between `MinRefresh` and `MaxRefresh`. Unit: `s`. | 1800 s, fixed |
+| MaxRefresh        | optional | rw         | integer    | 86400         | ≥ `MinRefresh` (s)   | The time since the last NTS-KE handshake within which a new one must have succeeded. Unit: `s`. | 1800 s, fixed |
+| AEADAlgorithm     | optional | rw         | OptionList | `AES-SIV-CMAC-256` | `AES-SIV-CMAC-256`, `AES-128-GCM-SIV` | The Authenticated Encryption with Associated Data (AEAD) algorithm the client offers for NTS authentication of NTP messages. | *read-only*: the algorithm the server chose, from both offered |
+| SignedResponses   | optional | rw         | boolean    | false         | -                    | Whether a digitally signed second response is requested (section 1). | *not implemented* |
+| Problem           | optional | ro         | boolean    | false         | -                    | `true` while the last NTS-KE handshake with this server was refused, or its last exchange failed. Standardized variable name of OCPP; can be monitored. | last judgement |
+| CertificateFingerprint | optional | ro    | string     | ""            | -                    | The SHA-256 fingerprint of the certificate the server showed at its last NTS-KE handshake. | last key exchange |
+| LastKeyExchange   | optional | ro         | dateTime   | -             | -                    | When the last NTS-KE handshake with this server succeeded. | last key exchange |
+| Cookies           | optional | ro         | integer    | 0             | -                    | The number of unused NTS cookies the client holds for this server. | `cookies` |
+
+In earlier versions of this paper, `MinInterval`, `MaxInterval`, `Preflight` and `ErrorLogging` were variables of each client. A quorum needs the clients of a group to be asked in the same round, so they are variables of the group now (section 3.2.3).
+
+**Pins.** `CertificatePins` and `RootPins` narrow what `RootCAs` allows and never widen it. When *trust on first use* learns a pin, the value of `CertificatePins` or `RootPins` changes without a request of the CSMS; a CSMS that wants to know sets a `Delta` monitor on them. Pins, `OnPinMismatch` and `TrustOnFirstUse` mean the same as for name servers in the [Secure Name Resolution](../SecureDNS/README.md) white paper (section 2.3). As there, a fingerprint is the SHA-256 hash of the whole certificate, not of its public key.
+
+**Refreshing NTS-KE.** The NTS-KE handshake is the only moment at which a client checks the certificate of its server: its name, its chain and its pins. Cookies alone would keep a client going for much longer, because every NTS-protected response brings a fresh one. A new handshake about once a day keeps a replaced server certificate from going unnoticed for longer than that, renews the C2S and S2C keys, and still keeps the load of TLS handshakes on public time servers low. Hence the defaults of 12 and 24 hours, with a random time in between, so that many charging stations do not reach the same servers at the same moment. A client whose cookies run out or are refused makes a new handshake at once, whatever these values say. Earlier versions of this paper gave these values in days (30 and 60) for OCPP v1.6; they are given in seconds now, for both OCPP versions.
+
+See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Components/Logical/NTPClientController.cs), and the configuration of a server in [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node/blob/master/WWCP_Node/Configuration/NTSServerConfiguration.cs) with its [pins](https://github.com/OpenChargingCloud/WWCP_Node/blob/master/WWCP_Node/Configuration/ServerPins.cs)
+
+
+#### 3.2.5 OCPP v2.x Command Extensions
+
+*SetVariablesRequest*
+
+Several variables of a group depend on each other: `MinServers` on the number of enabled clients, a new client on its `ServerURL`, the removal of a group on its being disabled. Applied one by one, the same changes succeed or fail depending on the order of the *SetVariableData* entries. Therefore:
+
+- **`IndependentRequests`** (standard OCPP, and the default): the entries are applied one by one, in the order of the request, each validated against the configuration as it is after the entries before it, each with its own result. A CSMS has to order them: enable clients before it raises `MinServers`, and lower `MinServers` before it disables clients. A new client id in `Clients` is `Rejected`, because a client cannot exist without its `ServerURL`; its `additionalInfo` says to use `ACID`. A server can still be added to the legal group via `ClockCtrlr.NtpServerUri` (section 3.2.1).
+- **`ACID`** (the *DataConsistencyModel* of [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md)): all entries of the request that address `ClockCtrlr.NtpServerUri` or a component of this paper are validated and applied as **one change**. Groups added via `NTPController.ClientGroups` are created first, groups taken out of it are removed last. Either all entries are `Accepted`, or the entries that caused the refusal are `Rejected` and all others `Rolledback`.
+- **`BASE`**: like `ACID`, but each group, together with its clients, is one change of its own.
+- A refused entry is `Rejected`, and its `statusInfo.additionalInfo` says what is wrong. Entries that are wrong by themselves get the usual results: `UnknownComponent`, `UnknownVariable` (e.g. for a *legal only* variable of another group), `NotSupportedAttributeType` for anything but `Actual`, `Rejected` with `reasonCode` `ReadOnly` for a read-only variable, `InvalidValue` for a value that cannot be parsed and `ValueOutOfRange` for one out of range.
+- An entry that names the value it expects to replace (conditional update, Safe & Secure Device Model Updates) is `Rejected` when the current value differs, e.g. because it was changed via a local web interface in the meantime.
+- A change that could not be persisted SHALL be rejected with `reasonCode` `InternalError`, and SHALL NOT be put into effect: what is in effect must survive a reboot.
+- Changes take effect at once, without a reboot.
+- The CSMS may change every writable variable of the legal group. Every such change is an entry in the secure metrological log (section 3).
 
 *InstallCertificateRequest*
 
@@ -241,86 +359,114 @@ The same certificate can belong to multiple groups, but must be uploaded separat
 
 See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv2.1/Messages/Certificates/InstallCertificateRequest.cs)
 
+*GetInstalledCertificateIdsRequest* and *DeleteCertificateRequest* accept the type `NetworkTimeRootCertificate` as well. Installing or deleting such a root CA is an entry in the secure metrological log (section 3).
+
+*Reference implementation*: Root CAs for time servers are TLS roots of the node's certificate store with the usage `nts`. Instead of root CA groups per server, the reference implementation holds servers to root pins.
+
+
+#### 3.2.6 Security Events and Monitoring
+
+The following *SecurityEventNotificationRequest* types are used. `SettingSystemTime` and `ReconfigurationOfSecurityParameters` are security events of OCPP 2.x; the others are proposed by this paper.
+
+| Type | When |
+|------|------|
+| `SettingSystemTime` | A correction of the clock, or a measured offset of it, equal to or greater than `ClockCtrlr.TimeAdjustmentReportingThreshold` (section 2.2). The `techInfo` gives the offset. |
+| `ReconfigurationOfSecurityParameters` | The configuration of a group was changed by anybody but the CSMS itself, e.g. via a local web interface, or a pin was learned on first use. The `techInfo` says what changed; the log has it in full. |
+| `LegalTimeLimited` | The legal group reached `MaxErrors`. |
+| `LegalTimeRestored` | A round of the legal group produced a time again after it had reached `MaxErrors`. |
+| `InvalidTimeServerCertificate` | An NTS-KE or NTP-over-TLS handshake was refused: wrong name, untrusted chain, or a pin mismatch with `OnPinMismatch = Refuse`. Sent once per change of the verdict, not at every attempt. |
+| `TimeServerCertificateChanged` | A server was believed with another certificate or root CA than before. |
+
+`NTPController.LegalTime`, `NTPClientGroupController.Limited` and `NTPClientController.Problem` are meant to be monitored: a CSMS sets a `Delta` monitor on them via *SetVariableMonitoringRequest* and receives a *NotifyEventRequest* when they change.
+
 
 ### 3.3 OCPP v1.6+SE Client Configuration
 
-The following table gives an overview how the NTP/NTP client configuration can be mapped onto OCPP v1.6+SE configuration keys and values.
+The following tables map the configuration of section 3.2 onto OCPP v1.6+SE configuration keys. A key `ntp.<group>.<name>` or `ntske.<group>.<name>` belongs to the group of that id. The groups of OCPP v1.6 are the well-known ones, `legal` and `local`. Further groups use the same keys with their own id, where a charging station has them, but they cannot be created via OCPP v1.6.
 
-If a CSL (comma separated list) configuration setting is shorter than expected, e.g. the "ntp.ports" list is shorter than the "ntp.servers" list, the last value in the list is applied to all remaining items (here: servers). Empty entries are filled with the previous value, starting from the default value. Lists that are longer than expected will result in an error.
+If a CSL (comma separated list) configuration setting is shorter than expected, e.g. the `ntp.legal.ports` list is shorter than the `ntp.legal.servers` list, the last value in the list is applied to all remaining items (here: servers). Empty entries are filled with the previous value, starting from the default value. Lists that are longer than expected will result in an error.
 
-Servers and ports mean what they mean in 3.2.1. In mode *NTSv4* the NTS-KE servers are those of `ntske.<group>.servers`, or those of `ntp.<group>.servers` when it is empty. The NTP server finally used is the one the NTS-KE response names.
+Servers and ports mean what they mean in section 3.2.4. In mode *NTSv4* the NTS-KE servers are those of `ntske.<group>.servers`, or those of `ntp.<group>.servers` when it is empty. The NTP server finally used is the one the NTS-KE response names.
+
+A *ChangeConfiguration.req* changes one key at a time, so changes cannot be bundled as with `ACID` (section 3.2.5). A charging station SHALL therefore validate each key against the configuration as it would be after the change, and SHALL answer `Rejected` when the result would be inconsistent, e.g. fewer servers than `ntp.legal.minServers`. A CSMS has to change keys in an admissible order: add servers before it raises `minServers`, and lower `minServers` before it removes servers. In OCPP v1.6 `Rejected` carries no reason. The logging rules of section 3 apply unchanged: every change of a key of the legal group is an entry in the secure metrological log.
+
+*Reference implementation*: the keys of this section are not implemented yet.
 
 #### 3.3.1 Common Configuration Keys
 
-| Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
-|---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
-| ntp.enabled   | required |  rw           | Boolean    | false         | -      | -              | Whether NTP/NTS is enabled. |
-| ntp.reboot.allowJumps | optional | rw | Boolean | true | | | Allows immediate correction of large time discrepancies during the first synchronization steps after a reboot. |
-| ntp.reboot.noCertTimeCheck | optional | rw | Boolean | false         | - | - | Whether the *notBefore* and *notAfter* timestamp checks of NTS and NTP-over-TLS TLS certificates can be skipped on the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Example        | Description |
+|---------------|----------|---------------|------------|---------------|----------------|-------------|
+| ntp.reboot.allowJumps | optional | rw | Boolean | true          | -              | Allows immediate correction of large time discrepancies during the first synchronization steps after a reboot. |
+| ntp.reboot.noCertTimeCheck | optional | rw | Boolean | false     | -              | Whether the *notBefore* and *notAfter* checks of NTS-KE and NTP-over-TLS server certificates can be skipped for the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. |
+| ntp.timeAdjustmentReportingThreshold | optional | rw | Integer | 5 | -           | Corrections of the clock, or measured offsets of it, of at least this many seconds are logged in the metrological log and reported as the security event `SettingSystemTime`. See `ClockCtrlr.TimeAdjustmentReportingThreshold` (section 3.2.1). |
+
+The global key `ntp.enabled` of earlier versions of this paper is replaced by `ntp.<group>.enabled`.
 
 
-#### 3.3.1 *Legal Group* Configuration Keys
+#### 3.3.2 *Legal Group* Configuration Keys
 
-| Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
-|---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
-| ntp.legal.servers | optional | rw            | CSL String | "" | - | "time1.org, time2.org, time3.org" | Defines a list of legally recognized NTP/NTS servers, which may vary depending on the device’s country or location. |
-| ntp.legal.ports   | optional | rw            | CSL String | "123" | -      | "125, 126"      | NTP/NTS legal server ports |
-| ntp.legal.delayAsym | optional | rw | CSL String | "0" | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
-| ntp.legal.delayVarAsym | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
-| ntp.legal.mode    | required |  rw           | String     | nts           | NTPv4 \| NTSv4 \| NTPv4TLS | - | NTP/NTS legal server mode. *NTPv4* may be prohibited unless additional security measures are implemented! |
-| ntp.legal.priority  | optional |  rw           | CSL String | "0"           | -      | 0, 0, 10 | NTP/NTS legal server priority list: Servers with lower values are queried first; servers with the same value are queried in parallel. |
-| ntp.legal.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minimal time span between randomized NTP/NTS time sync requests. |
-| ntp.legal.maxInterval | optional |  rw           | Integer    | 3600          | -      | 3600 (seconds) | The maximal time span between randomized NTP/NTS time sync requests. |
-| ntp.legal.preflight | optional |  rw | CSL String | "60"         |        | "60, 90, 30" | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a *preflight* NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. |
-| ntp.legal.minServers | optional | rw           | Integer    | 1             | -      | 2 (servers)    | The minimal number of legal servers that are required for a valid measurement. Failed measurements must be logged. |
-| ntp.legal.maxDeviation | optional | rw | Integer | 60 | | 60 (seconds)   | Time discrepancies equal to or greater than this threshold value must be recorded in the secure metrological log book. |
-| ntp.legal.errorLogging | optional | rw           | Integer    | 5             | -      | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
-| ntp.legal.maxErrors | optional | rw           | Integer    | 10             | -      | 20 (errors)    | The number of consecutive measurement errors that should lead to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry within the secure metrological log book. When the measurements recovered from the error another log book entry shall be added. |
-| ntske.legal.servers | optional  |  rw           | CSV String | ""            | -      | time1.org, time2.org, time3.org | NTS-KE server list. When empty and the mode is NTSv4, the *ntp.legal.servers* setting will be used. |
-| ntske.legal.ports   | optional |  rw           | CSL String | "4460"        | -      | "4461,4462" | NTS-KE server port list. |
-| ntp.legal.rootCAs | optional |  rw           | CSL String | ""            | -      | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of *NetworkTimeRootCertificate* rootCAs is used and when this list is empty the system default list of rootCAs is used *(not recommended)*! |
-| ntske.legal.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.legal.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.legal.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. *(Can be different for different servers.)* |
-| nts.legal.signedResponses | optional |  rw           | Boolean    | false         |        |                | Whether NTS responses shall be digital signed. |
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Example        | Description |
+|---------------|----------|---------------|------------|---------------|----------------|-------------|
+| ntp.legal.enabled | required | rw          | Boolean    | true          | -              | Whether the legal group is asked. See `NTPClientGroupController.Enabled`. |
+| ntp.legal.servers | optional | rw          | CSL String | ""            | "ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de" | The legally recognized time servers, which may vary depending on the device’s country or location. See `NTPClientController.ServerURL`. |
+| ntp.legal.ports   | optional | rw          | CSL String | "123"         | "123, 125"     | The NTP ports, per server. |
+| ntp.legal.mode    | required | rw          | String     | "NTSv4"       | -              | `NTSv4` or `NTPv4TLS`. `NTPv4` MUST NOT be used for the legal group. See `NTPClientController.Mode`. |
+| ntp.legal.priority | optional | rw         | CSL String | "0"           | "0, 0, 10"     | The priority, per server: servers with lower values are asked first, servers with the same value in parallel (section 3.2.3). |
+| ntp.legal.delayAsym | optional | rw        | CSL String | "0"           | "0, -0.05"     | The delay asymmetry correction, per server, in milliseconds. See `NTPClientController.DelayAsymmetry`. |
+| ntp.legal.delayVarAsym | optional | rw     | CSL String | "0"           | "+0.5, 0, -0.5" | See `NTPClientController.DelayVarAsymmetry`, per server. |
+| ntp.legal.minInterval | optional | rw      | Integer    | 30            | 600            | The shortest time between two rounds, in seconds. See `NTPClientGroupController.MinInterval`. |
+| ntp.legal.maxInterval | optional | rw      | Integer    | 1800          | 1800           | The longest time between two rounds, in seconds; shorter than `ntp.legal.maxAge`. See `NTPClientGroupController.MaxInterval`. |
+| ntp.legal.preflight | optional | rw        | Integer    | -             | 60             | After this many seconds without a round, preflight packets are sent first. See `NTPClientGroupController.Preflight`. |
+| ntp.legal.timeout | optional | rw          | Decimal    | -             | 3              | How long one exchange may take, in seconds. See `NTPClientGroupController.Timeout`. |
+| ntp.legal.minServers | optional | rw       | Integer    | 2             | 3              | The quorum: how many servers of one priority must answer. See `NTPClientGroupController.MinServers`. |
+| ntp.legal.maxDeviation | optional | rw     | Decimal    | 60            | 0.5            | The spread between the answers of one round, in seconds, that is accepted silently; a spread equal to or greater than it is recorded in the secure metrological log. See `NTPClientGroupController.MaxDeviation`. |
+| ntp.legal.errorLogging | optional | rw     | Integer    | 5             | 10             | The number of consecutive failed rounds that leads to an entry in the secure metrological log. When a round produces a time again, another entry is added. |
+| ntp.legal.maxErrors | optional | rw        | Integer    | 10            | 20             | The number of consecutive failed rounds that leads to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry in the secure metrological log. When a round produces a time again, another entry is added. |
+| ntp.legal.authority | optional | rw        | String     | ""            | "PTB"          | Who stands behind the time of the legal group. Without it the time is not legal time. See `NTPClientGroupController.LegalTimeAuthority`. |
+| ntp.legal.tolerance | optional | rw        | Decimal    | 1             | 0.5            | How far the station's own clock may be from the time of the legal group and still be legal time, in seconds. See `NTPClientGroupController.LegalTimeTolerance`. |
+| ntp.legal.maxAge  | optional | rw          | Integer    | 3600          | 3600           | How old the last round that produced a time may be and still be legal time, in seconds. See `NTPClientGroupController.LegalTimeMaxAge`. |
+| ntske.legal.servers | optional | rw        | CSL String | ""            | "ntske1.example.org, ntske2.example.org" | The NTS-KE servers, per server. When empty and the mode is NTSv4, the servers of `ntp.legal.servers` are used. See `NTPClientController.NTSKEServerURL`. |
+| ntske.legal.ports | optional | rw          | CSL String | "4460"        | "4460, 4461"   | The NTS-KE ports, per server. |
+| ntp.legal.rootCAs | optional | rw          | CSL String | ""            | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | The `certificateGroup` of `NetworkTimeRootCertificate` root CAs, per server. In the example the first two servers must chain to `legalTimeCA1`, the third to `legalTimeCA2`. When not set, every `NetworkTimeRootCertificate` root CA may vouch for the server, and when there are none, the root CAs of the system *(not recommended)*! |
+| ntske.legal.certificatePins.*n* | optional | rw | CSL String | "" | "41C7…3F61"  | The certificate pins of the *n*-th server, numbered from 1 in the order of `ntp.legal.servers`. See `NTPClientController.CertificatePins`. |
+| ntske.legal.rootPins.*n* | optional | rw  | CSL String | ""            | "9D2E…D8E"     | The root pins of the *n*-th server. See `NTPClientController.RootPins`. |
+| ntske.legal.onPinMismatch | optional | rw | CSL String | "Refuse"     | "Refuse, Record" | Per server. See `NTPClientController.OnPinMismatch`. |
+| ntske.legal.trustOnFirstUse | optional | rw | CSL String | "None"     | "Root, None"   | Per server. See `NTPClientController.TrustOnFirstUse`. |
+| ntske.legal.minRefresh | optional | rw     | CSL String | "43200"       | "43200, 21600" | Per server, in seconds. See `NTPClientController.MinRefresh`. |
+| ntske.legal.maxRefresh | optional | rw     | CSL String | "86400"       | "86400, 43200" | Per server, in seconds. See `NTPClientController.MaxRefresh`. |
+| ntske.legal.aead  | optional | rw          | CSL String | "AES-SIV-CMAC-256" | "AES-SIV-CMAC-256, AES-128-GCM-SIV" | The AEAD algorithm, per server: `AES-SIV-CMAC-256` or `AES-128-GCM-SIV`. See `NTPClientController.AEADAlgorithm`. |
+| ntp.legal.signedResponses | optional | rw  | Boolean    | false         | -              | Whether digitally signed responses are requested. See `NTPClientController.SignedResponses`. |
 
-
-#### 3.3.1 *Local Group* Configuration Keys
-
-| Key Name      | req/opt  | Accessibility | Type       | Default Value | Values | Example        | Description |
-|---------------|----------|---------------|------------|---------------|--------|----------------|-------------|
-| ntp.local.servers | optional | rw            | CSL String | ""            | -      | "lc1.local, lc2.local" | Defines a list of local NTP/NTS servers, e.g. running on OCPP Local Controllers, that shall be used as a shared local time source for use cases like *local load management*, for which having a consistent local time across devices is more important than having legal time accuracy. |
-| ntp.local.ports   | optional | rw            | CSL String | "123" | -      | "125, 126"      | NTP/NTS local server ports |
-| ntp.local.delayAsym | optional | rw | CSL String | "0" | - | - | These values specifies a correction (in milliseconds) which will be applied to measured time offsets per server. This can compensate known stable asymmetries in network or processing delays. For example, if packets sent to the source were on average delayed by 100 microseconds more than packets sent from the source back, the correction would be -0.05 (-50 microseconds). |
-| ntp.local.delayVarAsym | optional | rw | CSL String | "0" | - | "+0.5,0,-0.5,0,0"| These values can fine-tune the offset calculations when network delay variability is greater in one direction than the other. Use only if you know your network has a consistent asymmetry. |
-| ntp.local.mode    | required |  rw           | String     | nts           | NTPv4 \| NTSv4 \| NTPv4TLS | - | NTP/NTS local server mode. |
-| ntp.local.priority  | optional |  rw           | CSL String | "0"           | -      | 0, 10 | NTP/NTS local server priority list: Servers with lower values are queried first; servers with the same value are queried in parallel. |
-| ntp.local.minInterval | optional |  rw           | Integer    | 30            | -      | 60 (seconds)   | The minimal time span between randomized NTP/NTS time sync requests. |
-| ntp.local.maxInterval | optional |  rw           | Integer    | 3600          | -      | 3600 (seconds) | The maximal time span between randomized NTP/NTS time sync requests. |
-| ntp.local.preflight | optional |  rw | CSL String | "60"         |        | "60, 90, 30" | Occasional requests to an NTP/NTS server may be delayed due to network caching effects such as ARP or DNS resolution, firewall state establishment, TLS tunnel setup, and similar factors. To prevent inaccurate delay measurements, a *preflight* NTP packet is sent and its response ignored before the actual measurement takes place. The configured values define the time intervals since the last measurement that trigger sending preflight NTP packets. |
-| ntp.local.minServers | optional | rw           | Integer    | 1             | -      | 2 (servers)    | The minimal number of local servers that are required for a valid measurement. Failed measurements must be logged. |
-| ntp.local.errorLogging | optional | rw           | Integer    | 5             | -      | 10 (errors)    | The number of consecutive measurement errors that should lead to an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
-| ntp.local.maxErrors | optional | rw           | Integer    | 50            | -      | 100 (errors)    | The number of consecutive measurement errors that should lead to a stop of the load management feature and an entry within the security log book. When the measurements recovered from the error another log book entry shall be added. |
-| ntske.local.servers | optional  |  rw           | CSV String | ""            | -      | "lc1.local, lc2.local" | NTS-KE local server list. When empty and the mode is NTSv4, the *ntp.local.servers* setting will be used. |
-| ntske.ports   | optional |  rw           | CSL String | "4460"        | -      | "4461,4462" | NTS-KE local server port list. |
-| ntp.local.rootCAs | optional |  rw           | CSL String | ""            | -      | "localTimeCAs" | Which rootCA group can be used for NTS-KE and NTP-over-TLS server certificate validation. When this configuration is not set, the system default list of *NetworkTimeRootCertificate* rootCAs is used and when this list is empty the system default list of rootCAs is used *(not recommended)*! |
-| ntske.local.minRefresh | optional | rw | CSL String | "30"         | - |         "30,32" | Refreshing the NTS keys and cookies should be started after the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.local.maxRefresh | optional | rw | CSL String | "60"         | - |         "60,90" | Refreshing the NTS keys and cookies must be completed within the given time span (in days) since the last NTS-KE handshakes *(randomly between given min and max values)*.
-| ntske.local.aead    | optional |  rw           | CSV String | "AES-SIV-CMAC-256"            | AES-SIV-CMAC-256\|AES-128-GCM-SIV | "AES-SIV-CMAC-256" | The optional Authenticated Encryption with Associated Data (AEAD) algorithm used for NTS authentication of NTP messages. *(Can be different for different servers.)* |
-| nts.local.signedResponses | optional |  rw           | Boolean    | false         |        |                | Whether NTS responses shall be digital signed. |
+OCPP v1.6 limits a configuration value to 500 characters, so at most 7 fingerprints without colons fit into one pin key.
 
 
-#### 3.3.2 OCPP v1.6+SE Minimal Example
+#### 3.3.3 *Local Group* Configuration Keys
+
+The local group uses the keys of section 3.3.2 with `local` in place of `legal`, e.g. `ntske.local.ports`, except for `authority`, `tolerance` and `maxAge`, which exist for the legal group only. Its entries go to the security log, not to the secure metrological log (section 3). These keys differ from those of the legal group:
+
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Example        | Description |
+|---------------|----------|---------------|------------|---------------|----------------|-------------|
+| ntp.local.enabled | required | rw          | Boolean    | false         | -              | Whether the local group is asked. |
+| ntp.local.servers | optional | rw          | CSL String | ""            | "lc1.local, lc2.local" | Local time servers, e.g. running on OCPP Local Controllers, that shall be used as a shared local time source for use cases like *local load management*, for which having a consistent local time across devices is more important than having legal time accuracy. |
+| ntp.local.mode    | required | rw          | String     | "NTSv4"       | -              | `NTSv4`, `NTPv4TLS` or `NTPv4`. `NTPv4` should not be used unless further security measures protect it. |
+| ntp.local.maxInterval | optional | rw      | Integer    | 3600          | 60             | The longest time between two rounds, in seconds. |
+| ntp.local.errorLogging | optional | rw     | Integer    | 5             | 10             | The number of consecutive failed rounds that leads to an entry in the security log. When a round produces a time again, another entry is added. |
+| ntp.local.maxErrors | optional | rw        | Integer    | 50            | 100            | The number of consecutive failed rounds that leads to a stop of the load management feature and an entry in the security log. When a round produces a time again, another entry is added. |
+
+
+#### 3.3.4 OCPP v1.6+SE Minimal Example
 
 ```
+ntp.legal.enabled     =  true
 ntp.legal.servers     = "ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de"
 ntp.legal.mode        = "NTSv4"
 ntp.legal.rootCAs     = "legalTimeCA"
 ntp.legal.minServers  =  2
+ntp.legal.authority   = "PTB"
 ```
 
 
-#### 3.3.3 OCPP v1.6+SE Command Extensions
+#### 3.3.5 OCPP v1.6+SE Command Extensions
 
 *InstallCertificateRequest*
 
@@ -492,7 +638,11 @@ national solution for Germany.
 
 
 
+## 8. Relation to Other White Papers
 
+- [Critical Legal Time Services](../CriticalLegalTimeServices/README.md): the rationale of this paper. It explains why legal time must fail closed, why several servers must agree, and what a provider of legal time should publish for its clients: a signed policy, DNS records and a status API. Its `quorum.clients` corresponds to `MinServers` and `MaxDeviation` of the NTP Client Group Controller, and its managed networks (section 4.2) are the environment in which the configuration of this paper is communicated via OCPP.
+- [Secure Name Resolution for OCPP](../SecureDNS/README.md): NTS-KE servers are found by name, so time synchronization is only as trustworthy as name resolution. Its components are named alike, and pins, `OnPinMismatch` and trust on first use mean the same there.
+- [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md): the `ACID` and `BASE` *DataConsistencyModel* and the conditional updates used in section 3.2.5.
 
 
 
