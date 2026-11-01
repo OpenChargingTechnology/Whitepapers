@@ -802,6 +802,28 @@ with IANA on 2026-08-19).
 - **Confidentiality where needed:** `COSE_Encrypt0`/`COSE_Encrypt` with an AEAD algorithm
   (AES-GCM, ChaCha20-Poly1305), e.g. end to end through a Local Controller. Message-level
   encryption without authentication is not used.
+  - **Delivering the key by ECDH-ES (RFC 9053 §6.3).** The parties that need confidentiality
+    through an intermediary are exactly the ones that share no application-level secret: TLS ends
+    at the Local Controller, and CSMS and station know each other only by certificate. Rather than
+    distributing a symmetric key per pair, the sender encrypts to the recipient's **public key** —
+    `COSE_Encrypt` with `ECDH-ES + HKDF-256` for one recipient, or `ECDH-ES + A128KW` (192, 256)
+    when one content key goes to several. The Local Controller relays the message and cannot read
+    it. The same holds wherever a content key must reach a party with which nothing was shared in
+    advance: a CSMS forwarding data to a third party, data addressed to a contract holder, a
+    station's log for its manufacturer. A pre-shared key (`direct`, AES key wrap) remains the
+    simpler choice between parties that are provisioned with one anyway.
+  - **A key-agreement key of its own.** The recipient's ECDH key is not its TLS client key and not
+    its signing key: one key used for two purposes invites cross-protocol attacks. It needs a
+    certificate profile of its own with `keyUsage: keyAgreement` (chapter 13).
+  - **No forward secrecy.** The recipient's key is static, so whoever later obtains its private
+    key reads every message ever encrypted to it. That is acceptable for short-lived commands; for
+    data kept for years it argues for rotating key-agreement keys and deleting the old ones.
+  - **One ephemeral key per message, from a dependable source of randomness.** A reused ephemeral
+    key gives every message to the same recipient the same content key. Styx and COSE.TS take the
+    ephemeral key from the caller precisely so that its origin is a decision made on purpose.
+  - **Sign, then encrypt.** ECDH-ES authenticates nobody: an encrypted message says nothing about
+    who sent it. The signed object goes inside the envelope, and the signature remains what gives
+    a message its standing.
 - **JSON channels:** the JSON counterpart is the JWS format of OCPP 2.1 §7 (`<Action>-Signed`), with
   the same semantics.
 - **Algorithms:** those permitted by OCPP (ES256 etc.), plus brainpool curves (ESB256) where
@@ -809,7 +831,11 @@ with IANA on 2026-08-19).
 - **Implementation:** [Styx COSE](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/COSE)
   already provides `COSE_Sign1`, `COSE_Sign` with several signers, countersignatures,
   `COSE_Encrypt0`/`COSE_Encrypt`, `COSE_Mac0`/`COSE_Mac`, COSE keys with RFC 9679 thumbprints, the
-  fully-specified algorithms of RFC 9864, the brainpool curves and ML-DSA.
+  fully-specified algorithms of RFC 9864, the brainpool curves and ML-DSA, and ECDH-ES with HKDF
+  on every EC2 curve and on X25519 and X448. [COSE.TS](https://github.com/Vanaheimr/COSE.TS)
+  provides the same in TypeScript, and the
+  [conformance suite](https://github.com/Vanaheimr/MCBORConformanceTests) holds the two to the
+  same bytes, including messages they must refuse.
 
 ### 7.3 Signed by default, justified exceptions
 
@@ -1336,6 +1362,9 @@ fastest because HTTP/1.x is already in production.
     checkpoint sufficient for high-frequency telemetry?
 11. **Freshness:** width of the timestamp window, and behaviour while time is not yet synchronized
     after a cold start.
+12. **Key-agreement certificates:** a profile of their own (`keyUsage: keyAgreement`) for the
+    ECDH-ES keys of section 7.2 — issued by the same CA as the role certificates or by a separate
+    one, how often rotated, and how a sender learns the current one of its recipient.
 
 ---
 
