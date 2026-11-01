@@ -607,6 +607,7 @@ certificate file.
   | `1.3.6.1.4.1.60483.1` | EVQI |
   | `1.3.6.1.4.1.60483.1.1` | EVQI role extension (one DER `UTF8String`, as in Modbus/TCP Security) |
   | `1.3.6.1.4.1.60483.1.2` | certificate policy "EVQI Privileged Operations" |
+  | `1.3.6.1.4.1.60483.1.3` | certificate policy "EVQI Key Agreement" (section 6.8) |
 
   One role per certificate matches "one certificate domain = one connection" exactly, and
   `RoleExtractor` can be reused with a different OID.
@@ -745,6 +746,91 @@ Message signatures (chapter 7) keep the commands authentic in both cases, but on
   `DataCollectorLog`. New would be `EVQIAuditLog` and `MetrologicalLog` (section 10.6, E6). The
   upload uses the bulk channel; until standardized, via `DataTransfer`/`customData`.
 
+### 6.8 Key-agreement certificates
+
+Section 7.2 encrypts to a recipient's public key with ECDH-ES. That key needs a certificate of its
+own: the sender must know that the key belongs to the party it means to address, and a Local
+Controller that relays the message must not be able to put its own key in its place. Proposal:
+
+| Field | Value |
+|---|---|
+| Subject | the holder's identity, by the naming rule of its TLS certificate: station CN = serial number, CSMS CN = FQDN (section 1.1) |
+| Public key | ECDH on P-256 (mandatory to implement); X25519 and brainpoolP256r1 optional |
+| `keyUsage` | `keyAgreement` only, critical |
+| Extended Key Usage | absent, as for every EVQI certificate (section 6.2) |
+| EVQI role extension | absent: a key-agreement key decrypts, it authorizes nothing |
+| Certificate policy | `1.3.6.1.4.1.60483.1.3` "EVQI Key Agreement" |
+| Validity | 90 days by default, never beyond the holder's operational certificate |
+
+- **P-256 as the baseline,** because the key belongs in the secure element (section 6.2, key
+  storage), and P-256 is the one curve every common secure element computes ECDH on; some offer
+  nothing else. X25519 is cheaper in software and needs no on-curve check, only RFC 7748's check of
+  the output; brainpoolP256r1 is there where national requirements ask for it. A sender supports
+  every curve the profile allows; the recipient chooses.
+- **`keyAgreement` and nothing else, marked critical.** A validator that honours it refuses the key
+  for TLS and for signatures, so key separation does not depend on discipline. For X25519 and
+  X448, RFC 8410 §5 requires `keyAgreement` anyway.
+- **A certificate policy rather than the role extension.** The policy marks the certificate as
+  EVQI's key-agreement certificate, so a sender can refuse an ordinary certificate that merely
+  happens to carry an ECDH-capable key. The role extension stays reserved for what authorizes.
+
+**Issuer: the CA of the holder's operational certificate.** Not a hierarchy of its own: a sender
+already validates the holder's identity under that trust anchor, and a separate CA would add a
+trust anchor to distribute without adding a check. And not the privileged sub-CA of section 6.2:
+the privileged endpoint trusts only that sub-CA, and a key-agreement certificate confers no
+privilege. Within the one CA, the certificate policy keeps the two kinds of certificate apart.
+
+**Issuance:**
+
+- The holder generates the key pair itself, in the secure element or TPM where there is one. The
+  private key never leaves it.
+- OCPP 2.x: `SignCertificateRequest` with a new `certificateType` `KeyAgreementCertificate`,
+  answered by `CertificateSigned` with the same type. It is the path of the operational
+  certificate and runs on the control channel (section 10.5): it concerns the holder's own key and
+  grants nothing. OCPP 1.6: `DataTransfer` until standardized (E11).
+- Proof of possession: for P-256 and brainpool, the PKCS#10 request is signed with the
+  key-agreement key itself. That is the one signature the key ever makes, over a structure that
+  cannot be mistaken for an OCPP message. X25519 cannot sign, so how its request proves possession
+  is still open (chapter 13).
+- The CSMS keeps the issued certificate per station: it is the first sender that needs it.
+
+**Rotation:**
+
+- Renewal starts when a third of the validity is left, so the old and the new certificate overlap.
+- The holder keeps the private key of the previous certificate until that certificate has expired
+  plus a grace period for messages in flight (7 days by default), then deletes it. This bounds what
+  a later compromise of the key reveals, which is the forward secrecy that section 7.2 says is
+  missing, to the messages of about one validity period.
+- Data stored encrypted for longer is re-encrypted by whoever keeps it. Old keys are not kept for
+  its sake.
+- After a compromise: revoke at the CA, issue a new certificate and announce it (below). As with
+  the short-lived role certificates of section 6.2, the short validity is what makes revocation
+  lists largely unnecessary.
+- Device model: `EVQICtrlr.KeyAgreementCertificateLifetime` and
+  `EVQICtrlr.KeyAgreementKeyRetention`.
+
+**How a sender learns the recipient's current certificate:**
+
+- **The CSMS** knows each station's certificate from issuance.
+- **A station** learns the CSMS's certificate from `NotifyKeyAgreementCertificate` (CSMS → CS,
+  signed, carrying the chain). The CSMS sends it after session setup when the station's copy is
+  missing or outdated, and on every rotation. `GetKeyAgreementCertificate` fetches it on demand,
+  in either direction.
+- **Third parties** (a manufacturer receiving a station's log, a contract holder): the same message
+  carries their certificate to a station, and the CSMS hands a station's certificate to a third
+  party it forwards data for. Validation then runs against the trust anchor of that party.
+- **Every certificate is validated before use, however it arrived:** chain to the expected trust
+  anchor, certificate policy `1.3.6.1.4.1.60483.1.3`, `keyUsage: keyAgreement`, validity, and a
+  subject that names the party the sender means to address. This makes the delivery path
+  irrelevant to security. A Local Controller that relays `NotifyKeyAgreementCertificate` can drop
+  it but cannot substitute its own key, because it has no certificate under the station's or the
+  CSMS's name. A sender without a valid certificate for its recipient encrypts to nobody else and
+  does not fall back to plaintext.
+- **Which key a message is for:** the recipient structure carries the SHA-256 thumbprint of the
+  recipient's certificate as `x5t` (RFC 9360) rather than a `kid`. During the overlap the recipient
+  picks the matching private key, and it refuses a thumbprint that matches none of its
+  certificates instead of trying its keys in turn.
+
 ---
 
 ## 7. Message representation and message signatures: Metrological CBOR and COSE
@@ -814,7 +900,7 @@ with IANA on 2026-08-19).
     simpler choice between parties that are provisioned with one anyway.
   - **A key-agreement key of its own.** The recipient's ECDH key is not its TLS client key and not
     its signing key: one key used for two purposes invites cross-protocol attacks. It needs a
-    certificate profile of its own with `keyUsage: keyAgreement` (chapter 13).
+    certificate profile of its own with `keyUsage: keyAgreement` (section 6.8).
   - **No forward secrecy.** The recipient's key is static, so whoever later obtains its private
     key reads every message ever encrypted to it. That is acceptable for short-lived commands; for
     data kept for years it argues for rotating key-agreement keys and deleting the old ones.
@@ -831,11 +917,11 @@ with IANA on 2026-08-19).
 - **Implementation:** [Styx COSE](https://github.com/Vanaheimr/Styx/tree/master/Styx/Illias/COSE)
   already provides `COSE_Sign1`, `COSE_Sign` with several signers, countersignatures,
   `COSE_Encrypt0`/`COSE_Encrypt`, `COSE_Mac0`/`COSE_Mac`, COSE keys with RFC 9679 thumbprints, the
-  fully-specified algorithms of RFC 9864, the brainpool curves and ML-DSA, and ECDH-ES with HKDF
-  on every EC2 curve and on X25519 and X448. [COSE.TS](https://github.com/Vanaheimr/COSE.TS)
-  provides the same in TypeScript, and the
-  [conformance suite](https://github.com/Vanaheimr/MCBORConformanceTests) holds the two to the
-  same bytes, including messages they must refuse.
+  fully-specified algorithms of RFC 9864, the brainpool curves and ML-DSA, ECDH-ES with HKDF on
+  every EC2 curve and on X25519 and X448, and ChaCha20-Poly1305 beside AES-GCM.
+  [COSE.TS](https://github.com/Vanaheimr/COSE.TS) provides the same in TypeScript, and the
+  [conformance suite](https://github.com/Vanaheimr/MCBORConformanceTests) holds the two to the same
+  bytes, including messages they must refuse.
 
 ### 7.3 Signed by default, justified exceptions
 
@@ -1146,6 +1232,8 @@ channel (P1).
 | SecurityEventNotification | same | Control | operational |
 | SignCertificate (operational certificate) | same | Control | operational |
 | SignCertificate (role certificate) | – | Privileged | security-admin |
+| SignCertificate, CertificateSigned (key-agreement certificate, section 6.8) | `DataTransfer` (E11) | Control | operational |
+| NotifyKeyAgreementCertificate, GetKeyAgreementCertificate | `DataTransfer` (E11) | Control | operational |
 
 The column states the connection role, i.e. the upper bound. The required signer role per message
 is part of the authorization table (E3) and of the signature policy (E10).
@@ -1164,10 +1252,11 @@ is part of the authorization table (E3) and of the signature policy (E10).
 | E8 | discovery options in the NetworkConnectionProfile (HTTPS RR/SRV) | DNS-based load balancing and failover | low |
 | E9 | headers `EVQI-Session`, `EVQI-Channel`, `EVQI-Ticket` | correlation on the wire | high (part of E1/E2) |
 | E10 | CBOR representation with Metrological CBOR, COSE signatures, sign-by-default policy with declared exceptions | exact measurement data, end-to-end authenticity | high |
+| E11 | key-agreement certificate profile (policy `1.3.6.1.4.1.60483.1.3`), `certificateType` `KeyAgreementCertificate` for `SignCertificate`/`CertificateSigned`, `NotifyKeyAgreementCertificate`, `GetKeyAgreementCertificate` | end-to-end confidentiality through a Local Controller (sections 6.8, 7.2) | medium |
 
 The path to standardization: implement first as `DataTransfer` with a `vendorId` of its own and try
 it out at plugfests, then propose it to the Open Charge Alliance. E1 to E3 can be cut as an
-"OCPP Multi-Channel Profile" of their own, E10 as an "OCPP CBOR/COSE Profile".
+"OCPP Multi-Channel Profile" of their own, E10 and E11 as an "OCPP CBOR/COSE Profile".
 
 ---
 
@@ -1185,7 +1274,7 @@ Styx `master`. W-1 as of WWCP_Core `5efb78cc` and WWCP_OCPP `b13c9ffe`.
 | HTTP/3 / QUIC | Extended CONNECT, WebSockets, datagrams, WebTransport (draft -13) including server-initiated streams; urgency scheduling in the QUIC sender; path validation on NAT rebinding |
 | DNS | SRV/SVCB/HTTPS/TLSA, DoT, DoH, DNSSEC validator |
 | PKI / RBAC | `PKIFactory` with `AdditionalExtension`; Modbus/TLS roles (extension, extraction, authorization, audit hook) |
-| CBOR / COSE (Styx) | Metrological CBOR (tag 44252); COSE Sign1/Sign, countersignatures, Encrypt0/Encrypt, Mac0/Mac, keys and thumbprints, RFC 9864 algorithms, brainpool, ML-DSA |
+| CBOR / COSE (Styx) | Metrological CBOR (tag 44252); COSE Sign1/Sign, countersignatures, Encrypt0/Encrypt, Mac0/Mac, keys and thumbprints, RFC 9864 algorithms, brainpool, ML-DSA, ECDH-ES with HKDF, ChaCha20-Poly1305 |
 
 ### 11.2 Hermod: gaps for EVQI
 
@@ -1282,6 +1371,7 @@ with IANA (tag 44252), COSE in Styx.
 | D3 | Privileged endpoint, ticket lifecycle, on-demand procedure (section 6.5) | M | end-to-end firmware update in a test network |
 | D4 | Audit log based on WWCP_Node `SignedLog` (both sides), storing COSE objects, exporter binding where available | M | chain verification; tampering test |
 | D5 | Key storage abstraction (TPM 2.0 / PKCS#11) for privileged keys | L | firmware role key not exportable |
+| D6 | Key-agreement certificates (section 6.8): profile, issuance via `SignCertificate` with `certificateType` `KeyAgreementCertificate`, overlapping renewal, deletion of the previous key, key in the secure element where available | M | certificate for every station and the CSMS; a renewal loses no message; a deleted key opens nothing |
 
 ### Phase S: representation and signatures
 
@@ -1292,6 +1382,7 @@ with IANA (tag 44252), COSE in Styx.
 | S3 | Sign-by-default policy with declared exceptions; two-level authorization (connection role ∩ signer role) | M | table-driven tests per message and role |
 | S4 | Signer key and role management (signer certificates with the role extension, four eyes via `COSE_Sign`) | M | firmware update with two signatures end to end |
 | S5 | JSON gateway carrying COSE objects unchanged; JWS per OCPP 2.1 §7 on JSON channels | S | signature still verifies after the gateway |
+| S6 | End-to-end encryption by ECDH-ES (sections 6.8, 7.2): `NotifyKeyAgreementCertificate`/`GetKeyAgreementCertificate`, validation of recipient certificates, sign-then-encrypt in the OCPP adapter; Styx and COSE.TS write and read `x5t` on recipient structures, which today they identify only by `kid` | M | a command from the CSMS opens at the station and not at the Local Controller; a substituted certificate is refused |
 
 ### Phase E: OCPP mapping in WWCP
 
@@ -1335,6 +1426,7 @@ ongoing.
 | **M4** | HTTP/2 binding production-ready, Local Controller over one connection | A1, A3, A7, C1, C3, F |
 | **M5** | HTTP/3 binding and DNS discovery | A4, A6, C2 |
 | **M6** | WebTransport prototype with assessment | G |
+| **M7** | End-to-end encryption through a Local Controller | D6, S2, S6 |
 
 M1 and M2 are independent of each other and can run in parallel. M1 delivers the most benefit
 fastest because HTTP/1.x is already in production.
@@ -1362,9 +1454,12 @@ fastest because HTTP/1.x is already in production.
     checkpoint sufficient for high-frequency telemetry?
 11. **Freshness:** width of the timestamp window, and behaviour while time is not yet synchronized
     after a cold start.
-12. **Key-agreement certificates:** a profile of their own (`keyUsage: keyAgreement`) for the
-    ECDH-ES keys of section 7.2 — issued by the same CA as the role certificates or by a separate
-    one, how often rotated, and how a sender learns the current one of its recipient.
+12. **Key-agreement certificates:** proposed in section 6.8. A profile of their own
+    (`keyUsage: keyAgreement`, certificate policy `1.3.6.1.4.1.60483.1.3`), issued by the CA of
+    the holder's operational certificate, valid for 90 days with overlapping renewal, announced by
+    `NotifyKeyAgreementCertificate` and addressed by `x5t`. Still open: how an X25519 key, which
+    cannot sign, proves possession when its certificate is requested; the default lifetimes; and
+    the OID, together with question 2.
 
 ---
 
