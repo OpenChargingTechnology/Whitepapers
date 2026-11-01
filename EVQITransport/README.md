@@ -828,11 +828,12 @@ Rules:
    holds the private key.
 2. **The challenge is encrypted to the requested key.** It is a `COSE_Encrypt` with one
    `ECDH-ES + HKDF-256` recipient, which names the key by `kid` = SHA-256 of the
-   `SubjectPublicKeyInfo` (there is no certificate yet for `x5t` to name). PartyU identity is the
-   CSMS, and PartyV identity is the station's identity (its serial number). The derived key is
-   therefore bound to both parties, and a challenge relayed to another holder of the same key
-   derives nothing. The content is an AEAD of section 7.2. The nonce is 32 bytes from a dependable
-   source of randomness.
+   `SubjectPublicKeyInfo` (there is no certificate yet for `x5t` to name). It carries no PartyU or
+   PartyV information. Identities written into the recipient's headers are read back from those
+   same headers, so whoever relays the challenge relays them too, and they would bind nothing. What
+   binds the answer to the request is the `requestId` and the station's signature on the answer.
+   The content is an AEAD of section 7.2. The nonce is 32 bytes from a dependable source of
+   randomness.
 3. **One challenge per request, used once, short-lived.** The nonce expires after
    `EVQICtrlr.KeyAgreementChallengeTimeout` (5 minutes by default). It is bound to the `requestId`
    (OCPP 2.1's, otherwise one the CSMS assigns) and is forgotten once answered, right or wrong.
