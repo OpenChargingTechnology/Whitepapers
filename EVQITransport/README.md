@@ -600,7 +600,8 @@ certificate file.
 - **One role per certificate**, same encoding as Modbus (one `UTF8String`) but **its own OID**.
   Using the Modbus.org OID for OCPP semantics would be wrong. The OID comes from the arc of
   GraphDefined GmbH, IANA Private Enterprise Number **60483** (`1.3.6.1.4.1.60483`), whose
-  arc `.42` is assigned to EVQI (2026-11-01):
+  arc `.42` is assigned to EVQI (2026-11-01) and recorded in the
+  [GraphDefined OID registry](https://github.com/Vanaheimr/Styx/blob/master/OID-Registry.md):
 
   | OID | Meaning |
   |---|---|
@@ -1491,6 +1492,7 @@ fastest because HTTP/1.x is already in production.
 
 - Modbus/TCP Security Protocol Specification (Modbus.org), role OID `1.3.6.1.4.1.50316.802.1`
 - IANA Private Enterprise Numbers: 60483 – GraphDefined GmbH
+- [GraphDefined OID registry](https://github.com/Vanaheimr/Styx/blob/master/OID-Registry.md): the arcs under 60483
   (<https://www.iana.org/assignments/enterprise-numbers/?q=graphdefined>)
 - WELMEC Guide 7.2 (Software Guide, Measuring Instruments Directive)
 - EVQI project page: <https://nlnet.nl/project/EVQI/>
