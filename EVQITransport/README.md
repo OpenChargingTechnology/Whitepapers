@@ -792,9 +792,57 @@ privilege. Within the one CA, the certificate policy keeps the two kinds of cert
   grants nothing. OCPP 1.6: `DataTransfer` until standardized (E11).
 - Proof of possession: for P-256 and brainpool, the PKCS#10 request is signed with the
   key-agreement key itself. That is the one signature the key ever makes, over a structure that
-  cannot be mistaken for an OCPP message. X25519 cannot sign, so how its request proves possession
-  is still open (chapter 13).
+  cannot be mistaken for an OCPP message. X25519 cannot sign; its request proves possession by
+  decrypting a challenge (below).
 - The CSMS keeps the issued certificate per station: it is the first sender that needs it.
+
+**Proof of possession for a key that cannot sign (X25519), decided on 2026-11-01:** the
+requester proves that it can do with the key exactly what the certificate will certify, which is
+to decrypt what was encrypted to it. This is the indirect proof of possession of CRMF
+(RFC 4211, section 4) carried out with COSE, and it needs nothing beyond the ECDH-ES of
+section 7.2.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CS as Charging station
+    participant CSMS as CSMS (registration authority)
+    participant CA as CA of the operational certificate
+
+    CS->>CSMS: SignCertificateRequest (certificateType KeyAgreementCertificate,<br/>requestId, the X25519 SubjectPublicKeyInfo instead of a CSR), COSE-signed
+    CSMS->>CSMS: check the signer (the station itself) and the key (X25519, not yet certified)
+    CSMS-->>CS: SignCertificateResponse (Accepted)
+    CSMS->>CS: KeyAgreementChallengeRequest (requestId,<br/>COSE_Encrypt by ECDH-ES + HKDF-256 to the requested key, carrying a 256-bit nonce)
+    CS->>CS: decrypt with the new private key (in the secure element)
+    CS-->>CSMS: KeyAgreementChallengeResponse (requestId, nonce), COSE-signed
+    CSMS->>CA: issue (nonce matched, within its lifetime)
+    CSMS->>CS: CertificateSigned (certificateType KeyAgreementCertificate, chain)
+```
+
+Rules:
+
+1. **The request names a key, not a CSR.** A PKCS#10 request needs a signature by the key it
+   carries, so for X25519 the request carries the bare `SubjectPublicKeyInfo`. Who asks is
+   established by the request itself: it arrives over the station's own authenticated connection
+   and is signed by the station (section 7.3). Proof of possession adds that the requester also
+   holds the private key.
+2. **The challenge is encrypted to the requested key.** It is a `COSE_Encrypt` with one
+   `ECDH-ES + HKDF-256` recipient, which names the key by `kid` = SHA-256 of the
+   `SubjectPublicKeyInfo` (there is no certificate yet for `x5t` to name). PartyU identity is the
+   CSMS, and PartyV identity is the station's identity (its serial number). The derived key is
+   therefore bound to both parties, and a challenge relayed to another holder of the same key
+   derives nothing. The content is an AEAD of section 7.2. The nonce is 32 bytes from a dependable
+   source of randomness.
+3. **One challenge per request, used once, short-lived.** The nonce expires after
+   `EVQICtrlr.KeyAgreementChallengeTimeout` (5 minutes by default). It is bound to the `requestId`
+   (OCPP 2.1's, otherwise one the CSMS assigns) and is forgotten once answered, right or wrong.
+   A wrong or late answer means no certificate, and a `SecurityEventNotification`
+   `KeyPossessionNotProven`.
+4. **The answer travels signed, and in the clear.** A Local Controller relaying the response sees
+   the nonce, but only after the station has already used it. The nonce is single-use, and the
+   station's signature binds it to the `requestId`. Encrypting the answer would add nothing.
+5. **Signing keys keep their CSR.** P-256 and brainpool keys prove possession by the signed PKCS#10
+   request as before. The challenge is for keys that cannot sign, which today means X25519.
 
 **Rotation:**
 
@@ -1236,6 +1284,7 @@ channel (P1).
 | SignCertificate (role certificate) | – | Privileged | security-admin |
 | SignCertificate, CertificateSigned (key-agreement certificate, section 6.8) | `DataTransfer` (E11) | Control | operational |
 | NotifyKeyAgreementCertificate, GetKeyAgreementCertificate | `DataTransfer` (E11) | Control | operational |
+| KeyAgreementChallenge (proof of possession for X25519, section 6.8) | `DataTransfer` (E11) | Control | operational |
 
 The column states the connection role, i.e. the upper bound. The required signer role per message
 is part of the authorization table (E3) and of the signature policy (E10).
@@ -1254,7 +1303,7 @@ is part of the authorization table (E3) and of the signature policy (E10).
 | E8 | discovery options in the NetworkConnectionProfile (HTTPS RR/SRV) | DNS-based load balancing and failover | low |
 | E9 | headers `EVQI-Session`, `EVQI-Channel`, `EVQI-Ticket` | correlation on the wire | high (part of E1/E2) |
 | E10 | CBOR representation with Metrological CBOR, COSE signatures, sign-by-default policy with declared exceptions | exact measurement data, end-to-end authenticity | high |
-| E11 | key-agreement certificate profile (policy `1.3.6.1.4.1.60483.42.3`), `certificateType` `KeyAgreementCertificate` for `SignCertificate`/`CertificateSigned`, `NotifyKeyAgreementCertificate`, `GetKeyAgreementCertificate` | end-to-end confidentiality through a Local Controller (sections 6.8, 7.2) | medium |
+| E11 | key-agreement certificate profile (policy `1.3.6.1.4.1.60483.42.3`), `certificateType` `KeyAgreementCertificate` for `SignCertificate`/`CertificateSigned`, `NotifyKeyAgreementCertificate`, `GetKeyAgreementCertificate`, `KeyAgreementChallenge` and the security event `KeyPossessionNotProven` | end-to-end confidentiality through a Local Controller (sections 6.8, 7.2) | medium |
 
 The path to standardization: implement first as `DataTransfer` with a `vendorId` of its own and try
 it out at plugfests, then propose it to the Open Charge Alliance. E1 to E3 can be cut as an
@@ -1373,7 +1422,7 @@ with IANA (tag 44252), COSE in Styx.
 | D3 | Privileged endpoint, ticket lifecycle, on-demand procedure (section 6.5) | M | end-to-end firmware update in a test network |
 | D4 | Audit log based on WWCP_Node `SignedLog` (both sides), storing COSE objects, exporter binding where available | M | chain verification; tampering test |
 | D5 | Key storage abstraction (TPM 2.0 / PKCS#11) for privileged keys | L | firmware role key not exportable |
-| D6 | Key-agreement certificates (section 6.8): profile, issuance via `SignCertificate` with `certificateType` `KeyAgreementCertificate`, overlapping renewal, deletion of the previous key, key in the secure element where available | M | certificate for every station and the CSMS; a renewal loses no message; a deleted key opens nothing |
+| D6 | Key-agreement certificates (section 6.8): profile, issuance via `SignCertificate` with `certificateType` `KeyAgreementCertificate`, overlapping renewal, deletion of the previous key, key in the secure element where available | M | certificate for every station and the CSMS; a renewal loses no message; a deleted key opens nothing; an X25519 key is certified only after its challenge was answered, and a wrong or late answer gets no certificate |
 
 ### Phase S: representation and signatures
 
@@ -1460,8 +1509,8 @@ fastest because HTTP/1.x is already in production.
     profile of their own (`keyUsage: keyAgreement`, certificate policy
     `1.3.6.1.4.1.60483.42.3`), issued by the CA of the holder's operational certificate, valid for
     90 days with overlapping renewal, announced by `NotifyKeyAgreementCertificate` and addressed
-    by `x5t`. Still open: how an X25519 key, which cannot sign, proves possession when its
-    certificate is requested.
+    by `x5t`. An X25519 key, which cannot sign, proves possession by answering a challenge
+    encrypted to it (decided on the same day).
 
 ---
 
