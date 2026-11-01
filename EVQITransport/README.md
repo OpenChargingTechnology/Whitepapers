@@ -750,7 +750,8 @@ Message signatures (chapter 7) keep the commands authentic in both cases, but on
 
 Section 7.2 encrypts to a recipient's public key with ECDH-ES. That key needs a certificate of its
 own: the sender must know that the key belongs to the party it means to address, and a Local
-Controller that relays the message must not be able to put its own key in its place. Proposal:
+Controller that relays the message must not be able to put its own key in its place. Decided on
+2026-11-01 (chapter 13, question 12):
 
 | Field | Value |
 |---|---|
@@ -1382,7 +1383,7 @@ with IANA (tag 44252), COSE in Styx.
 | S3 | Sign-by-default policy with declared exceptions; two-level authorization (connection role ∩ signer role) | M | table-driven tests per message and role |
 | S4 | Signer key and role management (signer certificates with the role extension, four eyes via `COSE_Sign`) | M | firmware update with two signatures end to end |
 | S5 | JSON gateway carrying COSE objects unchanged; JWS per OCPP 2.1 §7 on JSON channels | S | signature still verifies after the gateway |
-| S6 | End-to-end encryption by ECDH-ES (sections 6.8, 7.2): `NotifyKeyAgreementCertificate`/`GetKeyAgreementCertificate`, validation of recipient certificates, sign-then-encrypt in the OCPP adapter; Styx and COSE.TS write and read `x5t` on recipient structures, which today they identify only by `kid` | M | a command from the CSMS opens at the station and not at the Local Controller; a substituted certificate is refused |
+| S6 | End-to-end encryption by ECDH-ES (sections 6.8, 7.2): `NotifyKeyAgreementCertificate`/`GetKeyAgreementCertificate`, validation of recipient certificates, sign-then-encrypt in the OCPP adapter; `x5t` on recipient structures is available in Styx (`9e0633a7`) and COSE.TS (`3b19e5b`) | M | a command from the CSMS opens at the station and not at the Local Controller; a substituted certificate is refused |
 
 ### Phase E: OCPP mapping in WWCP
 
@@ -1454,12 +1455,12 @@ fastest because HTTP/1.x is already in production.
     checkpoint sufficient for high-frequency telemetry?
 11. **Freshness:** width of the timestamp window, and behaviour while time is not yet synchronized
     after a cold start.
-12. **Key-agreement certificates:** proposed in section 6.8. A profile of their own
-    (`keyUsage: keyAgreement`, certificate policy `1.3.6.1.4.1.60483.1.3`), issued by the CA of
-    the holder's operational certificate, valid for 90 days with overlapping renewal, announced by
-    `NotifyKeyAgreementCertificate` and addressed by `x5t`. Still open: how an X25519 key, which
-    cannot sign, proves possession when its certificate is requested; the default lifetimes; and
-    the OID, together with question 2.
+12. **Key-agreement certificates:** decided on 2026-11-01 as section 6.8 describes them. A
+    profile of their own (`keyUsage: keyAgreement`, certificate policy
+    `1.3.6.1.4.1.60483.1.3`), issued by the CA of the holder's operational certificate, valid for
+    90 days with overlapping renewal, announced by `NotifyKeyAgreementCertificate` and addressed
+    by `x5t`. Still open: how an X25519 key, which cannot sign, proves possession when its
+    certificate is requested; and the OID, together with question 2.
 
 ---
 
