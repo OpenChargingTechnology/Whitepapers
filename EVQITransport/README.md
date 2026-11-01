@@ -599,15 +599,15 @@ certificate file.
 
 - **One role per certificate**, same encoding as Modbus (one `UTF8String`) but **its own OID**.
   Using the Modbus.org OID for OCPP semantics would be wrong. The OID comes from the arc of
-  GraphDefined GmbH, IANA Private Enterprise Number **60483** (`1.3.6.1.4.1.60483`). Proposed
-  allocation, to be recorded in the GraphDefined OID registry:
+  GraphDefined GmbH, IANA Private Enterprise Number **60483** (`1.3.6.1.4.1.60483`), whose
+  arc `.42` is assigned to EVQI (2026-11-01):
 
   | OID | Meaning |
   |---|---|
-  | `1.3.6.1.4.1.60483.1` | EVQI |
-  | `1.3.6.1.4.1.60483.1.1` | EVQI role extension (one DER `UTF8String`, as in Modbus/TCP Security) |
-  | `1.3.6.1.4.1.60483.1.2` | certificate policy "EVQI Privileged Operations" |
-  | `1.3.6.1.4.1.60483.1.3` | certificate policy "EVQI Key Agreement" (section 6.8) |
+  | `1.3.6.1.4.1.60483.42` | EVQI |
+  | `1.3.6.1.4.1.60483.42.1` | EVQI role extension (one DER `UTF8String`, as in Modbus/TCP Security) |
+  | `1.3.6.1.4.1.60483.42.2` | certificate policy "EVQI Privileged Operations" |
+  | `1.3.6.1.4.1.60483.42.3` | certificate policy "EVQI Key Agreement" (section 6.8) |
 
   One role per certificate matches "one certificate domain = one connection" exactly, and
   `RoleExtractor` can be reused with a different OID.
@@ -624,7 +624,7 @@ certificate file.
   SslStream/Windows and of OpenSSL with unknown critical extensions has to be pinned down by
   tests.
 - **A sub-CA of its own for privileged operations** under the CSO root, with the certificate policy
-  `1.3.6.1.4.1.60483.1.2`. The privileged endpoint trusts *only* this sub-CA. This is defence in
+  `1.3.6.1.4.1.60483.42.2`. The privileged endpoint trusts *only* this sub-CA. This is defence in
   depth: even if role checking had a bug, an operational certificate would not chain there.
 - **Both directions:** in OCPP the *station executes commands*. The station must therefore check
   that privileged commands arrive over a connection whose **server certificate** carries the
@@ -760,7 +760,7 @@ Controller that relays the message must not be able to put its own key in its pl
 | `keyUsage` | `keyAgreement` only, critical |
 | Extended Key Usage | absent, as for every EVQI certificate (section 6.2) |
 | EVQI role extension | absent: a key-agreement key decrypts, it authorizes nothing |
-| Certificate policy | `1.3.6.1.4.1.60483.1.3` "EVQI Key Agreement" |
+| Certificate policy | `1.3.6.1.4.1.60483.42.3` "EVQI Key Agreement" |
 | Validity | 90 days by default, never beyond the holder's operational certificate |
 
 - **P-256 as the baseline,** because the key belongs in the secure element (section 6.2, key
@@ -821,7 +821,7 @@ privilege. Within the one CA, the certificate policy keeps the two kinds of cert
   carries their certificate to a station, and the CSMS hands a station's certificate to a third
   party it forwards data for. Validation then runs against the trust anchor of that party.
 - **Every certificate is validated before use, however it arrived:** chain to the expected trust
-  anchor, certificate policy `1.3.6.1.4.1.60483.1.3`, `keyUsage: keyAgreement`, validity, and a
+  anchor, certificate policy `1.3.6.1.4.1.60483.42.3`, `keyUsage: keyAgreement`, validity, and a
   subject that names the party the sender means to address. This makes the delivery path
   irrelevant to security. A Local Controller that relays `NotifyKeyAgreementCertificate` can drop
   it but cannot substitute its own key, because it has no certificate under the station's or the
@@ -944,7 +944,7 @@ Authorization works on two levels:
 1. **Connection role:** the role extension of the TLS certificate (chapter 6). It states what may
    happen on this channel at all: the **upper bound**.
 2. **Signer role:** the role of whoever signed the message: a person, a system or a device. It is
-   bound to the signing key, e.g. by the same role extension (`1.3.6.1.4.1.60483.1.1`) in the
+   bound to the signing key, e.g. by the same role extension (`1.3.6.1.4.1.60483.42.1`) in the
    signer's certificate, or by a signed role assignment. It states who actually authorized this
    message.
 
@@ -1246,14 +1246,14 @@ is part of the authorization table (E3) and of the signature policy (E10).
 | E1 | `ChannelSession` (capabilities + session token + endpoints) | prerequisite for everything else; protects legacy peers | high |
 | E2 | `OpenChannel` (CSMS → CS), `ChannelStatusNotification` (CS → CSMS) | request and monitor on-demand channels | high |
 | E3 | per-channel and per-role authorization table in the device model (connection role and signer role) | least privilege, auditable | high |
-| E4 | role certificate profile (OID `1.3.6.1.4.1.60483.1.1`) + `SignCertificate` for role certificates | RBAC as in Modbus/TLS, short-lived certificates | high |
+| E4 | role certificate profile (OID `1.3.6.1.4.1.60483.42.1`) + `SignCertificate` for role certificates | RBAC as in Modbus/TLS, short-lived certificates | high |
 | E5 | in-band transfer via `evqi:` URIs (chunks, resume from offset, SHA-256) | replaces FTP/HTTP with credentials in the URL | medium |
 | E6 | log types `EVQIAuditLog`, `MetrologicalLog`; security events `PrivilegedChannelOpened/Closed/Rejected`, `RoleViolation`, `SignatureViolation` | separate logging, retrievable | medium |
 | E7 | reconnect parameters for 1.6; semantics of `Retry-After` and close code 1013 | uniform reconnect behaviour | medium |
 | E8 | discovery options in the NetworkConnectionProfile (HTTPS RR/SRV) | DNS-based load balancing and failover | low |
 | E9 | headers `EVQI-Session`, `EVQI-Channel`, `EVQI-Ticket` | correlation on the wire | high (part of E1/E2) |
 | E10 | CBOR representation with Metrological CBOR, COSE signatures, sign-by-default policy with declared exceptions | exact measurement data, end-to-end authenticity | high |
-| E11 | key-agreement certificate profile (policy `1.3.6.1.4.1.60483.1.3`), `certificateType` `KeyAgreementCertificate` for `SignCertificate`/`CertificateSigned`, `NotifyKeyAgreementCertificate`, `GetKeyAgreementCertificate` | end-to-end confidentiality through a Local Controller (sections 6.8, 7.2) | medium |
+| E11 | key-agreement certificate profile (policy `1.3.6.1.4.1.60483.42.3`), `certificateType` `KeyAgreementCertificate` for `SignCertificate`/`CertificateSigned`, `NotifyKeyAgreementCertificate`, `GetKeyAgreementCertificate` | end-to-end confidentiality through a Local Controller (sections 6.8, 7.2) | medium |
 
 The path to standardization: implement first as `DataTransfer` with a `vendorId` of its own and try
 it out at plugfests, then propose it to the Open Charge Alliance. E1 to E3 can be cut as an
@@ -1367,7 +1367,7 @@ with IANA (tag 44252), COSE in Styx.
 
 | WP | Content | Size | Acceptance |
 |---|---|---|---|
-| D1 | Role extension `1.3.6.1.4.1.60483.1.1`, creation via `PKIFactory`, extraction following `RoleExtractor`, criticality behaviour tested | S | certificates for every role; rejection of the unknown critical extension by legacy validators demonstrated |
+| D1 | Role extension `1.3.6.1.4.1.60483.42.1`, creation via `PKIFactory`, extraction following `RoleExtractor`, criticality behaviour tested | S | certificates for every role; rejection of the unknown critical extension by legacy validators demonstrated |
 | D2 | Certificate selection per domain (client), role check per channel and message (server), roles checked in both directions | M | negative tests: operational certificate at the privileged endpoint, role violation → `SecurityError` |
 | D3 | Privileged endpoint, ticket lifecycle, on-demand procedure (section 6.5) | M | end-to-end firmware update in a test network |
 | D4 | Audit log based on WWCP_Node `SignedLog` (both sides), storing COSE objects, exporter binding where available | M | chain verification; tampering test |
@@ -1413,7 +1413,7 @@ proposal to the OCA. Size: **L**.
 
 Propose an "OCPP Multi-Channel Profile" (E1–E3, E9, then E4–E7) and an "OCPP CBOR/COSE Profile"
 (E10) to the OCA; register the service name `ocpp` (SRV) and possibly the URI scheme `evqi:`
-(provisionally per RFC 7595) with IANA; fix and publish the EVQI arc under PEN 60483; conformance
+(provisionally per RFC 7595) with IANA; publish the EVQI arc `1.3.6.1.4.1.60483.42`; conformance
 tests in OCPPConformanceTests, HTTP2ConformanceTests and MCBORConformanceTests. Size: **M**,
 ongoing.
 
@@ -1438,8 +1438,8 @@ fastest because HTTP/1.x is already in production.
 
 1. **Channel endpoint:** a path of its own (proposed) or the same path with headers? A path of its
    own protects against "newest wins" at legacy peers but requires an announcement.
-2. **OID:** does the proposed EVQI arc `1.3.6.1.4.1.60483.1` (section 6.2) fit the GraphDefined OID
-   registry? One role per certificate (proposed) or a list of roles? Criticality as in section 6.2?
+2. **OID:** the EVQI arc is `1.3.6.1.4.1.60483.42`, assigned on 2026-11-01 (section 6.2). Still
+   open: one role per certificate (proposed) or a list of roles? Criticality as in section 6.2?
 3. **Privileged channels behind a Local Controller:** direct path or blind tunnel (section 6.6)?
 4. **Session token:** format (COSE, JWS?), lifetime, binding to the control connection.
 5. **Short-lived role certificates** per maintenance window, or long-lived ones in a secure element?
@@ -1457,10 +1457,10 @@ fastest because HTTP/1.x is already in production.
     after a cold start.
 12. **Key-agreement certificates:** decided on 2026-11-01 as section 6.8 describes them. A
     profile of their own (`keyUsage: keyAgreement`, certificate policy
-    `1.3.6.1.4.1.60483.1.3`), issued by the CA of the holder's operational certificate, valid for
+    `1.3.6.1.4.1.60483.42.3`), issued by the CA of the holder's operational certificate, valid for
     90 days with overlapping renewal, announced by `NotifyKeyAgreementCertificate` and addressed
     by `x5t`. Still open: how an X25519 key, which cannot sign, proves possession when its
-    certificate is requested; and the OID, together with question 2.
+    certificate is requested.
 
 ---
 
