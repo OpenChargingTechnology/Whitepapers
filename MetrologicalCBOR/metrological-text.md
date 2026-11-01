@@ -269,6 +269,16 @@ microsecond; beyond that the text is still a function of the bytes, which is
 what this rule is for. A floating-point NaN or infinity denotes no instant, and
 a converter MUST refuse it.
 
+The form has four digits for the year, so it can name the instants from
+`0001-01-01T00:00:00.000Z` to `9999-12-31T23:59:59.999Z` and no others. A
+tag 1 outside that range — for a floating-point number, after rounding to the
+microsecond — has no text in this form, and a converter MUST refuse it rather
+than write a year of another width, such as the expanded `+010000` of
+ISO 8601. The year 0000 is left out although four digits could write it,
+because it is where common date types begin — .NET's `DateTimeOffset` and
+Python's `datetime` both start at 0001 — and a text one implementation can
+write and another cannot read back is not one text.
+
 **Escaping.** A converter SHOULD escape only what [RFC 8259] Section 7
 requires — the quotation mark, the reverse solidus, and the characters below
 U+0020 — preferring the two-character forms (`\n`, `\t`, …) where Section 7

@@ -190,6 +190,54 @@
             "expectToJsonError": true
         },
         {
+            "id": "tag1-epoch-first-instant",
+            "description": "Tag 1 at -62135596800, the first instant the four-digit year names (metrological-text §3.1)",
+            "cborHex": "A16174C13B0000000E7791F6FF",
+            "roundtrip": false,
+            "json": "{\"t\":\"0001-01-01T00:00:00.000Z\"}",
+            "roundtripHex": "A161747818303030312D30312D30315430303A30303A30302E3030305A"
+        },
+        {
+            "id": "tag1-epoch-last-second",
+            "description": "Tag 1 at 253402300799, the last whole second the four-digit year names (metrological-text §3.1)",
+            "cborHex": "A16174C11B0000003AFFF4417F",
+            "roundtrip": false,
+            "json": "{\"t\":\"9999-12-31T23:59:59.000Z\"}",
+            "roundtripHex": "A161747818393939392D31322D33315432333A35393A35392E3030305A"
+        },
+        {
+            "id": "tag1-epoch-float-last-millisecond",
+            "description": "Tag 1 over a float at 253402300799.999, the last millisecond the four-digit year names (metrological-text §3.1)",
+            "cborHex": "A16174C1FB424D7FFA20BFFFDF",
+            "roundtrip": false,
+            "json": "{\"t\":\"9999-12-31T23:59:59.999Z\"}",
+            "roundtripHex": "A161747818393939392D31322D33315432333A35393A35392E3939395A"
+        },
+        {
+            "id": "tag1-epoch-after-9999",
+            "description": "Tag 1 at 253402300800 is in the year 10000, which the four-digit year cannot name; it must be refused, not written as +010000 (metrological-text §3.1)",
+            "cborHex": "A16174C11B0000003AFFF44180",
+            "expectToJsonError": true
+        },
+        {
+            "id": "tag1-epoch-before-0001",
+            "description": "Tag 1 at -62135596801 is before 0001-01-01; it must be refused, not written as the year 0000 or with a sign (metrological-text §3.1)",
+            "cborHex": "A16174C13B0000000E7791F700",
+            "expectToJsonError": true
+        },
+        {
+            "id": "tag1-epoch-float-after-9999",
+            "description": "Tag 1 over the float 253402300800.0 is in the year 10000 and must be refused (metrological-text §3.1)",
+            "cborHex": "A16174C1FB424D7FFA20C00000",
+            "expectToJsonError": true
+        },
+        {
+            "id": "tag1-epoch-float-before-0001",
+            "description": "Tag 1 over a float a millisecond before 0001-01-01 must be refused (metrological-text §3.1)",
+            "cborHex": "A16174C1FBC22CEF23EE000083",
+            "expectToJsonError": true
+        },
+        {
             "id": "string-that-reads-as-reading",
             "description": "The '1 h' hazard: a text string that parses as a reading comes back as tag 44252",
             "source": "metrological-text §3.2",
