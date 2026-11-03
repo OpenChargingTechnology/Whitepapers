@@ -392,7 +392,12 @@ Servers and ports mean what they mean in section 3.2.4. In mode *NTSv4* the NTS-
 
 A *ChangeConfiguration.req* changes one key at a time, so changes cannot be bundled as with `ACID` (section 3.2.5). A charging station SHALL therefore validate each key against the configuration as it would be after the change, and SHALL answer `Rejected` when the result would be inconsistent, e.g. fewer servers than `ntp.legal.minServers`. A CSMS has to change keys in an admissible order: add servers before it raises `minServers`, and lower `minServers` before it removes servers. In OCPP v1.6 `Rejected` carries no reason. The logging rules of section 3 apply unchanged: every change of a key of the legal group is an entry in the secure metrological log.
 
-*Reference implementation*: the keys of this section are not implemented yet.
+*Reference implementation*:
+- The keys of this section are answered from the node's groups, and a change of one is made as the OCPP v2.x variables it stands for are changed, with the same checks and the same log entry. A list is per server, in the order of the configuration.
+- New servers in `ntp.<group>.servers` take the settings of the last server, but none of its pins.
+- As the node checks at one interval, `minInterval` and `maxInterval` each set it.
+- `mode` takes `NTSv4` alone.
+- Not implemented are `ntp.reboot.*`, `ntp.timeAdjustmentReportingThreshold`, `delayAsym`, `delayVarAsym`, `preflight`, `ntske.<group>.servers`, `minRefresh`, `maxRefresh`, `aead` and `signedResponses`.
 
 #### 3.3.1 Common Configuration Keys
 
