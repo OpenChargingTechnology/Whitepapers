@@ -285,10 +285,12 @@ The following *SecurityEventNotificationRequest* types are used. `Reconfiguratio
 
 The [Secure Time Synchronization](../SecureTimeSync/README.md) paper proposes the same events for time servers, `InvalidTimeServerCertificate` and `TimeServerCertificateChanged` (its section 3.2.6). It has no counterpart of `NameServerPinMismatchTolerated`.
 
+*Reference implementation*: All four, to every OCPP version a CSMS connection is configured for. They wait in a queue kept on disk while the CSMS is out of reach, which with name resolution broken is precisely when they matter. A change made through OCPP is not sent back to the CSMS that made it. A pin learned on first use is sent once, as `ReconfigurationOfSecurityParameters` naming the server and the pin, and not again as a certificate event. A server believed again after it was refused is logged only. The `techInfo` is cut at 255 characters; the log keeps all of it. Every variable of section 3.1.1 and 3.1.2 supports monitoring.
+
 
 ### 3.2 OCPP v1.6+SE Client Configuration
 
-The following configuration keys map the same configuration onto OCPP v1.6+SE. Comma separated lists (CSL) follow the rules of the Secure Time Synchronization paper, with one exception: an empty or missing entry of `dns.ports` means the default port **of that server's transport**, because a port repeated from a previous server would be the wrong port as soon as the transports differ.
+The following configuration keys map the same configuration onto OCPP v1.6+SE. Comma separated lists (CSL) follow the rules of the Secure Time Synchronization paper, with two exceptions: an empty or missing entry of `dns.ports` means the default port **of that server's transport**, because a port repeated from a previous server would be the wrong port as soon as the transports differ; and an empty or missing entry of `dns.queryTimeouts` means `dns.queryTimeout`, so that one server can be given a timeout of its own without giving one to all servers after it.
 
 Pin lists cannot be written as entries of a comma separated list of servers, so they have one key per server, numbered from 1 in the order of `dns.servers`. OCPP v1.6 limits a configuration value to 500 characters, so at most 7 fingerprints fit into one key.
 
@@ -309,12 +311,15 @@ Pin lists cannot be written as entries of a comma separated list of servers, so 
 | dns.encryptedOnly       | optional | rw | Boolean    | false     | -                                   | See `DNSClientController.EncryptedOnly`. |
 | dns.onPinMismatch       | optional | rw | CSL String | "Refuse"  | "Refuse, Record"                    | See `DNSServerController.OnPinMismatch`. |
 | dns.trustOnFirstUse     | optional | rw | CSL String | "None"    | "Root, None"                        | See `DNSServerController.TrustOnFirstUse`. |
+| dns.rootCAs             | optional | rw | CSL String | ""        | "cpo, cpo"                          | See `DNSServerController.RootCAs`: the `certificateGroup` of *InstallCertificate.req* each server's chain must end at. |
 | dns.certificatePins.*n* | optional | rw | CSL String | ""        | "41C7…3F61"                         | The certificate pins of the *n*-th server. |
 | dns.rootPins.*n*        | optional | rw | CSL String | ""        | "9D2E…D8E"                          | The root pins of the *n*-th server. |
 
 A *ChangeConfiguration.req* changes one key at a time, so the order-dependency described in section 3.1.3 cannot be avoided by a transaction. A charging station SHALL therefore validate each key against the configuration as it would be after the change, and SHALL answer `Rejected` when the result would be inconsistent (e.g. a pin for a server that is still asked over UDP). A CSMS has to change the transports before it sets pins, and remove pins before it switches a server back to an unencrypted transport. The rules of section 3.1.3 for emptying the list of servers, for switching name resolution off and for the host names of the CSMS apply as well; in OCPP v1.6 `Rejected` carries no reason.
 
 *InstallCertificate.req* of the OCPP v1.6 Security Extensions is extended by `"NameServerRootCertificate"` and `certificateGroup` in the same way as shown for the Secure Time Synchronization paper.
+
+*Reference implementation*: Every key but `dns.encryptedOnly`, which is answered `NotSupported` until `EncryptedOnly` is implemented. A key is checked and applied as the *SetVariablesRequest* of the `DNSClientController` and `DNSServerController` variables it stands for, with `ACID` where it stands for several, so OCPP v1.6 and v2.x accept and refuse the same changes and are logged alike. `dns.servers` changes the address of a server at its place, keeping its pins; a server added at the end takes the last entry of the lists that repeat it (`dns.transports`, `dns.onPinMismatch`, `dns.trustOnFirstUse`, `dns.rootCAs`), the default port and timeout, and no pins; servers beyond the end of the list are removed.
 
 
 ### 3.3 Example
