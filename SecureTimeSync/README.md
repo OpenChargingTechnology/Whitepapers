@@ -379,6 +379,8 @@ The following *SecurityEventNotificationRequest* types are used. `SettingSystemT
 
 `NTPController.LegalTime`, `NTPClientGroupController.Limited` and `NTPClientController.Problem` are meant to be monitored: a CSMS sets a `Delta` monitor on them via *SetVariableMonitoringRequest* and receives a *NotifyEventRequest* when they change.
 
+*Reference implementation*: Every one of these security events but `SettingSystemTime` is sent, for which the node has no threshold of an offset yet. They are kept in a queue in a file while the CSMS is out of reach, and sent oldest first once it is back. The queue holds up to 1000 messages and 30 days, and lets monitor events go before security events. A change the CSMS made itself is not told back to it. Monitors of the kinds `Delta`, `UpperThreshold` and `LowerThreshold` can be set on every variable of the NTP controllers, and on every variable of `ClockCtrlr` but `DateTime`.
+
 
 ### 3.3 OCPP v1.6+SE Client Configuration
 
