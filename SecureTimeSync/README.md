@@ -98,7 +98,7 @@ repeated NTS-KE negotiations.
 
 **Error Handling**: If the response fails authentication or contains invalid data (e.g., high jitter or stratum), the client discards it and may query another server from its configured pool, leveraging prioritized parallel querying for reliability.
 
-**Setting or Verifying the Clock**: A charging station may also leave the discipline of its clock to the operating system, e.g. to chrony (section 3.4), and use NTS only to *verify* it. At every check it then measures the offset of its own clock against the servers of a group and decides whether its time is legal time (section 3.2.3), without setting the clock itself. This is an admissible variant of the process above, and a well auditable one: the metrological log records not what the clock was set to, but how far the clock was from the legal time sources, measured with authenticated responses. The thresholds below then apply to the measured offset instead of to a correction. *Reference implementation*: verifies; the clock is set by the operating system.
+**Setting or Verifying the Clock**: A charging station may also leave the discipline of its clock to the operating system, e.g. to chrony (section 3.4), and use NTS only to *verify* it. At every check it then measures the offset of its own clock against the servers of a group and decides whether its time is legal time (section 3.2.3), without setting the clock itself. This is an admissible variant of the process above, and a well auditable one: the metrological log records not what the clock was set to, but how far the clock was from the legal time sources, measured with authenticated responses. The thresholds below then apply to the measured offset instead of to a correction. *Reference implementation*: verifies; the clock is set by the operating system. An offset of at least the threshold below, 5 seconds unless configured otherwise, is reported once, and again only after a check has found the clock closer: an offset that persists until the operating system corrects the clock is the same offset. An empty threshold reports none.
 
 **Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Three quantities must be kept apart:
 - The **correction** of the station's clock or, where the clock is only verified, its measured **offset**. One equal to or greater than a threshold (e.g. 5 seconds) shall be logged as a security critical event and appended to the metrological log book. In OCPP v2.x this threshold is the standard variable `ClockCtrlr.TimeAdjustmentReportingThreshold`, and such a correction or offset is reported as the security event `SettingSystemTime` (sections 3.2.1 and 3.2.6).
@@ -379,7 +379,7 @@ The following *SecurityEventNotificationRequest* types are used. `SettingSystemT
 
 `NTPController.LegalTime`, `NTPClientGroupController.Limited` and `NTPClientController.Problem` are meant to be monitored: a CSMS sets a `Delta` monitor on them via *SetVariableMonitoringRequest* and receives a *NotifyEventRequest* when they change.
 
-*Reference implementation*: Every one of these security events but `SettingSystemTime` is sent, for which the node has no threshold of an offset yet. They are kept in a queue in a file while the CSMS is out of reach, and sent oldest first once it is back. The queue holds up to 1000 messages and 30 days, and lets monitor events go before security events. A change the CSMS made itself is not told back to it. Monitors of the kinds `Delta`, `UpperThreshold` and `LowerThreshold` can be set on every variable of the NTP controllers, and on every variable of `ClockCtrlr` but `DateTime`.
+*Reference implementation*: Every one of these security events is sent, `SettingSystemTime` once per offset that reaches the threshold (section 2.2). They are kept in a queue in a file while the CSMS is out of reach, and sent oldest first once it is back. The queue holds up to 1000 messages and 30 days, and lets monitor events go before security events. A change the CSMS made itself is not told back to it. Monitors of the kinds `Delta`, `UpperThreshold` and `LowerThreshold` can be set on every variable of the NTP controllers, and on every variable of `ClockCtrlr` but `DateTime`.
 
 
 ### 3.3 OCPP v1.6+SE Client Configuration
@@ -397,7 +397,8 @@ A *ChangeConfiguration.req* changes one key at a time, so changes cannot be bund
 - New servers in `ntp.<group>.servers` take the settings of the last server, but none of its pins.
 - As the node checks at one interval, `minInterval` and `maxInterval` each set it.
 - `mode` takes `NTSv4` alone.
-- Not implemented are `ntp.reboot.*`, `ntp.timeAdjustmentReportingThreshold`, `delayAsym`, `delayVarAsym`, `preflight`, `ntske.<group>.servers`, `minRefresh`, `maxRefresh`, `aead` and `signedResponses`.
+- `ntp.timeAdjustmentReportingThreshold` is `ClockCtrlr.TimeAdjustmentReportingThreshold`, the threshold of the legal group; an empty value reports no offset.
+- Not implemented are `ntp.reboot.*`, `delayAsym`, `delayVarAsym`, `preflight`, `ntske.<group>.servers`, `minRefresh`, `maxRefresh`, `aead` and `signedResponses`.
 
 #### 3.3.1 Common Configuration Keys
 
