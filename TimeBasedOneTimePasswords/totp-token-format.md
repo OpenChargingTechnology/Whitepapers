@@ -6,7 +6,7 @@
 This document specifies the Time-based One-Time Password (TOTP) token format
 shared by the C# `TOTPGenerator` in
 [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod) and the TypeScript
-library [TOTP.ts](https://github.com/OpenChargingCloud/TOTP.ts). The format
+library [TOTP.ts](https://github.com/OpenChargingCloud/TOTP.TS). The format
 predates this document: it is **frozen** by deployed verifiers on both sides,
 and this specification therefore describes it exactly as implemented —
 including two deliberate quirks (section 4.3) that MUST NOT be "fixed".
@@ -269,9 +269,9 @@ anywhere else:
 An **empty** exporter material MUST be treated as *absent* (no binding) — not
 as an HMAC with an empty key.
 
-In the test vectors this capability is named `tlsChannelBinding`. It is
-currently implemented by Hermod only; the vectors that require it are skipped
-by harnesses of implementations without it.
+In the test vectors this capability is named `tlsChannelBinding`. Both
+Hermod and TOTP.ts implement it; the vectors that require it are skipped by
+harnesses of implementations without it.
 
 
 ## 7. Verification
@@ -384,7 +384,7 @@ of the conformance repository.
 | Implementation | Language | Channel binding | Source |
 |----------------|----------|-----------------|--------|
 | Vanaheimr Hermod `TOTPGenerator` | C# / .NET | yes | [`Hermod/TOTP/TOTP.cs`](https://github.com/Vanaheimr/Hermod/blob/master/Hermod/TOTP/TOTP.cs) |
-| TOTP.ts (`@open-charging-cloud/totp`) | TypeScript / Node | no | [`src/index.ts`](https://github.com/OpenChargingCloud/TOTP.ts/blob/main/src/index.ts) |
+| TOTP.ts (`@open-charging-cloud/totp`) | TypeScript / Node | yes | [`src/index.ts`](https://github.com/OpenChargingCloud/TOTP.TS/blob/master/src/index.ts) |
 | Vector generator (reference) | Python | yes | [`tools/generate-test-vectors.py`](tools/generate-test-vectors.py) |
 
 

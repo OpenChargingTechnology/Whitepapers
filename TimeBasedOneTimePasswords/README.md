@@ -27,8 +27,9 @@ Two independent implementations derive byte-identical tokens:
  * **[Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod)** —
    `TOTPGenerator`, C#/.NET (including the TLS channel binding and the HTTP
    bindings)
- * **[TOTP.ts](https://github.com/OpenChargingCloud/TOTP.ts)** —
-   `@open-charging-cloud/totp`, TypeScript/Node
+ * **[TOTP.ts](https://github.com/OpenChargingCloud/TOTP.TS)** —
+   `@open-charging-cloud/totp`, TypeScript/Node (including the TLS channel
+   binding and the `Authorization: TOTP` scheme)
 
 The conformance suite
 [OpenChargingCloud/TOTPConformanceTests](https://github.com/OpenChargingCloud/TOTPConformanceTests)

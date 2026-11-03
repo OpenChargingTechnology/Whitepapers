@@ -18,10 +18,12 @@ OCPI-style `Authorization: Token …`). Three bindings are defined:
    deployments where the peer's login is already established.
 
 The native bindings are implemented by [Vanaheimr
-Hermod](https://github.com/Vanaheimr/Hermod); Appendix A records the
-implementation status. Unlike the token format itself — frozen by deployed
-verifiers and finalized — this binding document is a **draft**: it has a
-single implementation, and its wire details may still change.
+Hermod](https://github.com/Vanaheimr/Hermod), the `Authorization: TOTP`
+scheme also by [TOTP.ts](https://github.com/OpenChargingCloud/TOTP.TS);
+Appendix A records the implementation status. Unlike the token format
+itself — frozen by deployed verifiers and finalized — this binding document
+is a **draft**: the server-side verification it specifies has landed in
+neither implementation yet, and its wire details may still change.
 
 
 ## 1. Introduction
@@ -453,11 +455,11 @@ channel binding semantics are exercised through the scheme vectors.
 | Piece | Hermod | TOTP.ts |
 |-------|--------|---------|
 | Token derivation | yes | yes |
-| TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes, verification: pending | no |
-| `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`, `tlscb` with its true-default (`HTTPTOTPAuthentication`, vector-driven tests) | yes | no |
+| TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes, verification: pending | wire: needs no helper (`generateTOTPs()` as the password), verification: no |
+| `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`, `tlscb` with its true-default (Hermod: `HTTPTOTPAuthentication`; TOTP.ts: `formatTOTPAuthorization` / `parseTOTPAuthorization`; vector-driven tests on both sides) | yes | yes |
 | `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | yes | no |
-| TLS exporter material (channel binding derivation) | yes | no |
-| Server-side verification against the login → config mapping (`AWebSocketServer.ClientTOTPConfig`) | prepared, in progress | no |
+| TLS exporter material (channel binding derivation) | yes | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
+| Server-side verification against the login → config mapping (`AWebSocketServer.ClientTOTPConfig`) | prepared, in progress | no (a worked example in its README) |
 
 The server-side verification procedure of sections 5.3 and 6.3 is what this
 document exists to pin down before that code lands.

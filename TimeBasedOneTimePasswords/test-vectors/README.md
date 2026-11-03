@@ -48,7 +48,7 @@ Each vector: `input` → expected `previous`/`current`/`next` token,
    iff its implementation provides **all** of them, and MUST fail (not skip)
    on capability names it does not know. Capabilities so far:
    * `tlsChannelBinding` — TLS v1.3 channel binding (spec section 6),
-     currently Hermod only.
+     implemented by Hermod and TOTP.ts.
 
 ## totp-http-auth-vectors.json — the "Authorization: TOTP" scheme
 
@@ -68,7 +68,7 @@ mandatory (Base64 of UTF-8), `tlscb` optional with default **true**.
    missing mandatory parameters, the wire forms of earlier drafts).
 
 The **whole file** carries a top-level `requires` list (currently
-`httpAuthentication` — Hermod only). A harness whose implementation lacks a
+`httpAuthentication` — Hermod and TOTP.ts). A harness whose implementation lacks a
 listed capability skips the file **declaratively** — one visible skip entry,
 never silence — and still fails on capability names it does not know.
 

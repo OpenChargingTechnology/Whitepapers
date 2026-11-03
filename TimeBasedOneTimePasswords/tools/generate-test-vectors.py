@@ -592,7 +592,7 @@ def invalid_vectors() -> list[dict]:
 # DEFAULTS TO TRUE (secure by default: an unbound deployment must say
 # tlscb=false explicitly). Unknown parameters are ignored, duplicates are
 # rejected. The whole file requires the "httpAuthentication" capability -
-# currently Hermod only; harnesses without it skip the file DECLARATIVELY
+# implemented by Hermod and TOTP.ts; harnesses without it skip the file DECLARATIVELY
 # (a visible skip, never silence). The Basic Auth binding of the
 # specification gets no vectors here: its encoding is RFC 7617's, not ours.
 # --------------------------------------------------------------------------
