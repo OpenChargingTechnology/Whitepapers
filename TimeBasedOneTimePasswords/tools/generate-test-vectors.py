@@ -28,7 +28,8 @@ refreshes those copies by naming them as mirrors:
         --mirror libs/TOTP.TS/test/vectors
 
 Its VendoredCopiesTests fail when a pinned (CI) or upstream (nightly) copy
-has drifted.
+has drifted. The server verification vectors are not vendored: only the
+conformance harnesses run them (see MIRRORED).
 
 Usage:
     python tools/generate-test-vectors.py            # (re)write ../test-vectors/
@@ -800,8 +801,378 @@ def http_invalid_headers() -> list[dict]:
 
 
 # --------------------------------------------------------------------------
+# The HTTP server verification vectors (../totp-http-authentication.md,
+# sections 5.3, 6.2 and 8) - what a verifier answers, not what a header
+# looks like.
+#
+# A verifier with a login -> configuration mapping and a clock receives
+# one Authorization header (or none) and either ACCEPTS it, naming the
+# login, REJECTS it (401 - never telling an unknown login from a wrong
+# token), or finds it MALFORMED (400, or 401: a server MAY treat
+# malformed as failed). The outcome comes from the verifier below - a
+# third implementation of section 5.3, sharing no code with Hermod's - and
+# each vector also states the outcome it was written to show: this script
+# refuses to write when the two disagree. Its auth-param parser must
+# first agree with every HTTP authentication vector above.
+#
+# The verifier is modelled WITHOUT TLS exporter material, as a harness
+# talking plain TCP to a live server has none: a credential claiming a
+# channel binding (tlscb absent or true) is rejected, never verified as
+# raw (section 6.2). None of the presented tokens is bound to any session,
+# so a verifier WITH exporter material reaches the very same outcomes.
+#
+# The verifier clock lies at least VERIFY_SLACK_S seconds before the end
+# of its slot for every configured login: a harness that sets a live
+# server's clock to that instant and then talks to it may lag that much
+# without crossing a slot boundary.
+#
+# The whole file requires the "httpVerification" capability.
+# --------------------------------------------------------------------------
+
+VERIFY_CLOCK    = TS2               # the instant of vector "defaults-mid-slot"
+VERIFY_SLACK_S  = 10
+
+HTTP_LOGIN_2    = "chargingstation-0002"
+HTTP_LOGIN_EVSE = "EVSE:DE*GEF*E1234*1"
+
+# Absent optional parameters mean what they mean in "input" of the
+# generation vectors: the verifier's own defaulting is exercised.
+VERIFY_LOGINS = {
+    HTTP_LOGIN:       {"sharedSecret": SECRET},
+    HTTP_LOGIN_2:     {"sharedSecret": "another!Station!"},
+    HTTP_LOGIN_EVSE:  {"sharedSecret":         "Ladesäule-Süd-01",
+                       "validityTimeSeconds":  60,
+                       "totpLength":           16,
+                       "alphabet":             BASE32_ALPHABET,
+                       "hashAlgorithm":        "sha512"},
+}
+
+TCHARS = frozenset("!#$%&'*+-.^_`|~0123456789"
+                   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+class Malformed(ValueError):
+    pass
+
+
+def parse_totp_authorization(header: str) -> dict:
+    """The credentials of section 5.1 - login, totp, tlscb - or Malformed."""
+
+    pos = 0
+    end = len(header)
+
+    def ows() -> None:
+        nonlocal pos
+        while pos < end and header[pos] in " \t":
+            pos += 1
+
+    def token() -> str:
+        nonlocal pos
+        start = pos
+        while pos < end and header[pos] in TCHARS:
+            pos += 1
+        if pos == start:
+            raise Malformed(f"a token expected at {start}")
+        return header[start:pos]
+
+    def quoted_string() -> str:
+        nonlocal pos
+        pos += 1
+        chars = []
+        while pos < end and header[pos] != '"':
+            if header[pos] == "\\":
+                pos += 1
+                if pos == end:
+                    break
+            chars.append(header[pos])
+            pos += 1
+        if pos == end:
+            raise Malformed("an unterminated quoted-string")
+        pos += 1
+        return "".join(chars)
+
+    if token().lower() != "totp":
+        raise Malformed("not the TOTP scheme")
+    if pos == end or header[pos] not in " \t":
+        raise Malformed("no auth-params")
+
+    params: dict[str, str] = {}
+    ows()
+    while True:
+        name = token().lower()
+        ows()
+        if pos == end or header[pos] != "=":
+            raise Malformed(f"'=' expected after {name}")
+        pos += 1
+        ows()
+        value = quoted_string() if pos < end and header[pos] == '"' else token()
+        if name in params:
+            raise Malformed(f"duplicate parameter {name}")
+        params[name] = value
+        ows()
+        if pos == end:
+            break
+        if header[pos] != ",":
+            raise Malformed(f"',' expected at {pos}")
+        pos += 1
+        ows()
+
+    def base64_utf8(name: str) -> str:
+        if name not in params:
+            raise Malformed(f"{name} is missing")
+        value = params[name]
+        try:
+            # The token form may come without padding (section 5.1).
+            text = base64.b64decode(value + "=" * (-len(value) % 4),
+                                    validate=True).decode("utf-8")
+        except ValueError as e:
+            raise Malformed(f"{name} is not Base64 of UTF-8") from e
+        if not text:
+            raise Malformed(f"{name} is empty")
+        return text
+
+    tlscb = params.get("tlscb", "true").lower()
+    if tlscb not in ("true", "false"):
+        raise Malformed("tlscb is a boolean")
+
+    return {"login": base64_utf8("login"),
+            "totp":  base64_utf8("totp"),
+            "tlscb": tlscb == "true"}
+
+
+def verify(authorization: str | None) -> dict:
+    """Section 5.3 for VERIFY_LOGINS at VERIFY_CLOCK, without exporter material."""
+
+    if authorization is None:
+        return {"outcome": "rejected"}
+
+    try:
+        credentials = parse_totp_authorization(authorization)
+    except Malformed:
+        return {"outcome": "malformed"}
+
+    config = VERIFY_LOGINS.get(credentials["login"])
+
+    # An unknown login is rejected exactly like a wrong token; a bound
+    # token is rejected rather than verified as raw (section 6.2).
+    if config is None or credentials["tlscb"]:
+        return {"outcome": "rejected"}
+
+    window = generate_totps(config["sharedSecret"],
+                            VERIFY_CLOCK,
+                            config.get("validityTimeSeconds"),
+                            config.get("totpLength"),
+                            config.get("alphabet"),
+                            config.get("hashAlgorithm"))
+
+    presented = credentials["totp"].encode("utf-8")
+    if any(hmac.compare_digest(presented, window[slot].encode("utf-8"))
+           for slot in ("previous", "current", "next")):
+        return {"outcome": "accepted", "login": credentials["login"]}
+
+    return {"outcome": "rejected"}
+
+
+def check_http_parser() -> None:
+    """The verifier's parser must agree with every HTTP authentication vector."""
+
+    for v in http_auth_vectors():
+        if parse_totp_authorization(v["expected"]["header"]) != v["input"]:
+            raise AssertionError(f"HTTP parser mismatch on vector {v['id']}")
+
+    for v in http_parse_vectors():
+        if parse_totp_authorization(v["header"]) != v["expected"]:
+            raise AssertionError(f"HTTP parser mismatch on parse vector {v['id']}")
+
+    for v in http_invalid_headers():
+        try:
+            parse_totp_authorization(v["header"])
+        except Malformed:
+            continue
+        raise AssertionError(f"HTTP parser accepts invalid header {v['id']}")
+
+    for login, config in VERIFY_LOGINS.items():
+        validity  = config.get("validityTimeSeconds", DEFAULT_VALIDITY)
+        remaining = validity - (VERIFY_CLOCK // 1000) % validity
+        if remaining < VERIFY_SLACK_S:
+            raise AssertionError(f"The verifier clock is {remaining}s before the end "
+                                 f"of the slot of {login}, less than the slack")
+
+    if login_token(HTTP_LOGIN) != HTTP_RAW_TOTP:
+        raise AssertionError("The verifier clock is not the instant of defaults-mid-slot")
+
+
+def login_token(login:     str,
+                slots:     int = 0,
+                *,
+                secret:    str | None = None,
+                length:    int | None = None,
+                algorithm: str | None = None) -> str:
+    """The token a login's configuration yields `slots` slots from the verifier clock."""
+
+    config   = VERIFY_LOGINS[login]
+    validity = config.get("validityTimeSeconds", DEFAULT_VALIDITY)
+    slot     = (VERIFY_CLOCK // 1000) // validity + slots
+
+    return calc_slot_token(slot & MASK64,
+                           (secret or config["sharedSecret"]).strip().encode("utf-8"),
+                           length    or config.get("totpLength",    DEFAULT_LENGTH),
+                           config.get("alphabet", DEFAULT_ALPHABET),
+                           algorithm or config.get("hashAlgorithm", DEFAULT_ALGORITHM))
+
+
+def verification_vectors() -> list[dict]:
+
+    def case(id_: str, description: str, authorization: str | None,
+             outcome: str, login: str | None = None) -> dict:
+        expected = {"outcome": outcome}
+        if login is not None:
+            expected["login"] = login
+        actual = verify(authorization)
+        if actual != expected:
+            raise AssertionError(f"Verification vector {id_}: the reference verifier "
+                                 f"says {actual}, the vector claims {expected}")
+        return {"id": id_, "description": description,
+                "authorization": authorization, "expected": expected}
+
+    current = login_token(HTTP_LOGIN)
+    flipped = current[0].swapcase() + current[1:]
+    assert flipped != current
+
+    def raw(login: str, totp: str) -> str:
+        return http_header(login, totp, False)
+
+    return [
+
+        # -- The acceptance window: previous, current, next - nothing else --
+
+        case("accept-current",
+             "The current token of the login's configuration.",
+             raw(HTTP_LOGIN, current), "accepted", HTTP_LOGIN),
+
+        case("accept-previous",
+             "The previous slot's token: one slot of clock skew or transmission delay.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN, -1)), "accepted", HTTP_LOGIN),
+
+        case("accept-next",
+             "The next slot's token: a client clock one slot ahead.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN, +1)), "accepted", HTTP_LOGIN),
+
+        case("reject-two-slots-old",
+             "A token two slots old is outside the window - which is never widened.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN, -2)), "rejected"),
+
+        case("reject-two-slots-ahead",
+             "A token two slots ahead is outside the window.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN, +2)), "rejected"),
+
+        case("accept-non-default-configuration",
+             "The previous slot under a login's own configuration (60s, 16 characters, "
+             "Base32, HMAC-SHA512, a non-ASCII secret); the login contains a colon.",
+             raw(HTTP_LOGIN_EVSE, login_token(HTTP_LOGIN_EVSE, -1)), "accepted", HTTP_LOGIN_EVSE),
+
+        case("reject-non-default-configuration-two-slots-old",
+             "Two slots of 60 seconds old: the window is counted in the login's slots.",
+             raw(HTTP_LOGIN_EVSE, login_token(HTTP_LOGIN_EVSE, -2)), "rejected"),
+
+        # -- Whose token: the login's configuration decides --------------
+
+        case("accept-second-login",
+             "Another login, verified against its own configuration.",
+             raw(HTTP_LOGIN_2, login_token(HTTP_LOGIN_2)), "accepted", HTTP_LOGIN_2),
+
+        case("reject-token-of-another-login",
+             "Another login's current token is no token of this login.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN_2)), "rejected"),
+
+        case("reject-unknown-login",
+             "An unknown login is rejected exactly like a wrong token - with a token "
+             "that is valid for a known login.",
+             raw("chargingstation-9999", current), "rejected"),
+
+        case("reject-other-hash-algorithm",
+             "The current token under HMAC-SHA512 is no token of a login configured for HMAC-SHA256.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN, algorithm="sha512")), "rejected"),
+
+        # -- Exactly the token: no prefix, no case folding, no trimming --
+
+        case("reject-token-prefix",
+             "The first 11 characters of the current token.",
+             raw(HTTP_LOGIN, current[:-1]), "rejected"),
+
+        case("reject-token-extended",
+             "The current token of length 13 - which starts with the length 12 token, "
+             "as every longer token of the slot does.",
+             raw(HTTP_LOGIN, login_token(HTTP_LOGIN, length=13)), "rejected"),
+
+        case("reject-token-case-altered",
+             "The current token with the case of its first character changed: tokens "
+             "are compared exactly.",
+             raw(HTTP_LOGIN, flipped), "rejected"),
+
+        case("reject-token-with-whitespace",
+             "The current token with a leading space inside the Base64: compared exactly, never trimmed.",
+             raw(HTTP_LOGIN, " " + current), "rejected"),
+
+        # -- Channel binding: claimed, but not verifiable here -----------
+
+        case("reject-tlscb-default",
+             "The current raw token without tlscb: the default true claims a channel "
+             "binding, which a verifier without exporter material rejects - never "
+             "verifying the token as raw.",
+             http_header(HTTP_LOGIN, current, True), "rejected"),
+
+        case("reject-tlscb-true",
+             "The same with tlscb=true spelled out.",
+             http_header(HTTP_LOGIN, current, True) + ", tlscb=true", "rejected"),
+
+        # -- The wire form is the parser's, the outcome the verifier's ---
+
+        case("accept-lenient-casing",
+             "Scheme, parameter names and the tlscb value are matched case-insensitively.",
+             f'totp LOGIN="{b64(HTTP_LOGIN)}", TOTP="{b64(current)}", TLSCB=False',
+             "accepted", HTTP_LOGIN),
+
+        case("accept-unknown-parameter",
+             "An unknown parameter is ignored.",
+             raw(HTTP_LOGIN, current) + ', realm="ocpp"', "accepted", HTTP_LOGIN),
+
+        case("reject-no-authorization",
+             "No Authorization header at all.",
+             None, "rejected"),
+
+        case("malformed-missing-totp",
+             "The totp parameter is mandatory.",
+             f'TOTP login="{b64(HTTP_LOGIN)}", tlscb=false', "malformed"),
+
+        case("malformed-empty-totp",
+             "An empty token.",
+             f'TOTP login="{b64(HTTP_LOGIN)}", totp="", tlscb=false', "malformed"),
+
+        case("malformed-duplicate-totp-valid-first",
+             "A valid token followed by a second totp parameter: ambiguous, so "
+             "malformed - never the first one wins.",
+             f'TOTP login="{b64(HTTP_LOGIN)}", totp="{b64(current)}", '
+             f'totp="{b64(flipped)}", tlscb=false', "malformed"),
+
+        case("malformed-duplicate-totp-valid-last",
+             "The same with the valid token last - never the last one wins.",
+             f'TOTP login="{b64(HTTP_LOGIN)}", totp="{b64(flipped)}", '
+             f'totp="{b64(current)}", tlscb=false', "malformed"),
+
+    ]
+
+
+# --------------------------------------------------------------------------
 # File emission.
 # --------------------------------------------------------------------------
+
+# The files the implementation repositories vendor: what their own test
+# suites run. Server verification is run by the conformance harnesses only.
+MIRRORED = {"totp-test-vectors.json",
+            "totp-invalid-inputs.json",
+            "totp-http-auth-vectors.json"}
+
 
 def render(payload: dict) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
@@ -852,12 +1223,38 @@ def build_files(mirror_dirs: list[Path]) -> dict[Path, str]:
             "parseVectors":   http_parse_vectors(),
             "invalidHeaders": http_invalid_headers()
         }),
+        VECTORS_DIR / "totp-http-verification-vectors.json": render({
+            "$comment":       header["$comment"],
+            "specification":  SPEC_NAME_HTTP,
+            "description":    "Server-side verification of the 'Authorization: TOTP' scheme "
+                              "(sections 5.3, 6.2 and 8): a verifier holding 'verifier.logins' "
+                              "(login -> TOTP configuration; absent optional parameters mean "
+                              "the verifier's own defaults) at the clock "
+                              "'verifier.unixTimestampMillis' receives 'authorization' (null: "
+                              "no header) and answers 'accepted' (the request is "
+                              "authenticated as 'login'), 'rejected' (401; an unknown login "
+                              "is indistinguishable from a wrong token) or 'malformed' (400, "
+                              "or 401: a server MAY treat malformed as failed). The verifier "
+                              "has no TLS exporter material, so a credential claiming a "
+                              "channel binding is rejected, never verified as raw; no "
+                              "presented token is bound, so a verifier with exporter material "
+                              f"reaches the same outcomes. The clock lies at least "
+                              f"{VERIFY_SLACK_S}s before the end of its slot for every login, "
+                              "so a harness setting a live server's clock may lag that much. "
+                              "The whole file requires the listed capabilities; harnesses "
+                              "without them skip it declaratively.",
+            "requires":       ["httpVerification"],
+            "verifier":       {"unixTimestampMillis": VERIFY_CLOCK,
+                               "logins":              VERIFY_LOGINS},
+            "vectors":        verification_vectors()
+        }),
     }
 
     files = dict(canonical)
     for mirror_dir in mirror_dirs:
         for path, content in canonical.items():
-            files[mirror_dir / path.name] = content
+            if path.name in MIRRORED:
+                files[mirror_dir / path.name] = content
 
     return files
 
@@ -882,6 +1279,7 @@ def main() -> int:
             return 2
 
     check_anchors()
+    check_http_parser()
 
     files = build_files(args.mirror)
 

@@ -49,6 +49,10 @@ Each vector: `input` → expected `previous`/`current`/`next` token,
    on capability names it does not know. Capabilities so far:
    * `tlsChannelBinding` — TLS v1.3 channel binding (spec section 6),
      implemented by Hermod and TOTP.ts.
+   * `httpAuthentication` — building and parsing the `Authorization: TOTP`
+     scheme, implemented by Hermod and TOTP.ts.
+   * `httpVerification` — verifying it on the server, implemented by
+     Hermod (its WebSocket server).
 
 ## totp-http-auth-vectors.json — the "Authorization: TOTP" scheme
 
@@ -71,6 +75,36 @@ The **whole file** carries a top-level `requires` list (currently
 `httpAuthentication` — Hermod and TOTP.ts). A harness whose implementation lacks a
 listed capability skips the file **declaratively** — one visible skip entry,
 never silence — and still fails on capability names it does not know.
+
+## totp-http-verification-vectors.json — server-side verification
+
+What a verifier **answers** (HTTP binding sections 5.3, 6.2 and 8), not
+what a header looks like. `verifier` names one verifier: `logins` maps each
+login to its TOTP configuration (absent optional fields mean the verifier's
+own defaults, as in `input` of the generation vectors), and
+`unixTimestampMillis` is its clock. Each vector carries one `authorization`
+header value (`null`: no header) and the `expected` answer:
+
+ * `accepted` — the request is authenticated as `expected.login`
+   (a WebSocket upgrade: `101`);
+ * `rejected` — `401 Unauthorized`; an unknown login is indistinguishable
+   from a wrong token;
+ * `malformed` — `400 Bad Request`, or `401`: a server MAY treat malformed
+   as failed.
+
+The verifier holds **no TLS exporter material** — a harness talking plain
+TCP to a live server has none — so a credential claiming a channel binding
+(`tlscb` absent or `true`) is rejected, never verified as raw. No presented
+token is bound to any session, so a verifier with exporter material reaches
+the same outcomes. The clock lies at least 10 seconds before the end of its
+slot for every login: a harness may set a live server's clock to it and
+lag that much. The generator decides each outcome with a verifier of its
+own and refuses to write when it disagrees with the outcome a vector was
+written to show; its parser must first agree with every vector of
+`totp-http-auth-vectors.json`.
+
+The whole file requires `httpVerification`; harnesses without it skip
+every vector by name.
 
 ## totp-invalid-inputs.json — inputs that MUST be rejected
 
@@ -108,4 +142,6 @@ python libs/specification/TimeBasedOneTimePasswords/tools/generate-test-vectors.
 
 — and its `VendoredCopiesTests` compare the copies against this annex on
 every CI run (pinned submodules) and every nightly run (upstream HEADs).
+`totp-http-verification-vectors.json` is not vendored: verifying is a
+server's job, and the conformance suite runs it against Hermod's server.
 Vector ids are stable; new vectors only ever get new ids.

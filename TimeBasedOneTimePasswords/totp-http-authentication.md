@@ -22,8 +22,10 @@ Hermod](https://github.com/Vanaheimr/Hermod), the `Authorization: TOTP`
 scheme also by [TOTP.ts](https://github.com/OpenChargingCloud/TOTP.TS);
 Appendix A records the implementation status. Unlike the token format
 itself — frozen by deployed verifiers and finalized — this binding document
-is a **draft**: the server-side verification it specifies has landed in
-neither implementation yet, and its wire details may still change.
+is a **draft**: of the server-side verification it specifies, only the
+`Authorization: TOTP` scheme with raw tokens has landed (in Hermod's
+WebSocket server, held to the verification vectors of section 11), and its
+wire details may still change.
 
 
 ## 1. Introduction
@@ -419,10 +421,28 @@ Harnesses of implementations without the capability skip the file
 come from the canonical token vectors (`defaults-mid-slot`,
 `tls-binding-sha256`, …).
 
+**Server-side verification** (section 5.3, with sections 6.2 and 8) has
+vectors of its own:
+[`test-vectors/totp-http-verification-vectors.json`](test-vectors/totp-http-verification-vectors.json),
+gated by the capability **`httpVerification`**. The file names one
+verifier — a login → configuration mapping and a clock — and each vector
+one `Authorization` header (or none) together with the verifier's answer:
+`accepted` (naming the authenticated login), `rejected` (`401`) or
+`malformed` (`400`, or `401`). They cover the acceptance window (previous,
+current and next — never two slots), per-login configurations, unknown
+logins, exact token comparison (no prefix, no case folding, no trimming),
+the `tlscb` default on a verifier without exporter material, and duplicate
+parameters, of which neither value may win. The verifier holds no TLS
+exporter material; no presented token is bound, so a verifier that does
+reaches the very same outcomes. Its clock lies at least 10 seconds before
+the end of its slot for every login, so a harness may drive a live
+server's clock to it.
+
 The Basic binding (section 4) gets no vectors of its own: its encoding is
-[RFC 7617]'s, not ours, and the tokens are the token format's. The `TOTP`
-request header's value is a bare token (its wire format is trivial); its
-channel binding semantics are exercised through the scheme vectors.
+[RFC 7617]'s, not ours, and the tokens are the token format's — and no
+implementation verifies it yet. The `TOTP` request header's value is a bare
+token (its wire format is trivial); its channel binding semantics are
+exercised through the scheme vectors.
 
 
 ## 12. References
@@ -455,11 +475,14 @@ channel binding semantics are exercised through the scheme vectors.
 | Piece | Hermod | TOTP.ts |
 |-------|--------|---------|
 | Token derivation | yes | yes |
-| TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes, verification: pending | wire: needs no helper (`generateTOTPs()` as the password), verification: no |
+| TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes, verification: no (the WebSocket server checks Basic credentials against static passwords only) | wire: needs no helper (`generateTOTPs()` as the password), verification: no |
 | `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`, `tlscb` with its true-default (Hermod: `HTTPTOTPAuthentication`; TOTP.ts: `formatTOTPAuthorization` / `parseTOTPAuthorization`; vector-driven tests on both sides) | yes | yes |
-| `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | yes | no |
+| `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | wire: yes, verification: no | no |
 | TLS exporter material (channel binding derivation) | yes | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
-| Server-side verification against the login → config mapping (`AWebSocketServer.ClientTOTPConfig`) | prepared, in progress | no (a worked example in its README) |
+| Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`), raw tokens only: a bound token is rejected, as section 6.2 requires of a verifier without exporter material (`SslStream` exposes none) | no — a client library (a worked example in its README) |
+| The challenge `WWW-Authenticate: TOTP` (section 5.3, SHOULD) | no (the WebSocket server challenges `Basic` only) | — |
+| Single-use enforcement and rate limiting (section 5.3, where replay matters) | no | — |
 
-The server-side verification procedure of sections 5.3 and 6.3 is what this
-document exists to pin down before that code lands.
+Before this document can leave draft, verification is still missing for the
+Basic binding and the `TOTP` request header, for bound tokens (exporter
+material on the verifier's side), and the challenge.

@@ -33,10 +33,21 @@ Time synchronization must be part of the system’s overall security audit trail
 
 - **Primary Factor**: Existing `Authorization: Token <static token>` mechanism.
 - **Second Factor**: A synchronized TOTP value derived from a shared secret negotiated during the initial credential exchange.
-- **Transmission**: The TOTP value is included in every HTTP request via a dedicated custom header: `TOTP: <TOTP value>`
+- **Transmission**: The TOTP value is included in every HTTP request via a dedicated custom header: `TOTP: 0 <TOTP value>` (type `0`: a raw token; `1`: a token bound to the TLS session)
 - **Time Window**: e.g. 30 seconds per slot, with ±1 slot tolerance to handle minor clock skews.
 - **Derivation**: TOTP is generated according to OCPP v2.1 WebPayments.
 - **Validation**: The receiver must validate both the static OCPI token and the TOTP value. Requests failing either check are rejected with HTTP 401 Unauthorized.
+
+The token derivation and this header are **normatively specified** in
+[Time-Based One-Time Passwords](../TimeBasedOneTimePasswords/README.md):
+the derivation in the
+[token format specification](../TimeBasedOneTimePasswords/totp-token-format.md),
+the header — its type digit, its TLS channel binding and its caching rule
+(responses `Cache-Control: private`, as generic caches do not know it
+carries a credential) — in section 6 of the
+[HTTP authentication specification](../TimeBasedOneTimePasswords/totp-http-authentication.md),
+where the OCPI token establishes the login whose configuration the TOTP
+is verified against.
 
 
 ## Compatibility and Migration
