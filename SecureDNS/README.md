@@ -79,7 +79,7 @@ What a pin mismatch leads to is configurable per server:
 
 **Time servers.** The [Secure Time Synchronization](../SecureTimeSync/README.md) paper holds NTS-KE and NTP-over-TLS servers to pins, `OnPinMismatch` and trust on first use that mean the same as here (its section 3.2.4), and reports a changed certificate in the same way (its section 3.2.6).
 
-**Revocation.** Revocation should be checked where an OCSP responder or CRL is reachable. A root CA of one's own often has no revocation infrastructure; a status that cannot be obtained should not be held against the certificate, but a certificate that is known to be revoked must be refused. *(Reference implementation: so for chains that end at a root CA of the station's own store. Chains to root CAs of the operating system are currently not checked for revocation.)*
+**Revocation.** Revocation should be checked where an OCSP responder or CRL is reachable. A root CA of one's own often has no revocation infrastructure; a status that cannot be obtained should not be held against the certificate, but a certificate that is known to be revoked must be refused. Against an attacker on the path, revocation that does not hold an unknown status against the certificate protects little: whoever can intercept the connection to a name server can usually block the fetch of the CRL or the OCSP response as well. Pins (question 3 above) and root CAs installed for name servers alone are the stronger protection. *(Reference implementation: so for every chain, whether it ends at a root CA of the operating system or of the station's own store, and only where a certificate of the chain names a CRL distribution point or an OCSP responder. The fetch is given 3 seconds, since it holds up the TLS handshake. A certificate that is revoked is refused as `Untrusted`.)*
 
 
 ### 2.4 Multiple Name Servers
@@ -484,7 +484,6 @@ When no name server can be reached or authenticated, a charging station cannot r
 
 - Define DNS-over-QUIC (RFC 9250) as a further transport.
 - Local DNSSEC validation in the reference implementation, and a variable that requires it (`DNSClientController.RequireDNSSEC`?) for names used by DANE or by DNS-published policies.
-- Revocation checks for chains to root CAs of the operating system in the reference implementation (section 2.3).
 - A variable that leaves the root CAs of the operating system out for name servers, so that only `NameServerRootCertificate` root CAs and pinned roots vouch for them.
 - SPKI pins of RFC 7858 §4.2 as a second notation for pins.
 - Decide whether `Priority` bands (section 2.4) become required, and whether a station may then fall back from an encrypted band to a clear text band at all.
