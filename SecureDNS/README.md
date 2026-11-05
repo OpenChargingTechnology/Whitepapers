@@ -152,7 +152,8 @@ The component `DNSClientController` has no instance. It holds what applies to na
 | DNSSECOK           | optional | rw         | boolean    | false         | -                    | Whether the *DNSSEC OK* (DO) bit is set, i.e. whether signatures are requested. | `dns.dnssecOK` |
 | FollowCNAMEs       | optional | rw         | boolean    | true          | -                    | Whether CNAME and DNAME chains are followed. | `dns.followCNAMEs` |
 | MaxCNAMEFollows    | optional | rw         | integer    | 8             | 0 … 255              | The maximal length of a followed alias chain. | `dns.maxCNAMEFollows` |
-| MaxServers         | optional | ro         | integer    | 16            | -                    | The number of `DNSServerController` instances this charging station offers. | constant, 16 |
+| Servers            | required | rw         | string     | -             | comma separated ids, ≤ `MaxServers` | The ids of the `DNSServerController` instances, in the order the name servers are kept. A new id adds a name server, which needs its `Address` in the same request (section 3.1.3). An id taken out removes the server. The order is not a priority: all servers are asked in parallel (section 2.4). Empty is `Rejected` (section 3.1.3). | the `id`s of `dns.servers`, in its order |
+| MaxServers         | optional | ro         | integer    | 16            | -                    | The most `DNSServerController` instances this charging station takes. | constant, 16 |
 | UDPPayloadSize     | optional | ro         | integer    | -             | -                    | The EDNS(0) UDP payload size advertised in queries. | fixed at start |
 | ClientSubnet       | optional | ro         | string     | ""            | -                    | The EDNS Client Subnet sent with every query, e.g. `"203.0.113.0/24"`; empty when none is sent. | fixed at start |
 | EncryptedOnly      | optional | rw         | boolean    | false         | -                    | When `true`, configuring a server with an unencrypted transport (`UDP`, `TCP`) is refused, and servers already configured with one are no longer asked. See section 2.4. | *not implemented* |
@@ -165,13 +166,15 @@ See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWC
 
 #### 3.1.2 DNS Server Controller
 
-The component `DNSServerController` exists in the fixed instances `"1"` … `"<MaxServers>"`. Each instance is a *slot* for one name server. A slot whose `Address` is empty is unused. The Device Model has no way to create component instances via *SetVariablesRequest*; fixed slots make adding a server an ordinary *SetVariables* of its `Address` — comparable to the configuration slots of *SetNetworkProfileRequest*.
+The *Instance* of the component `DNSServerController` is the id of one name server. A server keeps its id whatever its address becomes and whichever servers are added or taken away around it, so an id refers to the same server across requests. Ids are case-insensitive strings of at most 50 characters, the length of a component instance in OCPP. An id should not be derived from the address of its server, because a new address would then rename the instance.
 
-All servers of all used slots are asked in parallel (section 2.4); the slot number is an identifier, not a priority. A charging station may compact the used slots after a request, i.e. servers behind an emptied slot move up. Within one request, slot numbers keep referring to the servers they referred to at its start. A CSMS should therefore send the complete intended list of servers in one *SetVariablesRequest* and read it back afterwards.
+**Creating and removing instances.** The Device Model has no way to create component instances via *SetVariablesRequest*. Name servers therefore come into existence through the list variable `DNSClientController.Servers`, as the clients of a group of time servers do through `NTPClientGroupController.Clients` in the [Secure Time Synchronization](../SecureTimeSync/README.md) paper (its section 3.2): a new id in the list adds a server, and an id taken out of it removes the server. A *GetBaseReportRequest* afterwards reports the new instances. All servers are asked in parallel (section 2.4); the order of `Servers` is not a priority.
+
+*Reference implementation*: A server is an entry of `dns.servers`, identified by its `id`: lower case letters, digits and hyphens, beginning with a letter, at most 50 characters, as for a time server. An entry without one is `dns-<n>` for its place n, or the next number not taken. Whatever names the servers to somebody else — the web interface saving the list, a change via OCPP — writes the ids into the file, where they stay.
 
 | Variable Name      | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
 |--------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
-| Address            | required | rw         | string     | ""            | ≤ 253 characters     | The IP address (IPv4 or IPv6) or the domain name of the name server. Empty: the slot is unused. IP addresses are recommended (section 2.5). | `dns.servers[n].address` |
+| Address            | required | rw         | string     | -             | ≤ 253 characters     | The IP address (IPv4 or IPv6) or the domain name of the name server. It cannot be empty: a server is removed through `DNSClientController.Servers`. IP addresses are recommended (section 2.5). | `dns.servers[n].address` |
 | Port               | optional | rw         | integer    | *(by transport)* | 1 … 65535         | The port of the name server. When not set: 53 for `UDP`/`TCP`, 853 for `TLS`, 443 for `HTTPS*`. | `dns.servers[n].port` |
 | Transport          | optional | rw         | OptionList | `UDP`         | `UDP`, `TCP`, `TLS`, `HTTPS`, `HTTPS_GET` | The transport, see section 2.1. The `valuesList` shall list only what the charging station supports. | `dns.servers[n].transport` |
 | QueryTimeout       | optional | rw         | decimal    | *(DNSClientController.QueryTimeout)* | 0.1 … 120 (s) | How long a query to this server may take. Unit: `s`. | `dns.servers[n].queryTimeoutSeconds` |
@@ -189,7 +192,7 @@ All servers of all used slots are asked in parallel (section 2.4); the slot numb
 | RootFingerprint    | optional | ro         | string     | ""            | -                    | The SHA-256 fingerprint of the root CA the chain ended at. | last verdict |
 | KnownSince         | optional | ro         | dateTime   | -             | -                    | Since when the server is believed with its current certificate (change detection, section 2.3). | known servers |
 
-The value of `CertificatePins` and `RootPins` is a comma separated list of fingerprints and not a `MemberList`, because a `MemberList` only takes values of the `valuesList`. Writing a list is limited by `SetVariableData.attributeValue`, 1000 characters in OCPP 2.0.1 and 2500 in OCPP 2.1, or less (see `DeviceDataCtrlr.ConfigurationValueSize`). In OCPP 2.0.1 at most 15 fingerprints without colons fit; in OCPP 2.1 all 16 fit, with colons as well. Reading is limited by `ReportingValueSize`: 16 fingerprints without colons take 1039 characters. The [Secure Time Synchronization](../SecureTimeSync/README.md) paper writes its lists in the same way, for the same reason (its section 3.2).
+The value of `DNSClientController.Servers` is a comma separated list of ids, and that of `CertificatePins` and `RootPins` one of fingerprints, and not a `MemberList`, because a `MemberList` only takes values of the `valuesList`. Writing a list is limited by `SetVariableData.attributeValue`, 1000 characters in OCPP 2.0.1 and 2500 in OCPP 2.1, or less (see `DeviceDataCtrlr.ConfigurationValueSize`). In OCPP 2.0.1 at most 15 fingerprints without colons fit; in OCPP 2.1 all 16 fit, with colons as well. Reading is limited by `ReportingValueSize`: 16 fingerprints without colons take 1039 characters. The [Secure Time Synchronization](../SecureTimeSync/README.md) paper writes its lists in the same way, for the same reason (its section 3.2).
 
 When *trust on first use* learns a pin, the value of `CertificatePins` or `RootPins` changes without any request of the CSMS. A CSMS that wants to know can set a `Delta` monitor on these variables.
 
@@ -202,13 +205,13 @@ See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWC
 
 Several variables of one name server depend on each other: a pin is only allowed for an encrypted transport, the default port depends on the transport, and `OnPinMismatch` only makes sense with a pin. Applied one by one, a change from `UDP` to `TLS` with a root pin succeeds or fails depending on the order of the *SetVariableData* entries. Therefore:
 
-- **`IndependentRequests`** (standard OCPP, and the default): the entries are applied one by one, in the order of the request, each validated against the configuration as it is after the entries before it, each with its own result. A CSMS has to order them: set the transport before the pins, and remove the pins before switching a server to an unencrypted transport. One exception: all entries for a slot that is unused before the request are applied **together with its `Address`**, so that adding an encrypted server never passes through a clear text one. Entries for an unused slot without an `Address` in the same request are `Rejected`.
-- **`ACID`** (the *DataConsistencyModel* of [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md)): all entries of the request that address `DNSClientController` or `DNSServerController` are validated and applied as **one change**: either all of them are accepted, persisted and put into effect together, or none is. The entries that caused the refusal are `Rejected`, all others `Rolledback`.
-- **`BASE`**: like `ACID`, but each component instance is one change of its own.
-- A refused entry is `Rejected`; its `statusInfo.additionalInfo` (at most 512 characters in OCPP 2.0.1, 1024 in OCPP 2.1) says what is wrong, e.g. *"'DNSServerController[2]' is held to a certificate and asked over UDP, which shows none."*. Entries that are wrong by themselves get the usual results: `UnknownComponent` for an instance beyond `MaxServers`, `UnknownVariable`, `NotSupportedAttributeType` for anything but `Actual`, `Rejected` for a read-only variable, `Rejected` with `reasonCode` `InvalidValue` for a value that cannot be parsed (e.g. `"yes"` for a boolean) and `ValueOutOfRange` for one out of range.
+- **`IndependentRequests`** (standard OCPP, and the default): the entries are applied one by one, in the order of the request, each validated against the configuration as it is after the entries before it, each with its own result. A CSMS has to order them: set the transport before the pins, and remove the pins before switching a server to an unencrypted transport. One exception: all entries of a server that a `Servers` entry of the same request adds are applied **together with that `Servers` entry**, where it stands, so that adding an encrypted server never passes through a clear text one. A new server without an `Address` in the same request is `Rejected`, with the `Servers` entry that adds it.
+- **`ACID`** (the *DataConsistencyModel* of [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md)): all entries of the request that address `DNSClientController` or `DNSServerController` are validated and applied as **one change**: either all of them are accepted, persisted and put into effect together, or none is. The entries that caused the refusal are `Rejected`, all others `Rolledback`. A server that `Servers` removes cannot be set in the same change.
+- **`BASE`**: like `ACID`, but each server the charging station has is one change of its own, and `DNSClientController` is one change together with the servers its `Servers` adds.
+- A refused entry is `Rejected`; its `statusInfo.additionalInfo` (at most 512 characters in OCPP 2.0.1, 1024 in OCPP 2.1) says what is wrong, e.g. *"'DNSServerController[dns-2]' is held to a certificate and asked over UDP, which shows none."*. Entries that are wrong by themselves get the usual results: `UnknownComponent` for an instance that is neither a server of the charging station nor named anew in the request's `Servers`, `UnknownVariable`, `NotSupportedAttributeType` for anything but `Actual`, `Rejected` for a read-only variable, `Rejected` with `reasonCode` `InvalidValue` for a value that cannot be parsed (e.g. `"yes"` for a boolean, an id named twice in `Servers`) and `ValueOutOfRange` for one out of range (e.g. more ids than `MaxServers`).
 - *SetVariableData* of other components in the same request are not affected.
 - A change that could not be persisted SHALL be rejected with `reasonCode` `InternalError`, and SHALL NOT be put into effect: what is in effect must survive a reboot.
-- Emptying the `Address` of every slot SHALL be rejected: a charging station without name servers cannot reach its CSMS by name.
+- `Servers` naming no server SHALL be rejected: a charging station without name servers cannot reach its CSMS by name.
 - Switching name resolution off (`DNSClientController.Enabled = false`) SHALL be rejected while a CSMS connection of the charging station is dialled by a domain name. It has the same effect.
 - No switch withholds name resolution from the CSMS: it may change every writable variable of both components. What protects the charging station is the rule below and the security log (section 2.8), which records every change and who made it.
 - **A CSMS must not cut itself off.** Name servers that cannot answer, or whose certificates are refused, disconnect the charging station from its CSMS. This does not happen at once, because the open WebSocket connection stays up, but at the next reconnect, possibly days later. Before a change via OCPP is put into effect, the charging station SHALL therefore resolve the host names of its configured CSMS connections through the configuration as it would be after the change, within a bounded time (e.g. 10 seconds). When a name that resolves now would no longer resolve, the change SHALL be rejected: all its entries are `Rejected` with `reasonCode` `CSMSUnreachable`, and `additionalInfo` names the host and what each name server came to, e.g. *"'csms.example.com' would not resolve: tls://192.0.2.53:853 untrusted."*. Names that do not resolve now do not block a change, so that a CSMS can repair a broken configuration. *SetNetworkProfileRequest* has a fallback for the same risk (`NetworkConfigurationPriority`); name resolution has none.
@@ -319,27 +322,27 @@ A *ChangeConfiguration.req* changes one key at a time, so the order-dependency d
 
 *InstallCertificate.req* of the OCPP v1.6 Security Extensions is extended by `"NameServerRootCertificate"` and `certificateGroup` in the same way as shown for the Secure Time Synchronization paper.
 
-*Reference implementation*: Every key but `dns.encryptedOnly`, which is answered `NotSupported` until `EncryptedOnly` is implemented. A key is checked and applied as the *SetVariablesRequest* of the `DNSClientController` and `DNSServerController` variables it stands for, with `ACID` where it stands for several, so OCPP v1.6 and v2.x accept and refuse the same changes and are logged alike. `dns.servers` changes the address of a server at its place, keeping its pins; a server added at the end takes the last entry of the lists that repeat it (`dns.transports`, `dns.onPinMismatch`, `dns.trustOnFirstUse`, `dns.rootCAs`), the default port and timeout, and no pins; servers beyond the end of the list are removed. There is no key for `ServerSource`: the servers of the operating system come back through OCPP v2.x, or through the station's JSON API with `"servers": null`.
+*Reference implementation*: Every key but `dns.encryptedOnly`, which is answered `NotSupported` until `EncryptedOnly` is implemented. A key is checked and applied as the *SetVariablesRequest* of the `DNSClientController` and `DNSServerController` variables it stands for, with `ACID` where it stands for several, so OCPP v1.6 and v2.x accept and refuse the same changes and are logged alike. The *n*-th entry of a list, and the key `dns.rootPins.`*n*, stands for the server of the *n*-th id of `DNSClientController.Servers`. `dns.servers` changes the address of a server at its place, keeping its id and its pins; a server added at the end takes the next free id, the last entry of the lists that repeat it (`dns.transports`, `dns.onPinMismatch`, `dns.trustOnFirstUse`, `dns.rootCAs`), the default port and timeout, and no pins; servers beyond the end of the list are removed. Both go through `DNSClientController.Servers`, as in OCPP v2.x. There is no key for `ServerSource`: the servers of the operating system come back through OCPP v2.x, or through the station's JSON API with `"servers": null`.
 
 
 ### 3.3 Example
 
-Two CPO-operated resolvers reached over DNS-over-TLS, both issued certificates for their IP addresses by the CPO's own root CA, which was installed as `NameServerRootCertificate`. The first is pinned to that root CA, the second learns its root on first use; signatures are requested.
+Two CPO-operated resolvers reached over DNS-over-TLS, both issued certificates for their IP addresses by the CPO's own root CA, which was installed as `NameServerRootCertificate`. The first is pinned to that root CA, the second learns its root on first use; signatures are requested. The charging station had the servers `dns-1`, `dns-2` and `dns-3`: `dns-1` is given another address, `cpo-2` is added and the other two are removed, as one change.
 
-*OCPP v2.x SetVariablesRequest:*
+*OCPP v2.x SetVariablesRequest* with `"dataConsistencyModel": "ACID"`:
 
 ```json
 {
   "setVariableData": [
-    { "component": { "name": "DNSServerController", "instance": "1" }, "variable": { "name": "Address"         }, "attributeValue": "192.0.2.53" },
-    { "component": { "name": "DNSServerController", "instance": "1" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
-    { "component": { "name": "DNSServerController", "instance": "1" }, "variable": { "name": "RootPins"        }, "attributeValue": "9D2E4F6A8B0C1D3E5F7A9B1C3D5E7F9A0B2C4D6E8F0A1B3C5D7E9F1A2B4C6D8E" },
-    { "component": { "name": "DNSServerController", "instance": "2" }, "variable": { "name": "Address"         }, "attributeValue": "198.51.100.53" },
-    { "component": { "name": "DNSServerController", "instance": "2" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
-    { "component": { "name": "DNSServerController", "instance": "2" }, "variable": { "name": "TrustOnFirstUse" }, "attributeValue": "Root" },
-    { "component": { "name": "DNSServerController", "instance": "3" }, "variable": { "name": "Address"         }, "attributeValue": "" },
-    { "component": { "name": "DNSClientController" },                  "variable": { "name": "DNSSECOK"        }, "attributeValue": "true" },
-    { "component": { "name": "DNSClientController" },                  "variable": { "name": "QueryTimeout"    }, "attributeValue": "3" }
+    { "component": { "name": "DNSClientController" },                      "variable": { "name": "Servers"         }, "attributeValue": "dns-1,cpo-2" },
+    { "component": { "name": "DNSServerController", "instance": "dns-1" }, "variable": { "name": "Address"         }, "attributeValue": "192.0.2.53" },
+    { "component": { "name": "DNSServerController", "instance": "dns-1" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
+    { "component": { "name": "DNSServerController", "instance": "dns-1" }, "variable": { "name": "RootPins"        }, "attributeValue": "9D2E4F6A8B0C1D3E5F7A9B1C3D5E7F9A0B2C4D6E8F0A1B3C5D7E9F1A2B4C6D8E" },
+    { "component": { "name": "DNSServerController", "instance": "cpo-2" }, "variable": { "name": "Address"         }, "attributeValue": "198.51.100.53" },
+    { "component": { "name": "DNSServerController", "instance": "cpo-2" }, "variable": { "name": "Transport"       }, "attributeValue": "TLS" },
+    { "component": { "name": "DNSServerController", "instance": "cpo-2" }, "variable": { "name": "TrustOnFirstUse" }, "attributeValue": "Root" },
+    { "component": { "name": "DNSClientController" },                      "variable": { "name": "DNSSECOK"        }, "attributeValue": "true" },
+    { "component": { "name": "DNSClientController" },                      "variable": { "name": "QueryTimeout"    }, "attributeValue": "3" }
   ]
 }
 ```
@@ -364,16 +367,16 @@ The section of the configuration file the reference implementation keeps — and
 "dns": {
   "enabled": true,
   "servers": [
-    { "address": "192.0.2.53",    "transport": "TLS",
+    { "id": "dns-1", "address": "192.0.2.53",    "transport": "TLS",
       "rootFingerprint": "9D2E4F6A8B0C1D3E5F7A9B1C3D5E7F9A0B2C4D6E8F0A1B3C5D7E9F1A2B4C6D8E" },
-    { "address": "198.51.100.53", "transport": "TLS", "trustOnFirstUse": "root" }
+    { "id": "cpo-2", "address": "198.51.100.53", "transport": "TLS", "trustOnFirstUse": "root" }
   ],
   "queryTimeoutSeconds": 3,
   "dnssecOK": true
 }
 ```
 
-Every key is optional; what the section does not mention is left as the charging station was built with, and a station built with nothing uses the name servers of its operating system. A server may also be written as a plain string (`"192.0.2.53"`), meaning UDP on port 53. Several pins of a kind are written as a list (`"rootFingerprints": [ … ]`). After the first handshake with the second server, the station has added the learned `"rootFingerprint"` to its entry.
+Every key is optional; what the section does not mention is left as the charging station was built with, and a station built with nothing uses the name servers of its operating system. A server may also be written as a plain string (`"192.0.2.53"`), meaning UDP on port 53, and without an `id`, meaning `dns-<n>` by its place (section 3.1.2). Several pins of a kind are written as a list (`"rootFingerprints": [ … ]`). After the first handshake with the second server, the station has added the learned `"rootFingerprint"` to its entry.
 
 
 ### 3.5 Example Configuration Using systemd-resolved or Unbound
@@ -441,7 +444,7 @@ When no name server can be reached or authenticated, a charging station cannot r
 |---|------|-----------------|
 | T1  | `ACID`: `Transport = UDP` and `RootPins` on the same server in one *SetVariablesRequest*. | The causing entry `Rejected`, all other DNS entries `Rolledback`; configuration unchanged. |
 | T2  | `IndependentRequests`: on an existing UDP server, `RootPins` before `Transport = TLS`; then the opposite order. | First order: `RootPins` `Rejected`, `Transport` `Accepted`. Opposite order: both `Accepted`. With `ACID`: both orders `Accepted`. |
-| T2a | `IndependentRequests`: `RootPins`, `Transport = TLS` and `Address` for an unused slot, in this order. | All `Accepted`; the log shows one change, and no clear text server was ever configured. |
+| T2a | `IndependentRequests`: `Servers` with a new id, then `RootPins`, `Transport = TLS` and `Address` of that new server, in this order. | All `Accepted`; the log shows one change, and no clear text server was ever configured. |
 | T3  | DoT server presents a certificate for another name or address. | Refused, even when it matches a pin; `InvalidNameServerCertificate`; `Problem = true`, `CertificateStatus = WrongName`. |
 | T4  | DoT server's chain ends at a root installed only as `NetworkTimeRootCertificate` or `CSMSRootCertificate`. | Refused (`Untrusted`). |
 | T5  | Same server, root installed as `NameServerRootCertificate`. | Accepted. |
@@ -453,11 +456,12 @@ When no name server can be reached or authenticated, a charging station cannot r
 | T11 | Pins of a server are changed while a DoT connection to it is open. | The connection is closed; the next query makes a new handshake judged by the new pins. |
 | T12 | One encrypted and one clear text server; attacker answers on UDP first. | Documented weakness (section 2.4); with `EncryptedOnly = true` the clear text server is refused. |
 | T13 | Block TCP port 853. | No fallback to UDP port 53. |
-| T14 | Empty every `Address`, once with `Enabled = true` and once with `Enabled = false`. | Rejected both times; the servers are kept. |
+| T14 | `Servers` naming no server, once with `Enabled = true` and once with `Enabled = false`. | Rejected both times; the servers are kept. |
+| T14a | `IndependentRequests`: `Servers` without the first server, then a variable of the second. | Both `Accepted`; the second server keeps its id, and no other server is changed. |
 | T15 | More than `MaxServers` servers, more than 16 pins, timeouts out of range. | Rejected with `ValueOutOfRange`. |
 | T16 | Configuration change via the local web interface. | Security log names who changed what; `ReconfigurationOfSecurityParameters` to the CSMS. |
 | T17 | Persistence fails (e.g. read-only file system). | `InternalError`; nothing changed in effect. |
-| T18 | *GetBaseReport(FullInventory)*. | `DNSClientController` and all `MaxServers` instances of `DNSServerController`, with characteristics and value lists. |
+| T18 | *GetBaseReport(FullInventory)*, after a server was added via the local web interface. | `DNSClientController`, with `Servers` naming every server, and one instance of `DNSServerController` per server, the new one included, with characteristics and value lists. |
 | T19 | `Enabled = false` while the CSMS is dialled by its domain name. | Rejected. |
 | T20 | Via OCPP, replace the name servers by one whose certificate is untrusted, while the CSMS is dialled by its domain name. Then the same with a server that works. | First: all entries `Rejected` with `reasonCode` `CSMSUnreachable`, configuration unchanged. Then: `Accepted`. |
 | T21 | *DeleteCertificate* of the `NameServerRootCertificate` that every configured server's chain ends at, while the CSMS is dialled by its domain name. | `Failed`; the root CA is kept. |
