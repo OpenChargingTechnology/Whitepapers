@@ -652,6 +652,7 @@ national solution for Germany.
 - [Critical Legal Time Services](../CriticalLegalTimeServices/README.md): the rationale of this paper. It explains why legal time must fail closed, why several servers must agree, and what a provider of legal time should publish for its clients: a signed policy, DNS records and a status API. Its `quorum.clients` corresponds to `MinServers` and `MaxDeviation` of the NTP Client Group Controller, and its managed networks (section 4.2) are the environment in which the configuration of this paper is communicated via OCPP.
 - [Secure Name Resolution for OCPP](../SecureDNS/README.md): NTS-KE servers are found by name, so time synchronization is only as trustworthy as name resolution. Its components are named alike, and pins, `OnPinMismatch` and trust on first use mean the same there.
 - [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md): the `ACID` and `BASE` *DataConsistencyModel* and the conditional updates used in section 3.2.5.
+- [NTS Key Establishment over SSH](../NTS-over-SSH/README.md) (draft): NTS-KE as an SSH subsystem for managed networks without an X.509 PKI of their own. It keeps the NTS-protected NTP of section 2.2 unchanged and proposes a mode `NTSv4SSH` for the NTP Client Controller of section 3.2.4.
 
 
 
