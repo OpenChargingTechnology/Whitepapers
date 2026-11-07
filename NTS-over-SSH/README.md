@@ -289,7 +289,14 @@ Everything else a general-purpose SSH server offers is refused: no operating sys
 - **Public services**: the authentication method `none` can be offered where anonymous NTS-KE is intended.
 - **Attack surface**: the SSH stack runs in the same process as the cookie master key, so a flaw in the SSH implementation can expose the master key. This calls for a mature SSH implementation that is tested against independent implementations and fuzzed, and for the usual rotation of the master key.
 
-*Reference implementation (planned)*: the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests).
+*Reference implementation (planned)*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP today, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work is planned in this order:
+
+1. Norn derives C2S and S2C through the single function `Exporter(label, context, L)` of section 4.4, with the three sources TLS, SSH exporter and transported secret.
+2. Norn parses and writes the *SSH Key Binding* record of section 5.
+3. The NTS server of Norn gets the SSH listener of this section with the subsystem `ntske/1@open.charging.cloud`, with option B only at first.
+4. Hermod adds the SSH exporter of section 4.3 to its key exchange, which enables option A.
+5. The command line of section 8.2 joins the same listener, with separate accounts for time clients and administrators.
+6. The nodes of Open Charging Cloud offer the subsystem on their shared listener (section 8.3). [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) already adds subsystems to that listener at run time and tells their handlers the authenticated identity of the client, which is enough for option B. Option A additionally needs the exporter of the connection from Hermod.
 
 
 ### 8.2 Administration over the Same Listener
@@ -438,3 +445,7 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
 - OCPP over SSH itself, which section 8.3 builds on, as a white paper of its own.
 - Whether a variant of option A that mixes fresh values of both peers into the exporter would allow repeated exchanges on long-lived connections (section 8.3).
+- Whether the subsystem name should avoid the `/` as a precaution, e.g. `ntske-1@open.charging.cloud`, although the naming rules allow it (section 3.1).
+- Whether any scenario justifies a contribution of the client to the secret of option B, which adds nothing against outsiders (section 4.4).
+- How policies per client are configured, i.e. which NTP servers the NTS-KE server names to which SSH identity or group of clients (sections 6.2 and 8.2).
+- The path to standardization: one Internet-Draft in the NTP working group for the subsystem and the record and one in SSHM for the exporter, or a specification of Open Charging Cloud only at first; and with it, when a record type from the *Specification Required* range is requested (section 5).
