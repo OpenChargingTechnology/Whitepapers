@@ -47,9 +47,9 @@ Property 5 is the foundation of this paper: only the channel of property 1 and t
 
 The subsystem name is **`ntske/1@open.charging.cloud`**. It mirrors the ALPN token `ntske/1` and carries the version in its local part.
 
-- **Naming rules**: according to [RFC 4251, section 6](https://datatracker.ietf.org/doc/html/rfc4251#section-6) and [RFC 4250, section 4.6.1](https://datatracker.ietf.org/doc/html/rfc4250#section-4.6.1), names without an `@` are reserved for assignment through IANA. Private extensions use the form `name@domain`, where the domain must be controlled by whoever defines the name. Names are printable US-ASCII without commas or whitespace, case-sensitive, and at most 64 characters long; a `/` is allowed.
+- **Naming rules**: according to [RFC 4251, section 6](https://datatracker.ietf.org/doc/html/rfc4251#section-6) and [RFC 4250, section 4.6.1](https://datatracker.ietf.org/doc/html/rfc4250#section-4.6.1), names without an `@` are reserved for assignment through IANA. Private extensions use the form `name@domain`, where the domain must be controlled by whoever defines the name. Names are printable US-ASCII without commas or whitespace, case-sensitive, and at most 64 characters long; a `/` is allowed, so the name keeps the ALPN token of RFC 8915 unchanged.
 - **Versioning**: an incompatible successor uses `ntske/2@open.charging.cloud`. A client can request several subsystems one after another without any change on the record level.
-- **Standardization**: should the mechanism become a standard, the domain part is dropped, and `ntske/1` is registered in the IANA registry *Connection Protocol Subsystem Names* ([RFC 4250, section 4.9.5](https://datatracker.ietf.org/doc/html/rfc4250#section-4.9.5)), whose policy is *Expert Review* since [RFC 9519](https://datatracker.ietf.org/doc/html/rfc9519).
+- **Registration**: once the mechanism is to be used beyond Open Charging Cloud, the domain part is dropped, and `ntske/1` is registered in the IANA registry *Connection Protocol Subsystem Names* ([RFC 4250, section 4.9.5](https://datatracker.ietf.org/doc/html/rfc4250#section-4.9.5)), whose policy is *Expert Review* since [RFC 9519](https://datatracker.ietf.org/doc/html/rfc9519). This needs no RFC.
 - **User name**: SSH requires a user name for authentication. The convention is `ntske`. On the shared listener of a charging infrastructure node the client logs in under its own identity instead (section 8.3).
 
 Rejected alternatives:
@@ -198,7 +198,7 @@ A single new NTS-KE record negotiates the source of the keys and carries the sec
 - The client sends exactly one such record and must offer `0x0002` (mandatory to implement).
 - The server answers with exactly one such record and selects the first method of the list it supports. When the record is missing or no method fits, the server answers with the *Error* record *Bad Request*.
 - Over TLS on port 4460 the record does not occur. A server according to RFC 8915 refuses it, as it is critical, with *Unrecognized Critical Record*.
-- Values of the private range are not coordinated; 16384 and 16385 are already in experimental use elsewhere. For standardization a type from the *Specification Required* range 1024 … 16383 would be requested.
+- Values of the private range are not coordinated; 16384 and 16385 are already in experimental use elsewhere. A coordinated value is a type from the *Specification Required* range 1024 … 16383. It needs a stable, public specification and the approval of the designated experts, but no RFC.
 
 Example: the client could use the exporter, but the server runs behind an unmodified OpenSSH server and selects the transport.
 
@@ -245,7 +245,11 @@ For devices without a battery-backed real-time clock, the pinned host key and th
 What the client identity brings:
 
 - Cookies are only handed out after a successful authentication. The cookies themselves remain anonymous, and the NTP server notices no difference.
-- The NTS-KE server may decide per client or group of clients which NTP server it names in the *NTPv4 Server Negotiation* record, e.g. to distribute classes of devices among different time sources.
+- The NTS-KE server may name different NTP servers in the *NTPv4 Server Negotiation* record per client or group of clients. Over TLS it knows little more than the source address, which says little behind NAT or a private APN; over SSH it knows the identity. This serves:
+  - **Reachability**: a charging station behind a local controller often reaches only the NTP server of that controller (section 8.3), a backend system the central one.
+  - **Classes of time sources**: devices whose clock matters under legal metrology get the traceable servers of the legal time ([Critical Legal Time Services](../CriticalLegalTimeServices/README.md)), all others a general pool, which spares the scarce servers.
+  - **Separation of tenants**: an operator serving several CPOs gives each of them NTP servers of its own with a cookie master key of its own, and the NTS-KE server keeps one master key per group. A compromised NTP server can then read the cookies of its own group only.
+  - **Gradual migration**: one group of devices moves to a new NTP server first, the others later.
 - Towards passive observers the unlinkability of cookies of RFC 8915 is preserved. The operator itself can now attribute the cookies it hands out to an identity instead of an IP address only, which is usually intended in managed networks.
 
 
@@ -440,12 +444,11 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 - Configuration keys for OCPP v1.6+SE, in line with section 3.3 of the Secure Time Synchronization white paper.
 - Key rotation for `SSHClientPublicKey`, and security events for host key mismatches.
 - Test vectors for both options of section 4.
-- Specify the SSH exporter of section 4.3 as a document of its own, independent of NTS.
+- Specify the SSH exporter of section 4.3 as an Internet-Draft of its own in the SSHM working group, independent of NTS. It is useful beyond NTS, and as cryptography of its own it needs an outside review most.
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
 - OCPP over SSH itself, which section 8.3 builds on, as a white paper of its own.
 - Whether a variant of option A that mixes fresh values of both peers into the exporter would allow repeated exchanges on long-lived connections (section 8.3).
-- Whether the subsystem name should avoid the `/` as a precaution, e.g. `ntske-1@open.charging.cloud`, although the naming rules allow it (section 3.1).
 - Whether any scenario justifies a contribution of the client to the secret of option B, which adds nothing against outsiders (section 4.4).
-- How policies per client are configured, i.e. which NTP servers the NTS-KE server names to which SSH identity or group of clients (sections 6.2 and 8.2).
-- The path to standardization: one Internet-Draft in the NTP working group for the subsystem and the record and one in SSHM for the exporter, or a specification of Open Charging Cloud only at first; and with it, when a record type from the *Specification Required* range is requested (section 5).
+- How the policies per client of section 6.2 are configured: groups of SSH identities, the NTP servers and cookie master keys of each group, and the commands of section 8.2 for them.
+- The path to standardization of the subsystem and the record: an Internet-Draft in the NTP working group; a specification of our own with IANA registrations only, i.e. the subsystem name through *Expert Review* (section 3.1) and the record type through *Specification Required* (section 5), neither of which needs an RFC; or the private name and record type alone. Proposed: a specification of our own first, with an early registration of the record type.
