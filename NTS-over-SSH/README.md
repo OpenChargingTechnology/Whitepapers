@@ -5,7 +5,7 @@ White Paper
 This white paper proposes to run the [Network Time Security Key Establishment (NTS-KE)](https://datatracker.ietf.org/doc/html/rfc8915) protocol as a [Secure Shell (SSH)](https://datatracker.ietf.org/doc/html/rfc4251) subsystem. It addresses the managed networks of Charge Point Operators (CPOs), laboratories, test sites and other private infrastructures that want authenticated time, but run no X.509 PKI of their own. The paper describes:
 
 - **An SSH transport for NTS-KE**: the subsystem `ntske/1@open.charging.cloud` carries the unchanged NTS-KE records of RFC 8915. The NTS-protected NTP that follows is not changed at all.
-- **A special-purpose SSH listener in the NTS-KE server**: it serves the subsystem to time clients and a command line to administrators, and nothing else.
+- **A special-purpose SSH listener in the NTS-KE server**: it serves the subsystem to time clients and a command line to administrators, and nothing else. A local controller or a CSMS that already accepts OCPP over SSH offers the subsystem on its existing listener instead, to the same station keys.
 - **Key binding without TLS**: why the SSH session identifier must not be used as key material, an SSH keying material exporter, and a simpler in-band key transport that also works behind an unmodified OpenSSH server.
 - **Trust anchors without X.509**: pinned host keys, SSH certificate authorities and SSHFP records, and client authorization through SSH public keys. Pinned host keys need no correct clock at all.
 - **A mapping onto the OCPP v2.x Device Model** as an extension of the *NTP Client Controller* of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper.
@@ -50,11 +50,11 @@ The subsystem name is **`ntske/1@open.charging.cloud`**. It mirrors the ALPN tok
 - **Naming rules**: according to [RFC 4251, section 6](https://datatracker.ietf.org/doc/html/rfc4251#section-6) and [RFC 4250, section 4.6.1](https://datatracker.ietf.org/doc/html/rfc4250#section-4.6.1), names without an `@` are reserved for assignment through IANA. Private extensions use the form `name@domain`, where the domain must be controlled by whoever defines the name. Names are printable US-ASCII without commas or whitespace, case-sensitive, and at most 64 characters long; a `/` is allowed.
 - **Versioning**: an incompatible successor uses `ntske/2@open.charging.cloud`. A client can request several subsystems one after another without any change on the record level.
 - **Standardization**: should the mechanism become a standard, the domain part is dropped, and `ntske/1` is registered in the IANA registry *Connection Protocol Subsystem Names* ([RFC 4250, section 4.9.5](https://datatracker.ietf.org/doc/html/rfc4250#section-4.9.5)), whose policy is *Expert Review* since [RFC 9519](https://datatracker.ietf.org/doc/html/rfc9519).
-- **User name**: SSH requires a user name for authentication. The convention is `ntske`.
+- **User name**: SSH requires a user name for authentication. The convention is `ntske`. On the shared listener of a charging infrastructure node the client logs in under its own identity instead (section 8.3).
 
 Rejected alternatives:
 
-- **A dedicated channel type** instead of a `session` channel with a `subsystem` request would be cleaner, as no terminal, environment or shell semantics apply. Generic SSH clients and libraries, however, can request subsystems but rarely open custom channel types, and OpenSSH cannot hand custom channel types to external programs (section 8.3).
+- **A dedicated channel type** instead of a `session` channel with a `subsystem` request would be cleaner, as no terminal, environment or shell semantics apply. Generic SSH clients and libraries, however, can request subsystems but rarely open custom channel types, and OpenSSH cannot hand custom channel types to external programs (section 8.4).
 - **An `exec` request with a fixed command** works, but mixes the protocol name with a path on the server and is harder to filter.
 - **Tunneling NTS-KE over TLS through SSH** (`direct-tcpip`) solves nothing: inside the tunnel a verifiable certificate is still required.
 
@@ -102,8 +102,8 @@ sequenceDiagram
 - **Framing**: the records travel as `SSH_MSG_CHANNEL_DATA` in the byte stream of the channel. Their length fields delimit them just as over TLS; no additional framing is needed.
 - **Closing**: after the *End of Message* record the server sends `SSH_MSG_CHANNEL_EOF` and `SSH_MSG_CHANNEL_CLOSE`, and the client disconnects.
 - **Errors**: when the server refuses the subsystem (`SSH_MSG_CHANNEL_FAILURE`), the client gives up. It never falls back silently to another transport.
-- **Option B**: the server answers with method `0x0002` and a fresh `nts_ke_secret`, from which both peers derive the keys instead. Behind an unmodified OpenSSH server (section 8.3), and for clients whose SSH library does not expose K and H, this is the only option.
-- **Latency**: roughly 7 to 9 round trips instead of about 3 for TCP, TLS 1.3 and NTS-KE. NTS-KE runs only after a start, when cookies run out, and about once a day (`MinRefresh` and `MaxRefresh` in the Secure Time Synchronization white paper), so the additional cost is negligible.
+- **Option B**: the server answers with method `0x0002` and a fresh `nts_ke_secret`, from which both peers derive the keys instead. Behind an unmodified OpenSSH server (section 8.4), and for clients whose SSH library does not expose K and H, this is the only option.
+- **Latency**: roughly 7 to 9 round trips instead of about 3 for TCP, TLS 1.3 and NTS-KE, and about 3 as a further channel of an existing connection (section 8.3). NTS-KE runs only after a start, when cookies run out, and about once a day (`MinRefresh` and `MaxRefresh` in the Secure Time Synchronization white paper), so the additional cost is negligible.
 
 
 ## 4. Key Binding
@@ -142,8 +142,8 @@ SSH-Exporter(label, context, L) =
 - **Time of computation**: once, during the first key exchange, together with the keys "A" to "F" of RFC 4253. K may be erased afterwards as usual. Re-keying does not change the exporter, just as `KeyUpdate` does not change the exporter of TLS 1.3.
 - **A string label instead of a letter**: keeps the letters after "F" free for future use and separates the domains unambiguously.
 - **Use for NTS**: C2S = `SSH-Exporter("EXPORTER-network-time-security", 0x0000 || AEAD id || 0x00, key length)`, and S2C likewise with `0x01`. Always with the context of RFC 8915, section 5.1: record type 1024 (*Compliant AES-128-GCM-SIV Exporter Context*), which works around a deployed deviation in TLS-based implementations, has no meaning over SSH.
-- **Once per connection**: the exporter is constant for an SSH connection. Two NTS-KE exchanges over the same connection, e.g. through the connection multiplexing of OpenSSH (`ControlMaster`), would derive identical keys. With option A the server therefore refuses every further subsystem request for this name on the same connection, just as RFC 8915 allows one exchange per TLS connection.
-- **Cost**: the SSH implementation must hand the value to the application. An NTS-KE server with an SSH listener of its own (section 8.1) holds K and H anyway, so the exporter is a small addition to its key exchange. OpenSSH would need a patch that passes the value from the SSH session process to the subsystem process.
+- **Once per connection**: the exporter is constant for an SSH connection. Two NTS-KE exchanges over the same connection, e.g. through the connection multiplexing of OpenSSH (`ControlMaster`), would derive identical keys. With option A the server therefore refuses every further subsystem request for this name on the same connection, just as RFC 8915 allows one exchange per TLS connection. This matters most for long-lived connections that carry other subsystems as well, e.g. OCPP (section 8.3).
+- **Cost**: the SSH implementation must hand the value to the application. An NTS-KE server with an SSH listener of its own (section 8.1), like a node with a shared listener (section 8.3), holds K and H anyway, so the exporter is a small addition to its key exchange. OpenSSH would need a patch that passes the value from the SSH session process to the subsystem process.
 
 
 ### 4.4 Option B: In-Band Key Transport
@@ -178,7 +178,7 @@ Label and context are those of RFC 8915. Option B is thus option A with another 
 | Key binding record in the response     | 6 bytes, without data         | 38 bytes, with the secret         |
 | New specifications                     | SSH exporter and record       | record only                       |
 
-**Recommendation**: option A is preferred wherever both ends terminate SSH themselves, as the NTS-KE server with an SSH listener of section 8.1 and a client on the same SSH stack do. Option B is mandatory to implement nevertheless: it is the common ground for clients with off-the-shelf SSH libraries and for servers behind an unmodified OpenSSH server. The record of section 5 negotiates between both. The SSH exporter itself should be specified independently of NTS, as it would be useful for other protocols over SSH as well.
+**Recommendation**: option A is preferred wherever both ends terminate SSH themselves, as the NTS-KE server with an SSH listener of section 8.1 and a client on the same SSH stack do. Option B is mandatory to implement nevertheless: it is the common ground for clients with off-the-shelf SSH libraries and for servers behind an unmodified OpenSSH server, and the only option on a long-lived connection that is shared with other subsystems (section 8.3). The record of section 5 negotiates between both. The SSH exporter itself should be specified independently of NTS, as it would be useful for other protocols over SSH as well.
 
 
 ## 5. The SSH Key Binding Record
@@ -239,6 +239,7 @@ For devices without a battery-backed real-time clock, the pinned host key and th
 
 - **`none`** ([RFC 4252, section 5.2](https://datatracker.ietf.org/doc/html/rfc4252#section-5.2)): for a public service on the SSH listener of section 8.1. This corresponds to anonymous NTS-KE over TLS; OpenSSH offers no clean way to configure it.
 - **`publickey`**: the normal case in managed networks. Every client has a key pair of its own, and the server lists the public keys in the `authorized_keys` file of the account `ntske`. Access is withdrawn by deleting one line.
+- **The OCPP key of a charging station**: on the shared listener of a charging infrastructure node (section 8.3) the key a station already uses for OCPP over SSH authorizes NTS-KE as well, once the subsystem is granted to the station.
 - **SSH user certificates**: one CA line instead of many keys for large fleets, with revocation through a key revocation list (KRL).
 
 What the client identity brings:
@@ -258,17 +259,19 @@ The NTP Client Controller of section 3.2.4 of the [Secure Time Synchronization](
 | SSHUserName           | optional | rw         | string    | `ntske`       | ≤ 32 characters       | The user name of the SSH user authentication. |
 | SSHHostKeyPins        | optional | rw         | string    | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the host keys the server may show, in the notation `SHA256:<base64>` of `ssh-keygen -l`. |
 | SSHHostCAs            | optional | rw         | string    | ""            | comma separated, ≤ 4  | SHA-256 fingerprints of the SSH CA keys that may sign the host certificate of the server. |
+| SSHUseOCPPConnection  | optional | rw         | boolean   | false         | -                     | Open the subsystem as a channel of the SSH connection of OCPP (section 8.3). `SSHPort`, `SSHUserName`, `SSHHostKeyPins` and `SSHHostCAs` then do not apply, and `ServerURL` names the peer of that connection. Only option B is offered. |
 | SSHClientPublicKey    | optional | ro         | string    | ""            | -                     | The public key the charging station authenticates with, in the `authorized_keys` format of OpenSSH. |
 | SSHHostKeyFingerprint | optional | ro         | string    | ""            | -                     | The SHA-256 fingerprint of the host key the server showed at its last NTS-KE handshake. |
 
 - **Client keys**: the charging station generates its Ed25519 key pair itself, and the private key never leaves the device. The CSMS reads `SSHClientPublicKey` and enters it into the `authorized_keys` of the NTS-KE server, or has it signed by the operator's SSH user CA.
 - **Pins**: `OnPinMismatch` applies to `SSHHostKeyPins` and `SSHHostCAs` as it does to certificate pins. Whether `TrustOnFirstUse` needs a value `HostKey` of its own is open.
 - **Fingerprints**: unlike the certificate pins of the Secure Time Synchronization white paper, which hash the whole certificate, an SSH fingerprint is the SHA-256 hash of the public key alone.
+- **OCPP over SSH**: with `SSHUseOCPPConnection` the charging station needs no key pair, pin or account of its own for time. It uses those of its OCPP connection, and `SSHClientPublicKey` is its OCPP key. While that connection does not run over SSH, or is down, the client cannot reach its NTS-KE server and handles this like any unreachable server. The cookies it holds keep NTP running in the meantime.
 
 
 ## 8. Deployment Profiles
 
-The primary profile is an NTS-KE server with an SSH listener of its own, which serves time clients and administrators alike. An unmodified OpenSSH server with a small helper program remains possible as an alternative.
+The primary profile is an NTS-KE server with an SSH listener of its own, which serves time clients and administrators alike. A charging infrastructure node that already runs an SSH listener, e.g. for OCPP over SSH, offers the subsystem next to its other ones. An unmodified OpenSSH server with a small helper program remains possible as an alternative.
 
 
 ### 8.1 NTS-KE Server with an SSH Listener of Its Own
@@ -306,7 +309,32 @@ Access rules:
 - **Evidence**: every change of the time configuration is logged together with the administrator who made it, in the same spirit as section 4.2 of [Critical Legal Time Services](../CriticalLegalTimeServices/README.md) records every change of the legal time configuration of a charging station.
 
 
-### 8.3 OpenSSH Subsystem (Alternative)
+### 8.3 Subsystem on the Shared SSH Listener of a Charging Infrastructure Node
+
+A local controller or a CSMS often runs an SSH listener anyway: for its command line, for SFTP, and for OCPP itself when charging stations connect to `ssh://` instead of `wss://`. Each station then pins the host key of the node, and the node knows the public key of each station. This removes certificates from the station network for OCPP in the same way as this paper does for time. Open Charging Cloud carries OCPP and its own node protocol WWCP over SSH as the subsystems `ocpp@open.charging.cloud` and `wwcp@open.charging.cloud`. Such a node offers NTS-KE as one more subsystem of the same listener:
+
+```text
+SSH listener of a local controller (one port, one host key)
+ ├─ shell                        administrators: the command line of the node
+ ├─ sftp                         administrators
+ ├─ ocpp@open.charging.cloud     charging stations
+ ├─ wwcp@open.charging.cloud     neighbouring nodes
+ └─ ntske/1@open.charging.cloud  charging stations and other time clients
+```
+
+- **One identity, one trust anchor**: the station authenticates with the key pair it already uses for OCPP, under its own login name, and verifies the host key it already pins for OCPP. There is no second key pair, no second pin and no account `ntske`.
+- **Authorization per subsystem**: the login of a station is restricted to the subsystems it may use, e.g. `ocpp@…` and `ntske/1@…`, without shell, `exec`, SFTP or forwarding. NTS-KE is granted explicitly like any other subsystem, so that a key admitted for OCPP does not obtain cookies by itself, and vice versa. Rules by source network, or by the local address a connection arrived at, apply to NTS-KE as to the other subsystems.
+- **A channel of the existing connection**: a station connected for OCPP opens NTS-KE as a further channel of the same connection. Key exchange and authentication are skipped, and an exchange costs the channel request, the subsystem request and the records, i.e. about 3 round trips instead of 7 to 9 (section 3.2). A short connection of its own with the same key remains possible.
+- **Option A and long-lived connections**: an OCPP connection over SSH lasts days or weeks, while the exporter of option A is constant per connection (section 4.3). Only the first exchange of such a connection could use option A; every later one, e.g. when the cookies run out, would derive identical keys and is refused. On a shared connection the client therefore offers option B only, and uses option A on a short connection of its own.
+- **Time server of the station network**: a local controller between the station network and its uplink is a natural time server for its stations. It synchronizes upstream itself, e.g. with NTS over TLS (section 4.1 of [Critical Legal Time Services](../CriticalLegalTimeServices/README.md)), runs the NTP server of the station network, and names itself in the *NTPv4 Server Negotiation* record. The stations then need neither a route to an external time server nor a certificate.
+- **Administration**: the commands of section 8.2 become part of the command line of the node, under its existing accounts and permissions.
+- **Attack surface**: the cookie master key now shares a process with OCPP, the command line, SFTP and the logins of all stations, which is more than in section 8.1. Where this is not acceptable, the node relays the records over a local socket to a separate NTS-KE server, as the helper program of section 8.4 does, and the master key stays there. Option A is then only possible if the node passes the exporter secret of the connection along with the records.
+- **Limits**: NTS-KE on an existing connection adds no handshake load. Connection limits of the listener are kept separately for stations and administrators, so that a station network cannot lock out its administrators (section 9).
+
+A subsystem handler for NTS-KE needs three things from the SSH stack of the node: the authenticated identity of the client, the SSH exporter of the connection for option A, and state per connection to refuse a second exchange with option A.
+
+
+### 8.4 OpenSSH Subsystem (Alternative)
 
 Operators who prefer to keep an unmodified OpenSSH server can run NTS-KE as an external subsystem. The SSH server takes care of the transport, the host key and the client authentication. A small helper program reads records from stdin, writes records to stdout, and relays both over a local socket to the NTS-KE server. The NTS-KE server generates `nts_ke_secret` and the cookies there; the master key never leaves it. Only option B is possible.
 
@@ -332,9 +360,9 @@ Match User ntske
 - **Limit**: option A is not possible here, as the SSH server hands no exporter secret to subsystems.
 
 
-### 8.4 Clients
+### 8.5 Clients
 
-A client needs an SSH library with support for subsystems and host key pinning, and for option A access to K and H. A client on the same SSH stack as the server of section 8.1 has both. Clients with off-the-shelf SSH libraries use option B. For tests, `ssh -s` is sufficient to request the subsystem and to pass binary records through.
+A client needs an SSH library with support for subsystems and host key pinning, and for option A access to K and H. A client on the same SSH stack as the server of section 8.1 has both. Clients with off-the-shelf SSH libraries use option B. A charging station that already runs OCPP over SSH (section 8.3) has subsystems and pinning in place, and needs only the NTS-KE records and option B. For tests, `ssh -s` is sufficient to request the subsystem and to pass binary records through.
 
 
 ## 9. Security Considerations
@@ -345,12 +373,13 @@ The SSH profile is as secure as the verification of the host key and the negotia
 - **Terrapin ([CVE-2023-48795](https://terrapin-attack.com))**: the prefix truncation attack on `chacha20-poly1305@openssh.com` and on CBC ciphers with Encrypt-then-MAC is prevented by *strict KEX* (`kex-strict-c-v00@openssh.com` and `kex-strict-s-v00@openssh.com`, [draft-ietf-sshm-strict-kex](https://datatracker.ietf.org/doc/draft-ietf-sshm-strict-kex/), OpenSSH 9.6 and later). The profile requires strict KEX; when the server does not signal it, the client aborts.
 - **Algorithms**: the key exchange prefers `mlkem768x25519-sha256` (the default of OpenSSH since 10.0) or `sntrup761x25519-sha512`, otherwise `curve25519-sha256`. Host keys are `ssh-ed25519` or `ecdsa-sha2-nistp256`. No `ssh-rsa` with SHA-1 and no SHA-1 based key exchange. Further requirements belong in the upcoming [Secure SSH Configuration](../SecureSSHConfiguration/README.md) white paper.
 - **Post-quantum**: a hybrid key exchange only protects the confidentiality of old C2S and S2C keys. A recording decrypted years later allows no retroactive attack on a time synchronization long past. It is desirable, but not critical.
-- **Uniqueness**: with option A exactly one NTS-KE exchange per SSH connection, as otherwise identical keys are derived. Option B generates a fresh secret for every exchange.
+- **Uniqueness**: with option A exactly one NTS-KE exchange per SSH connection, as otherwise identical keys are derived. Option B generates a fresh secret for every exchange. On long-lived connections that carry other subsystems as well, clients therefore use option B (section 8.3).
 - **Downgrade**: the SSH transport is configured explicitly per server, not negotiated automatically between TLS and SSH. The choice of method in the *SSH Key Binding* record is protected by the integrity of the channel, and even the weaker choice B remains secure.
-- **Process isolation**: with the SSH listener of section 8.1 the SSH stack and the cookie master key share a process, and the master key is only as safe as the SSH implementation. In the OpenSSH profile of section 8.3 the helper program runs as the unprivileged user `ntske` and only relays records; whoever takes it over obtains cookies for sessions of their own, but not the master key.
+- **Process isolation**: with the SSH listener of section 8.1 the SSH stack and the cookie master key share a process, and the master key is only as safe as the SSH implementation. In the OpenSSH profile of section 8.4 the helper program runs as the unprivileged user `ntske` and only relays records; whoever takes it over obtains cookies for sessions of their own, but not the master key. On the shared listener of section 8.3 the master key additionally shares its process with OCPP, the command line and the logins of all stations, unless the node relays the records to a separate NTS-KE server.
 - **Administrative access**: an administrator key can change the time configuration of a whole network and is the most valuable key of the system. Separation by account, restricted reachability, strong authentication and logging (section 8.2) are therefore mandatory, not optional.
-- **Denial of service**: an SSH handshake costs the server about as much as a TLS handshake. OpenSSH limits it with `MaxStartups`, `LoginGraceTime` and `PerSourcePenalties` (since 9.8); the SSH listener of section 8.1 needs equivalent limits, separately for time clients and administrators.
-- **Forwarding**: the SSH listener of section 8.1 offers no agent, port or X11 forwarding at all; in the OpenSSH profile they are disabled for the account `ntske`. The session identifier thus reaches no foreign agent.
+- **Authorization per subsystem**: on a shared listener (section 8.3) a key admitted for one subsystem must not reach another. NTS-KE is granted to each station explicitly, like OCPP, and a station login never opens a shell, `exec`, SFTP or forwarding.
+- **Denial of service**: an SSH handshake costs the server about as much as a TLS handshake. OpenSSH limits it with `MaxStartups`, `LoginGraceTime` and `PerSourcePenalties` (since 9.8); the SSH listeners of sections 8.1 and 8.3 need equivalent limits, separately for time clients and administrators.
+- **Forwarding**: the SSH listener of section 8.1 offers no agent, port or X11 forwarding at all, and a station login on the shared listener of section 8.3 gets none either; in the OpenSSH profile they are disabled for the account `ntske`. The session identifier thus reaches no foreign agent.
 
 
 ## 10. Alternatives without SSH
@@ -400,10 +429,12 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 
 - The command set of the administrative command line of section 8.2, and how its accounts are separated from those of time clients.
 - Whether the SSH stack and the cookie master key of section 8.1 should run in separate processes, as OpenSSH separates privileges.
-- Test the OpenSSH profile of section 8.3 end to end.
+- Test the OpenSSH profile of section 8.4 end to end.
 - Configuration keys for OCPP v1.6+SE, in line with section 3.3 of the Secure Time Synchronization white paper.
 - Key rotation for `SSHClientPublicKey`, and security events for host key mismatches.
 - Test vectors for both options of section 4.
 - Specify the SSH exporter of section 4.3 as a document of its own, independent of NTS.
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
+- OCPP over SSH itself, which section 8.3 builds on, as a white paper of its own.
+- Whether a variant of option A that mixes fresh values of both peers into the exporter would allow repeated exchanges on long-lived connections (section 8.3).
