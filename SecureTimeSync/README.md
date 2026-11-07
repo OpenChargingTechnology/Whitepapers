@@ -257,7 +257,7 @@ The *Instance* of the component is the client id (section 3.2). A client is one 
 | MinRefresh        | optional | rw         | integer    | 43200         | ≥ 60 (s)             | The time since the last NTS-KE handshake after which a new one is started, at a random time between `MinRefresh` and `MaxRefresh`. Unit: `s`. | `servers[n].minRefreshSeconds`, 43200 s when not set |
 | MaxRefresh        | optional | rw         | integer    | 86400         | ≥ `MinRefresh` (s)   | The time since the last NTS-KE handshake within which a new one must have succeeded. Unit: `s`. | `servers[n].maxRefreshSeconds`, 86400 s when not set. A handshake that fails when it is due is not made up for with the old keys: the server is not asked until a new one succeeds. By the server's host name across every group, the first entry that sets either deciding |
 | AEADAlgorithm     | optional | rw         | OptionList | `AES-SIV-CMAC-256` | `AES-SIV-CMAC-256`, `AES-128-GCM-SIV` | The Authenticated Encryption with Associated Data (AEAD) algorithm the client offers for NTS authentication of NTP messages. | `servers[n].aead`. Empty: both are offered, AES-128-GCM-SIV first, and the server chooses; it then reads the algorithm the last NTS-KE handshake agreed on |
-| SignedResponses   | optional | rw         | boolean    | false         | -                    | Whether a digitally signed second response is requested (section 1). | *not implemented* |
+| SignedResponses   | optional | rw         | boolean    | false         | -                    | Whether a digitally signed second response is requested (section 1). | `servers[n].signedResponses`: after every measurement, not in it, a second, scheduled response is asked for, its signature checked against the public key the NTS-KE handshake fetched, and every one written into the metrological log, the response itself included |
 | Problem           | optional | ro         | boolean    | false         | -                    | `true` while the last NTS-KE handshake with this server was refused, or its last exchange failed. Standardized variable name of OCPP; can be monitored. | last judgement |
 | CertificateFingerprint | optional | ro    | string     | ""            | -                    | The SHA-256 fingerprint of the certificate the server showed at its last NTS-KE handshake. | last key exchange |
 | LastKeyExchange   | optional | ro         | dateTime   | -             | -                    | When the last NTS-KE handshake with this server succeeded. | last key exchange |
@@ -399,7 +399,7 @@ A *ChangeConfiguration.req* changes one key at a time, so changes cannot be bund
 - `mode` takes `NTSv4` alone.
 - `ntp.timeAdjustmentReportingThreshold` is `ClockCtrlr.TimeAdjustmentReportingThreshold`, the threshold of the legal group; an empty value reports no offset.
 - `ntske.<group>.aead` is a list like the others, except that an empty entry is a server that offers both algorithms, not the one before it.
-- Not implemented are `ntp.reboot.*` and `signedResponses`.
+- Not implemented are `ntp.reboot.*`. `ntp.<group>.signedResponses` is the group's: `true` where every client of the group asks, and set on every one.
 
 #### 3.3.1 Common Configuration Keys
 
