@@ -92,7 +92,7 @@ sequenceDiagram
     Note over K: derive C2S/S2C from the SSH exporter, encrypt the cookies
     K->>C: Next Protocol, AEAD, SSH Key Binding (0x0001), 8 × New Cookie, End of Message
     Note over C: derive C2S/S2C from the SSH exporter
-    K->>C: CHANNEL_EOF, CHANNEL_CLOSE
+    K->>C: CHANNEL_REQUEST "exit-status" 0, CHANNEL_EOF, CHANNEL_CLOSE
 
     Note over C,N: 4. NTS-protected NTP, unchanged (UDP port 123)
     C->>N: NTPv4 request with NTS extension fields
@@ -100,7 +100,7 @@ sequenceDiagram
 ```
 
 - **Framing**: the records travel as `SSH_MSG_CHANNEL_DATA` in the byte stream of the channel. Their length fields delimit them just as over TLS; no additional framing is needed.
-- **Closing**: after the *End of Message* record the server sends `SSH_MSG_CHANNEL_EOF` and `SSH_MSG_CHANNEL_CLOSE`, and the client disconnects.
+- **Closing**: after the *End of Message* record the server sends the channel request `exit-status` ([RFC 4254, section 6.10](https://datatracker.ietf.org/doc/html/rfc4254#section-6.10)), `SSH_MSG_CHANNEL_EOF` and `SSH_MSG_CHANNEL_CLOSE`, as an SSH server does when the program behind a subsystem exits. The exit status is 0 when the response carries cookies and 1 when it carries an *Error* record. OpenSSH reports a missing exit status as a failure (exit code 255), although every record arrived. The client then disconnects, or keeps the connection for its other channels (section 8.3).
 - **Errors**: when the server refuses the subsystem (`SSH_MSG_CHANNEL_FAILURE`), the client gives up. It never falls back silently to another transport.
 - **Option B**: the server answers with method `0x0002` and a fresh `nts_ke_secret`, from which both peers derive the keys instead. Behind an unmodified OpenSSH server (section 8.4), and for clients whose SSH library does not expose K and H, this is the only option.
 - **Latency**: roughly 7 to 9 round trips instead of about 3 for TCP, TLS 1.3 and NTS-KE, and about 3 as a further channel of an existing connection (section 8.3). NTS-KE runs only after a start, when cookies run out, and about once a day (`MinRefresh` and `MaxRefresh` in the Secure Time Synchronization white paper), so the additional cost is negligible.
@@ -293,20 +293,22 @@ Everything else a general-purpose SSH server offers is refused: no operating sys
 - **Public services**: the authentication method `none` can be offered where anonymous NTS-KE is intended.
 - **Attack surface**: the SSH stack runs in the same process as the cookie master key, so a flaw in the SSH implementation can expose the master key. This calls for a mature SSH implementation that is tested against independent implementations and fuzzed, and for the usual rotation of the master key.
 
-*Reference implementation*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work proceeds in this order, and steps 1 to 3 are done:
+*Reference implementation*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work proceeds in this order, and steps 1 to 3 and 6 are done:
 
 1. *(done)* Norn derives C2S and S2C through the single function `Exporter(label, context, L)` of section 4.4, with the three sources TLS, SSH exporter and transported secret.
 2. *(done)* Norn parses and writes the *SSH Key Binding* record of section 5.
 3. *(done)* The NTS server of Norn gets the SSH listener of this section with the subsystem `ntske/1@open.charging.cloud`, with option B only at first.
 4. Hermod adds the SSH exporter of section 4.3 to its key exchange, which enables option A.
 5. The command line of section 8.2 joins the same listener, with separate accounts for time clients and administrators.
-6. The nodes of Open Charging Cloud offer the subsystem on their shared listener (section 8.3). [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) already adds subsystems to that listener at run time and tells their handlers the authenticated identity of the client, which is enough for option B. Option A additionally needs the exporter of the connection from Hermod.
+6. *(done)* The nodes of Open Charging Cloud offer the subsystem on their shared listener (section 8.3). [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) adds subsystems to that listener at run time and tells their handlers the authenticated identity of the client, which is enough for option B. Option A additionally needs the exporter of the connection from Hermod.
 
-What steps 1 to 3 implement:
+What is implemented so far:
 
 - **Server**: the subsystem handler has the shape the shared listener of section 8.3 expects, so step 6 reuses it unchanged. The server knows the *SSH Key Binding* record over SSH only; over TLS it refuses the record with *Unrecognized Critical Record*, as section 5 requires. It selects the transport even when the client prefers the exporter, uses the context of RFC 8915 for every algorithm, and neither expects nor echoes record type 1024. Several exchanges on one connection are served, as option B allows.
 - **Client**: it opens the subsystem on an SSH connection it is handed, so that it can share the connection of OCPP (section 8.3) as well as use one of its own. A refused subsystem is reported as an error of its own; the client does not fall back to TLS silently.
 - **Tests**: key exchanges over SSH followed by NTP requests with the cookies obtained, with AEAD_AES_SIV_CMAC_256 and with AEAD_AES_128_GCM_SIV, and the refusals of an unknown client key, of another subsystem name, and of requests without the record or without the transport. The test vectors of Appendix A are part of them.
+- **OpenSSH as the client**: `ssh -s ntske/1@open.charging.cloud` of OpenSSH 9.5 for Windows and of OpenSSH 10.5 carries the records, with a fresh key from `ssh-keygen` and the host key pinned in a `known_hosts` file, and the cookies obtained work for NTP. This test found the missing exit status of section 3.2.
+- **Shared listener (step 6)**: a node serves the subsystem with the handler of an NTS server of Norn, which holds the cookie master key and needs no SSH listener of its own. Who may open it is decided by the node's rules for subsystems: the logins of a kind, e.g. charging stations, where they name the subsystem, and an account only with a permission the node is given for it. Tests cover a station with the key of its OCPP login, a connection that carries a further subsystem in place of OCPP and two key exchanges beside it, an account with and without that permission, and a station without the subsystem.
 
 
 ### 8.2 Administration over the Same Listener
@@ -373,6 +375,7 @@ Match User ntske
 - **The account `ntske`**: OpenSSH starts external subsystems through the login shell of the account. The shell must therefore not be `nologin`; `ForceCommand` still prevents any use of the shell.
 - **`ForceCommand` and subsystems**: `ForceCommand` applies to subsystem requests as well, but only to names defined by a `Subsystem` line; other names fail before. `SSH_ORIGINAL_COMMAND` then holds the command configured for the subsystem, not the subsystem name. A shell request leaves it unset, so the helper can at least refuse those.
 - **`authorized_keys`**: additionally with the option `restrict` for every key, or a `@cert-authority` line for user certificates.
+- **Exit status**: the helper program exits with 0 when the response carries cookies and with 1 otherwise, and the SSH server passes this on as the exit status of section 3.2.
 - **Port**: port 22 can be shared with administrative access to the host. A separate SSH server instance with a port and a host key of its own is cleaner, and keeps the load of NTS-KE away from administration.
 - **Limit**: option A is not possible here, as the SSH server hands no exporter secret to subsystems.
 
@@ -510,7 +513,8 @@ c002 0022 0002 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 
 - The command set of the administrative command line of section 8.2, and how its accounts are separated from those of time clients.
 - Whether the SSH stack and the cookie master key of section 8.1 should run in separate processes, as OpenSSH separates privileges.
-- Test the OpenSSH profile of section 8.4 end to end, and the listener of section 8.1 with `ssh -s` as the client (section 8.5).
+- Test the OpenSSH profile of section 8.4 end to end, which needs the helper program first.
+- How a node is configured to host the NTS server of section 8.3: its NTP port, the master key, and the NTP server it names to its stations.
 - Configuration keys for OCPP v1.6+SE, in line with section 3.3 of the Secure Time Synchronization white paper.
 - Key rotation for `SSHClientPublicKey`, and security events for host key mismatches.
 - Test vectors for option A, from K, H and the session identifier of a recorded key exchange, once Hermod computes the exporter secret (step 4 of section 8.1). Appendix A covers option B.
