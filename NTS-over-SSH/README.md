@@ -157,7 +157,7 @@ NTS-Exporter(label, context, L) =
                         L    = L )
 ```
 
-Label and context are those of RFC 8915. Option B is thus option A with another PRK, and an implementation needs a single function `Exporter(label, context, L)` with three interchangeable sources: TLS, the SSH exporter, and the transported secret.
+Label and context are those of RFC 8915. Option B is thus option A with another PRK, and an implementation needs a single function `Exporter(label, context, L)` with three interchangeable sources: TLS, the SSH exporter, and the transported secret. Appendix A gives test vectors.
 
 **Security argument**: the secret travels in the same SSH channel whose endpoint the client has authenticated through its host key. Whoever can read the secret can also read and forge the records and cookies, and has therefore broken SSH itself. Then option A fails as well. The gap between layers that channel binding protects against does not exist here.
 
@@ -293,14 +293,20 @@ Everything else a general-purpose SSH server offers is refused: no operating sys
 - **Public services**: the authentication method `none` can be offered where anonymous NTS-KE is intended.
 - **Attack surface**: the SSH stack runs in the same process as the cookie master key, so a flaw in the SSH implementation can expose the master key. This calls for a mature SSH implementation that is tested against independent implementations and fuzzed, and for the usual rotation of the master key.
 
-*Reference implementation (planned)*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP today, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work is planned in this order:
+*Reference implementation*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work proceeds in this order, and steps 1 to 3 are done:
 
-1. Norn derives C2S and S2C through the single function `Exporter(label, context, L)` of section 4.4, with the three sources TLS, SSH exporter and transported secret.
-2. Norn parses and writes the *SSH Key Binding* record of section 5.
-3. The NTS server of Norn gets the SSH listener of this section with the subsystem `ntske/1@open.charging.cloud`, with option B only at first.
+1. *(done)* Norn derives C2S and S2C through the single function `Exporter(label, context, L)` of section 4.4, with the three sources TLS, SSH exporter and transported secret.
+2. *(done)* Norn parses and writes the *SSH Key Binding* record of section 5.
+3. *(done)* The NTS server of Norn gets the SSH listener of this section with the subsystem `ntske/1@open.charging.cloud`, with option B only at first.
 4. Hermod adds the SSH exporter of section 4.3 to its key exchange, which enables option A.
 5. The command line of section 8.2 joins the same listener, with separate accounts for time clients and administrators.
 6. The nodes of Open Charging Cloud offer the subsystem on their shared listener (section 8.3). [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) already adds subsystems to that listener at run time and tells their handlers the authenticated identity of the client, which is enough for option B. Option A additionally needs the exporter of the connection from Hermod.
+
+What steps 1 to 3 implement:
+
+- **Server**: the subsystem handler has the shape the shared listener of section 8.3 expects, so step 6 reuses it unchanged. The server knows the *SSH Key Binding* record over SSH only; over TLS it refuses the record with *Unrecognized Critical Record*, as section 5 requires. It selects the transport even when the client prefers the exporter, uses the context of RFC 8915 for every algorithm, and neither expects nor echoes record type 1024. Several exchanges on one connection are served, as option B allows.
+- **Client**: it opens the subsystem on an SSH connection it is handed, so that it can share the connection of OCPP (section 8.3) as well as use one of its own. A refused subsystem is reported as an error of its own; the client does not fall back to TLS silently.
+- **Tests**: key exchanges over SSH followed by NTP requests with the cookies obtained, with AEAD_AES_SIV_CMAC_256 and with AEAD_AES_128_GCM_SIV, and the refusals of an unknown client key, of another subsystem name, and of requests without the record or without the transport. The test vectors of Appendix A are part of them.
 
 
 ### 8.2 Administration over the Same Listener
@@ -434,16 +440,80 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 - [draft-williams-sshv2-channel-bindings-00: Channel Binding Identifiers for Secure Shell Channel](https://datatracker.ietf.org/doc/html/draft-williams-sshv2-channel-bindings-00) (expired)
 - [draft-ietf-sshm-strict-kex](https://datatracker.ietf.org/doc/draft-ietf-sshm-strict-kex/) (strict KEX, work in progress)
 - [Terrapin Attack: Breaking SSH Channel Integrity By Sequence Number Manipulation](https://terrapin-attack.com)
+- [RFC 8452: AES-GCM-SIV: Nonce Misuse-Resistant Authenticated Encryption](https://datatracker.ietf.org/doc/html/rfc8452)
+
+
+## Appendix A: Test Vectors
+
+The test vectors cover option B (section 4.4) and the record of section 5. They were computed independently of the reference implementation, with the `hmac` and `hashlib` modules of Python, and the [tests of Norn](https://github.com/Vanaheimr/Norn/blob/master/NornTests/NTS/NTSKE_SSH_Tests.cs) check against them. Test vectors for option A follow once Hermod computes the exporter secret (step 4 of section 8.1).
+
+
+### A.1 Key Derivation of Option B
+
+```text
+nts_ke_secret = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+label         = "EXPORTER-network-time-security"
+context       = 0x0000 || AEAD id (16 bits) || 0x00 for C2S, 0x01 for S2C
+```
+
+The `info` of HKDF-Expand for AEAD_AES_SIV_CMAC_256 and C2S, i.e. `string(label) || string(context)`:
+
+```text
+0000001e                                                        length of the label, 30
+4558504f525445522d6e6574776f726b2d74696d652d7365637572697479    "EXPORTER-network-time-security"
+00000005                                                        length of the context, 5
+0000000f00                                                      0x0000, AEAD id 15, C2S
+```
+
+The keys, with L the key length of the algorithm:
+
+```text
+AEAD_AES_SIV_CMAC_256 (15), L = 32
+  C2S  8a9424e3fd81e14cbc9731adff3ae5b6d2fe66349b4ad384f59a1f5bd7d552ec
+  S2C  2abf8475eda5bb1798b5d3d0f2fc413d62461c0bce93707fed97366193422713
+
+AEAD_AES_128_GCM_SIV (30), L = 16
+  C2S  e7961cb8c44fcc3d44d091c8574ad0f2
+  S2C  964988be02f188bbc3c96bd86bba825d
+
+AEAD_AES_256_GCM_SIV (31), L = 32
+  C2S  5f32ede85ca7a7607baa1c2bf14057c9afb7458114e476f6a187f2f96da0aa2e
+  S2C  0b6576d8ee6e31e992f4821dac89ec44d1e575a0f1b69a4f64225dc6051ec128
+```
+
+For AEAD_AES_128_GCM_SIV the context carries the id 30, as section 4.3 requires over SSH. An implementation that reuses its TLS code, where the context falls back to the id 15 unless record type 1024 was exchanged, derives other keys over SSH; the second vector catches this.
+
+
+### A.2 The SSH Key Binding Record
+
+The request of the example of section 5, offering the exporter and the transport:
+
+```text
+c002 0004 0001 0002
+│    │    └─ methods 0x0001, 0x0002
+│    └─ length of the body, 4
+└─ critical bit and record type 16386
+```
+
+The response selecting the transport, with the `nts_ke_secret` of A.1:
+
+```text
+c002 0022 0002 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+│    │    │    └─ nts_ke_secret, 32 bytes
+│    │    └─ method 0x0002
+│    └─ length of the body, 34
+└─ critical bit and record type 16386
+```
 
 
 ## ToDo's
 
 - The command set of the administrative command line of section 8.2, and how its accounts are separated from those of time clients.
 - Whether the SSH stack and the cookie master key of section 8.1 should run in separate processes, as OpenSSH separates privileges.
-- Test the OpenSSH profile of section 8.4 end to end.
+- Test the OpenSSH profile of section 8.4 end to end, and the listener of section 8.1 with `ssh -s` as the client (section 8.5).
 - Configuration keys for OCPP v1.6+SE, in line with section 3.3 of the Secure Time Synchronization white paper.
 - Key rotation for `SSHClientPublicKey`, and security events for host key mismatches.
-- Test vectors for both options of section 4.
+- Test vectors for option A, from K, H and the session identifier of a recorded key exchange, once Hermod computes the exporter secret (step 4 of section 8.1). Appendix A covers option B.
 - Specify the SSH exporter of section 4.3 as an Internet-Draft of its own in the SSHM working group, independent of NTS. It is useful beyond NTS, and as cryptography of its own it needs an outside review most.
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
