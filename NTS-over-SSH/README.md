@@ -89,9 +89,9 @@ sequenceDiagram
 
     Note over C,K: 3. NTS-KE inside the subsystem
     C->>K: Next Protocol, AEAD, SSH Key Binding (0x0001, 0x0002), End of Message
-    Note over K: derive C2S/S2C from the SSH exporter, encrypt the cookies
-    K->>C: Next Protocol, AEAD, SSH Key Binding (0x0001), 8 × New Cookie, End of Message
-    Note over C: derive C2S/S2C from the SSH exporter
+    Note over K: choose exporter_nonce, derive C2S/S2C from the SSH exporter and the nonce, encrypt the cookies
+    K->>C: Next Protocol, AEAD, SSH Key Binding (0x0001, exporter_nonce), 8 × New Cookie, End of Message
+    Note over C: derive C2S/S2C from the SSH exporter and the nonce
     K->>C: CHANNEL_REQUEST "exit-status" 0, CHANNEL_EOF, CHANNEL_CLOSE
 
     Note over C,N: 4. NTS-protected NTP, unchanged (UDP port 123)
@@ -108,7 +108,7 @@ sequenceDiagram
 
 ## 4. Key Binding
 
-An SSH keying material exporter can be defined cleanly, but the security of NTS-KE over SSH does not depend on it. Both options below end in the same key derivation function; only its input secret differs.
+An SSH keying material exporter can be defined cleanly, but the security of NTS-KE over SSH does not depend on it. Both options below end in the same key derivation function; only its pseudorandom key differs.
 
 
 ### 4.1 Why RFC 8915 Uses an Exporter
@@ -127,22 +127,25 @@ A channel binding value, however, is not a secret. The session identifier is han
 
 ### 4.3 Option A: SSH Keying Material Exporter
 
-The secret known only to both endpoints is the shared secret K of the key exchange. An exporter must therefore depend on K, just like the key derivation of [RFC 4253, section 7.2](https://datatracker.ietf.org/doc/html/rfc4253#section-7.2):
+The secret known only to both endpoints is the shared secret K of the key exchange. An exporter must therefore depend on K, just like the key derivation of [RFC 4253, section 7.2](https://datatracker.ietf.org/doc/html/rfc4253#section-7.2). A nonce, which the server sends with every exchange, keeps the keys of one exchange apart from those of the next on the same connection:
 
 ```text
 exporter_secret = HASH( K || H || string("ssh-exporter@open.charging.cloud") || session_id )
 
+PRK = HKDF-Extract( salt = exporter_nonce,
+                    IKM  = exporter_secret )   # HMAC with HASH
+
 SSH-Exporter(label, context, L) =
-    HKDF-Expand( PRK  = exporter_secret,
+    HKDF-Expand( PRK  = PRK,
                  info = string(label) || string(context),
                  L    = L )                    # HMAC with HASH
 ```
 
-- **Encoding**: K and H exactly as encoded by the key derivation of the negotiated key exchange method: `mpint` for the classical methods, e.g. `curve25519-sha256` ([RFC 8731](https://datatracker.ietf.org/doc/html/rfc8731)), and `string` for the hybrid post-quantum ones, e.g. `mlkem768x25519-sha256` ([RFC 10042](https://datatracker.ietf.org/doc/html/rfc10042)). HASH is the hash function of the key exchange method, `string()` the SSH encoding with a 32-bit length prefix, and HKDF-Expand the one of [RFC 5869](https://datatracker.ietf.org/doc/html/rfc5869).
-- **Time of computation**: once, during the first key exchange, together with the keys "A" to "F" of RFC 4253. K may be erased afterwards as usual. Re-keying does not change the exporter, just as `KeyUpdate` does not change the exporter of TLS 1.3.
+- **Encoding**: K and H exactly as encoded by the key derivation of the negotiated key exchange method: `mpint` for the classical methods, e.g. `curve25519-sha256` ([RFC 8731](https://datatracker.ietf.org/doc/html/rfc8731)), and `string` for the hybrid post-quantum ones, e.g. `mlkem768x25519-sha256` ([RFC 10042](https://datatracker.ietf.org/doc/html/rfc10042)). HASH is the hash function of the key exchange method, `string()` the SSH encoding with a 32-bit length prefix, and HKDF-Extract and HKDF-Expand those of [RFC 5869](https://datatracker.ietf.org/doc/html/rfc5869).
+- **Time of computation**: `exporter_secret` once, during the first key exchange, together with the keys "A" to "F" of RFC 4253. K may be erased afterwards as usual. Re-keying does not change `exporter_secret`, just as `KeyUpdate` does not change the exporter of TLS 1.3, so both peers agree on it however re-keys and NTS-KE exchanges interleave.
 - **A string label instead of a letter**: keeps the letters after "F" free for future use and separates the domains unambiguously.
+- **A nonce for every exchange**: `exporter_secret` is constant for an SSH connection. Without a nonce, two NTS-KE exchanges over the same connection, e.g. through the connection multiplexing of OpenSSH (`ControlMaster`) or a station that refreshes its keys on a connection carrying OCPP for weeks (section 8.3), would derive identical keys. A key refresh would change nothing, a key that leaked would stay valid for as long as the connection lives, and associations with different NTP servers would share their keys. The server therefore generates a fresh `exporter_nonce` of 32 bytes for every exchange and sends it in the *SSH Key Binding* record (section 5). The nonce need not be secret. That the server alone chooses it is enough: it learns both keys under either option anyway, as it seals them into the cookies (section 4.4), and the nonce only has to keep the exchanges apart. Option A thus serves any number of exchanges per connection, as option B does.
 - **Use for NTS**: C2S = `SSH-Exporter("EXPORTER-network-time-security", 0x0000 || AEAD id || 0x00, key length)`, and S2C likewise with `0x01`. Always with the context of RFC 8915, section 5.1: record type 1024 (*Compliant AES-128-GCM-SIV Exporter Context*), which works around a deployed deviation in TLS-based implementations, has no meaning over SSH.
-- **Once per connection**: the exporter is constant for an SSH connection. Two NTS-KE exchanges over the same connection, e.g. through the connection multiplexing of OpenSSH (`ControlMaster`), would derive identical keys. With option A the server therefore refuses every further subsystem request for this name on the same connection, just as RFC 8915 allows one exchange per TLS connection. This matters most for long-lived connections that carry other subsystems as well, e.g. OCPP (section 8.3).
 - **Cost**: the SSH implementation must hand the value to the application. An NTS-KE server with an SSH listener of its own (section 8.1), like a node with a shared listener (section 8.3), holds K and H anyway, so the exporter is a small addition to its key exchange. OpenSSH would need a patch that passes the value from the SSH session process to the subsystem process.
 
 
@@ -157,7 +160,7 @@ NTS-Exporter(label, context, L) =
                         L    = L )
 ```
 
-Label and context are those of RFC 8915. Option B is thus option A with another PRK, and an implementation needs a single function `Exporter(label, context, L)` with three interchangeable sources: TLS, the SSH exporter, and the transported secret. Appendix A gives test vectors.
+Label and context are those of RFC 8915. Option B thus differs from option A only in its PRK, which the server sends instead of both peers extracting it from the connection, and an implementation needs a single function `Exporter(label, context, L)` with three interchangeable sources: TLS, the SSH exporter, and the transported secret. Appendix A gives test vectors.
 
 **Security argument**: the secret travels in the same SSH channel whose endpoint the client has authenticated through its host key. Whoever can read the secret can also read and forge the records and cookies, and has therefore broken SSH itself. Then option A fails as well. The gap between layers that channel binding protects against does not exist here.
 
@@ -174,16 +177,16 @@ Label and context are those of RFC 8915. Option B is thus option A with another 
 | NTS-KE server with SSH listener        | small addition to the KEX     | no change                         |
 | Unmodified OpenSSH server              | no, needs a patch             | yes                               |
 | Off-the-shelf SSH client library       | rarely exposes K and H        | yes                               |
-| Several exchanges per connection       | forbidden                     | allowed                           |
-| Key binding record in the response     | 6 bytes, without data         | 38 bytes, with the secret         |
+| Several exchanges per connection       | allowed, with a nonce each    | allowed, with a secret each       |
+| Key binding record in the response     | 38 bytes, with the nonce      | 38 bytes, with the secret         |
 | New specifications                     | SSH exporter and record       | record only                       |
 
-**Recommendation**: option A is preferred wherever both ends terminate SSH themselves, as the NTS-KE server with an SSH listener of section 8.1 and a client on the same SSH stack do. Option B is mandatory to implement nevertheless: it is the common ground for clients with off-the-shelf SSH libraries and for servers behind an unmodified OpenSSH server, and the only option on a long-lived connection that is shared with other subsystems (section 8.3). The record of section 5 negotiates between both. The SSH exporter itself should be specified independently of NTS, as it would be useful for other protocols over SSH as well.
+**Recommendation**: option A is preferred wherever both ends terminate SSH themselves, as the NTS-KE server with an SSH listener of section 8.1 and a client on the same SSH stack do. Option B is mandatory to implement nevertheless: it is the common ground for clients with off-the-shelf SSH libraries and for servers behind an unmodified OpenSSH server. The record of section 5 negotiates between both. The SSH exporter itself should be specified independently of NTS, as it would be useful for other protocols over SSH as well.
 
 
 ## 5. The SSH Key Binding Record
 
-A single new NTS-KE record negotiates the source of the keys and carries the secret of option B. All other records remain as defined by RFC 8915.
+A single new NTS-KE record negotiates the source of the keys and carries the nonce of option A or the secret of option B. All other records remain as defined by RFC 8915.
 
 | Field                | Value |
 |----------------------|-------|
@@ -192,11 +195,12 @@ A single new NTS-KE record negotiates the source of the keys and carries the sec
 | Critical bit         | set; the subsystem name implies that the server knows the record |
 | Body of the request  | a list of 16-bit method ids, in order of preference |
 | Body of the response | one 16-bit method id, followed by method-specific data |
-| Method `0x0001`      | Exporter (option A), no data |
+| Method `0x0001`      | Exporter (option A), 32 bytes `exporter_nonce` |
 | Method `0x0002`      | Transport (option B), 32 bytes `nts_ke_secret` |
 
 - The client sends exactly one such record and must offer `0x0002` (mandatory to implement).
-- The server answers with exactly one such record and selects the first method of the list it supports. When the record is missing or no method fits, the server answers with the *Error* record *Bad Request*.
+- The server answers with exactly one such record and selects the first method of the list it supports. It generates the data of that method anew for every exchange: the nonce of the exporter or the secret of the transport. When the record is missing or no method fits, the server answers with the *Error* record *Bad Request*.
+- The client aborts the exchange when the response selects a method it did not offer, or carries data of another length than the method defines.
 - Over TLS on port 4460 the record does not occur. A server according to RFC 8915 refuses it, as it is critical, with *Unrecognized Critical Record*.
 - Values of the private range are not coordinated; 16384 and 16385 are already in experimental use elsewhere. A coordinated value is a type from the *Specification Required* range 1024 … 16383. It needs a stable, public specification and the approval of the designated experts, but no RFC.
 
@@ -263,7 +267,7 @@ The NTP Client Controller of section 3.2.4 of the [Secure Time Synchronization](
 | SSHUserName           | optional | rw         | string    | `ntske`       | ≤ 32 characters       | The user name of the SSH user authentication. |
 | SSHHostKeyPins        | optional | rw         | string    | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the host keys the server may show, in the notation `SHA256:<base64>` of `ssh-keygen -l`. |
 | SSHHostCAs            | optional | rw         | string    | ""            | comma separated, ≤ 4  | SHA-256 fingerprints of the SSH CA keys that may sign the host certificate of the server. |
-| SSHUseOCPPConnection  | optional | rw         | boolean   | false         | -                     | Open the subsystem as a channel of the SSH connection of OCPP (section 8.3). `SSHPort`, `SSHUserName`, `SSHHostKeyPins` and `SSHHostCAs` then do not apply, and `ServerURL` names the peer of that connection. Only option B is offered. |
+| SSHUseOCPPConnection  | optional | rw         | boolean   | false         | -                     | Open the subsystem as a channel of the SSH connection of OCPP (section 8.3). `SSHPort`, `SSHUserName`, `SSHHostKeyPins` and `SSHHostCAs` then do not apply, and `ServerURL` names the peer of that connection. Option A is offered before option B where the SSH stack of the station hands out the exporter of its connection. |
 | SSHClientPublicKey    | optional | ro         | string    | ""            | -                     | The public key the charging station authenticates with, in the `authorized_keys` format of OpenSSH. |
 | SSHHostKeyFingerprint | optional | ro         | string    | ""            | -                     | The SHA-256 fingerprint of the host key the server showed at its last NTS-KE handshake. |
 
@@ -293,22 +297,23 @@ Everything else a general-purpose SSH server offers is refused: no operating sys
 - **Public services**: the authentication method `none` can be offered where anonymous NTS-KE is intended.
 - **Attack surface**: the SSH stack runs in the same process as the cookie master key, so a flaw in the SSH implementation can expose the master key. This calls for a mature SSH implementation that is tested against independent implementations and fuzzed, and for the usual rotation of the master key.
 
-*Reference implementation*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work proceeds in this order, and steps 1 to 3 and 6 are done:
+*Reference implementation*: the NTS server of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), which serves NTS-KE over TLS and NTP, and the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), which implements client and server once for both roles, including hybrid post-quantum key exchange, OpenSSH certificates and SSHFP. Its interoperability with independent SSH implementations is tested by the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests). The work proceeds in this order, and steps 1 to 4 and 6 are done:
 
 1. *(done)* Norn derives C2S and S2C through the single function `Exporter(label, context, L)` of section 4.4, with the three sources TLS, SSH exporter and transported secret.
 2. *(done)* Norn parses and writes the *SSH Key Binding* record of section 5.
 3. *(done)* The NTS server of Norn gets the SSH listener of this section with the subsystem `ntske/1@open.charging.cloud`, with option B only at first.
-4. Hermod adds the SSH exporter of section 4.3 to its key exchange, which enables option A.
+4. *(done)* Hermod adds the SSH exporter of section 4.3 to its key exchange, which enables option A.
 5. The command line of section 8.2 joins the same listener, with separate accounts for time clients and administrators.
-6. *(done)* The nodes of Open Charging Cloud offer the subsystem on their shared listener (section 8.3). [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) adds subsystems to that listener at run time and tells their handlers the authenticated identity of the client, which is enough for option B. Option A additionally needs the exporter of the connection from Hermod.
+6. *(done)* The nodes of Open Charging Cloud offer the subsystem on their shared listener (section 8.3). [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) adds subsystems to that listener at run time and tells their handlers the authenticated identity of the client and, through Hermod, the exporter of the connection: all that both options need.
 
 What is implemented so far:
 
-- **Server**: the subsystem handler has the shape the shared listener of section 8.3 expects, so step 6 reuses it unchanged. The server knows the *SSH Key Binding* record over SSH only; over TLS it refuses the record with *Unrecognized Critical Record*, as section 5 requires. It selects the transport even when the client prefers the exporter, uses the context of RFC 8915 for every algorithm, and neither expects nor echoes record type 1024. Several exchanges on one connection are served, as option B allows.
-- **Client**: it opens the subsystem on an SSH connection it is handed, so that it can share the connection of OCPP (section 8.3) as well as use one of its own. A refused subsystem is reported as an error of its own; the client does not fall back to TLS silently.
-- **Tests**: key exchanges over SSH followed by NTP requests with the cookies obtained, with AEAD_AES_SIV_CMAC_256 and with AEAD_AES_128_GCM_SIV, and the refusals of an unknown client key, of another subsystem name, and of requests without the record or without the transport. The test vectors of Appendix A are part of them.
+- **Server**: the subsystem handler has the shape the shared listener of section 8.3 expects, so step 6 reuses it unchanged. The server knows the *SSH Key Binding* record over SSH only; over TLS it refuses the record with *Unrecognized Critical Record*, as section 5 requires. It selects the first method of the client's list it can use: the exporter where the SSH stack hands it out, with a fresh nonce for every exchange, and the transport with a fresh secret. It uses the context of RFC 8915 for every algorithm, and neither expects nor echoes record type 1024. Several exchanges on one connection are served, each with keys of its own and without state per connection.
+- **Client**: it opens the subsystem on an SSH connection it is handed, so that it can share the connection of OCPP (section 8.3) as well as use one of its own. It offers the exporter before the transport, takes the nonce or the secret from the response, and refuses a response that selects a method it did not offer or carries data of another length. A refused subsystem is reported as an error of its own; the client does not fall back to TLS silently.
+- **SSH exporter (step 4)**: Hermod computes `exporter_secret` once, in the first key exchange of a connection, for every key exchange method it supports, with K as an `mpint` or a `string` as the method encodes it. A rekey leaves it alone, and the end of the connection wipes it. Every export takes a nonce, and refuses an empty one. A server hands the exporter to subsystem handlers with the session, a client with the connection. Tests cover the test vectors of Appendix A.3, both ends agreeing for each of the eight key exchange methods, another nonce, a rekey, another connection, and the way to a subsystem handler.
+- **Tests**: key exchanges over SSH with either option followed by NTP requests with the cookies obtained, with AEAD_AES_SIV_CMAC_256 and with AEAD_AES_128_GCM_SIV; three exchanges on one connection, each with the exporter and keys of its own; four simultaneous requests for the exporter on one connection, each with a nonce of its own; and the refusals of an unknown client key, of another subsystem name, of requests without the record, and of requests with no method the server can use. The test vectors of Appendix A are part of them.
 - **OpenSSH as the client**: `ssh -s ntske/1@open.charging.cloud` of OpenSSH 9.5 for Windows and of OpenSSH 10.5 carries the records, with a fresh key from `ssh-keygen` and the host key pinned in a `known_hosts` file, and the cookies obtained work for NTP. This test found the missing exit status of section 3.2.
-- **Shared listener (step 6)**: a node serves the subsystem with the handler of an NTS server of Norn, which holds the cookie master key and needs no SSH listener of its own. Who may open it is decided by the node's rules for subsystems: the logins of a kind, e.g. charging stations, where they name the subsystem, and an account only with a permission the node is given for it. Tests cover a station with the key of its OCPP login, a connection that carries a further subsystem in place of OCPP and two key exchanges beside it, an account with and without that permission, and a station without the subsystem.
+- **Shared listener (step 6)**: a node serves the subsystem with the handler of an NTS server of Norn, which holds the cookie master key and needs no SSH listener of its own. Who may open it is decided by the node's rules for subsystems: the logins of a kind, e.g. charging stations, where they name the subsystem, and an account only with a permission the node is given for it. Tests cover a station with the key of its OCPP login, a connection that carries a further subsystem in place of OCPP and three key exchanges beside it, each with option A and keys of its own, an account with and without that permission, and a station without the subsystem.
 
 
 ### 8.2 Administration over the Same Listener
@@ -344,13 +349,13 @@ SSH listener of a local controller (one port, one host key)
 - **One identity, one trust anchor**: the station authenticates with the key pair it already uses for OCPP, under its own login name, and verifies the host key it already pins for OCPP. There is no second key pair, no second pin and no account `ntske`.
 - **Authorization per subsystem**: the login of a station is restricted to the subsystems it may use, e.g. `ocpp@…` and `ntske/1@…`, without shell, `exec`, SFTP or forwarding. NTS-KE is granted explicitly like any other subsystem, so that a key admitted for OCPP does not obtain cookies by itself, and vice versa. Rules by source network, or by the local address a connection arrived at, apply to NTS-KE as to the other subsystems.
 - **A channel of the existing connection**: a station connected for OCPP opens NTS-KE as a further channel of the same connection. Key exchange and authentication are skipped, and an exchange costs the channel request, the subsystem request and the records, i.e. about 3 round trips instead of 7 to 9 (section 3.2). A short connection of its own with the same key remains possible.
-- **Option A and long-lived connections**: an OCPP connection over SSH lasts days or weeks, while the exporter of option A is constant per connection (section 4.3). Only the first exchange of such a connection could use option A; every later one, e.g. when the cookies run out, would derive identical keys and is refused. On a shared connection the client therefore offers option B only, and uses option A on a short connection of its own.
+- **Option A and long-lived connections**: an OCPP connection over SSH lasts days or weeks, while `exporter_secret` is constant per connection (section 4.3). Every exchange on it, e.g. when the cookies run out, still gets keys of its own from the nonce the server sends with it, so a station uses option A for as long as the connection lasts.
 - **Time server of the station network**: a local controller between the station network and its uplink is a natural time server for its stations. It synchronizes upstream itself, e.g. with NTS over TLS (section 4.1 of [Critical Legal Time Services](../CriticalLegalTimeServices/README.md)), runs the NTP server of the station network, and names itself in the *NTPv4 Server Negotiation* record. The stations then need neither a route to an external time server nor a certificate.
 - **Administration**: the commands of section 8.2 become part of the command line of the node, under its existing accounts and permissions.
 - **Attack surface**: the cookie master key now shares a process with OCPP, the command line, SFTP and the logins of all stations, which is more than in section 8.1. Where this is not acceptable, the node relays the records over a local socket to a separate NTS-KE server, as the helper program of section 8.4 does, and the master key stays there. Option A is then only possible if the node passes the exporter secret of the connection along with the records.
 - **Limits**: NTS-KE on an existing connection adds no handshake load. Connection limits of the listener are kept separately for stations and administrators, so that a station network cannot lock out its administrators (section 9).
 
-A subsystem handler for NTS-KE needs three things from the SSH stack of the node: the authenticated identity of the client, the SSH exporter of the connection for option A, and state per connection to refuse a second exchange with option A.
+A subsystem handler for NTS-KE needs two things from the SSH stack of the node: the authenticated identity of the client, and the SSH exporter of the connection for option A. It keeps no state per connection, as the nonce keeps the exchanges apart.
 
 
 ### 8.4 OpenSSH Subsystem (Alternative)
@@ -382,7 +387,7 @@ Match User ntske
 
 ### 8.5 Clients
 
-A client needs an SSH library with support for subsystems and host key pinning, and for option A access to K and H. A client on the same SSH stack as the server of section 8.1 has both. Clients with off-the-shelf SSH libraries use option B. A charging station that already runs OCPP over SSH (section 8.3) has subsystems and pinning in place, and needs only the NTS-KE records and option B. For tests, `ssh -s` is sufficient to request the subsystem and to pass binary records through.
+A client needs an SSH library with support for subsystems and host key pinning, and for option A access to K and H. A client on the same SSH stack as the server of section 8.1 has both. Clients with off-the-shelf SSH libraries use option B. A charging station that already runs OCPP over SSH (section 8.3) has subsystems and pinning in place, and needs only the NTS-KE records and option B, and for option A the exporter of its SSH stack. For tests, `ssh -s` is sufficient to request the subsystem and to pass binary records through.
 
 
 ## 9. Security Considerations
@@ -393,7 +398,7 @@ The SSH profile is as secure as the verification of the host key and the negotia
 - **Terrapin ([CVE-2023-48795](https://terrapin-attack.com))**: the prefix truncation attack on `chacha20-poly1305@openssh.com` and on CBC ciphers with Encrypt-then-MAC is prevented by *strict KEX* (`kex-strict-c-v00@openssh.com` and `kex-strict-s-v00@openssh.com`, [draft-ietf-sshm-strict-kex](https://datatracker.ietf.org/doc/draft-ietf-sshm-strict-kex/), OpenSSH 9.6 and later). The profile requires strict KEX; when the server does not signal it, the client aborts.
 - **Algorithms**: the key exchange prefers `mlkem768x25519-sha256` (the default of OpenSSH since 10.0) or `sntrup761x25519-sha512`, otherwise `curve25519-sha256`. Host keys are `ssh-ed25519` or `ecdsa-sha2-nistp256`. No `ssh-rsa` with SHA-1 and no SHA-1 based key exchange. Further requirements belong in the upcoming [Secure SSH Configuration](../SecureSSHConfiguration/README.md) white paper.
 - **Post-quantum**: a hybrid key exchange only protects the confidentiality of old C2S and S2C keys. A recording decrypted years later allows no retroactive attack on a time synchronization long past. It is desirable, but not critical.
-- **Uniqueness**: with option A exactly one NTS-KE exchange per SSH connection, as otherwise identical keys are derived. Option B generates a fresh secret for every exchange. On long-lived connections that carry other subsystems as well, clients therefore use option B (section 8.3).
+- **Uniqueness**: every NTS-KE exchange gets keys of its own, also on one SSH connection: the server generates a fresh `exporter_nonce` for option A and a fresh `nts_ke_secret` for option B. Without the nonce, the exchanges of option A on one connection would derive identical keys (section 4.3). Both values must come from a cryptographically secure random number generator and must not serve more than one exchange.
 - **Downgrade**: the SSH transport is configured explicitly per server, not negotiated automatically between TLS and SSH. The choice of method in the *SSH Key Binding* record is protected by the integrity of the channel, and even the weaker choice B remains secure.
 - **Process isolation**: with the SSH listener of section 8.1 the SSH stack and the cookie master key share a process, and the master key is only as safe as the SSH implementation. In the OpenSSH profile of section 8.4 the helper program runs as the unprivileged user `ntske` and only relays records; whoever takes it over obtains cookies for sessions of their own, but not the master key. On the shared listener of section 8.3 the master key additionally shares its process with OCPP, the command line and the logins of all stations, unless the node relays the records to a separate NTS-KE server.
 - **Administrative access**: an administrator key can change the time configuration of a whole network and is the most valuable key of the system. Separation by account, restricted reachability, strong authentication and logging (section 8.2) are therefore mandatory, not optional.
@@ -437,6 +442,7 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 - [RFC 4250: The Secure Shell (SSH) Protocol Assigned Numbers](https://datatracker.ietf.org/doc/html/rfc4250)
 - [RFC 9519: Update to the IANA SSH Protocol Parameters Registry Requirements](https://datatracker.ietf.org/doc/html/rfc9519)
 - [RFC 8731: Secure Shell (SSH) Key Exchange Method Using Curve25519 and Curve448](https://datatracker.ietf.org/doc/html/rfc8731)
+- [RFC 7748: Elliptic Curves for Security](https://datatracker.ietf.org/doc/html/rfc7748)
 - [RFC 10042: Post-Quantum/Traditional Hybrid Key Exchange with the Module-Lattice-Based Key-Encapsulation Mechanism for Use in SSH](https://datatracker.ietf.org/doc/html/rfc10042)
 - [RFC 5869: HMAC-based Extract-and-Expand Key Derivation Function (HKDF)](https://datatracker.ietf.org/doc/html/rfc5869)
 - [RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3](https://datatracker.ietf.org/doc/html/rfc9846) (obsoletes RFC 8446)
@@ -448,7 +454,7 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 
 ## Appendix A: Test Vectors
 
-The test vectors cover option B (section 4.4) and the record of section 5. They were computed independently of the reference implementation, with the `hmac` and `hashlib` modules of Python, and the [tests of Norn](https://github.com/Vanaheimr/Norn/blob/master/NornTests/NTS/NTSKE_SSH_Tests.cs) check against them. Test vectors for option A follow once Hermod computes the exporter secret (step 4 of section 8.1).
+The test vectors cover option B (section 4.4), the record of section 5 and option A (section 4.3). They were computed independently of the reference implementation, with the `hmac` and `hashlib` modules of Python, and the [tests of Norn](https://github.com/Vanaheimr/Norn/blob/master/NornTests/NTS/NTSKE_SSH_Tests.cs) check against them.
 
 
 ### A.1 Key Derivation of Option B
@@ -508,6 +514,103 @@ c002 0022 0002 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 └─ critical bit and record type 16386
 ```
 
+The response selecting the exporter, with the `exporter_nonce` of A.3:
+
+```text
+c002 0022 0001 1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
+│    │    │    └─ exporter_nonce, 32 bytes
+│    │    └─ method 0x0001
+│    └─ length of the body, 34
+└─ critical bit and record type 16386
+```
+
+
+### A.3 Key Derivation of Option A
+
+The inputs are those of the first key exchange of a connection, so `session_id` equals H. K is encoded as the key exchange method encodes it for its own key derivation (section 4.3). The first vector takes the shared secret of [RFC 7748, section 6.1](https://www.rfc-editor.org/rfc/rfc7748.html#section-6.1) as K of `curve25519-sha256`. The second takes the output of RFC 7748, section 5.2, whose first octet `0xc3` gives the `mpint` a leading zero octet. H counts upwards, as the exporter treats it as opaque octets.
+
+```text
+exporter_secret = HASH(K || H || string("ssh-exporter@open.charging.cloud") || session_id)
+
+string("ssh-exporter@open.charging.cloud")
+  00000020 7373682d6578706f72746572406f70656e2e6368617267696e672e636c6f7564
+```
+
+Every vector uses the same nonce. HKDF-Extract and HKDF-Expand take their HMAC from HASH, and the label, the contexts and thus the `info` of HKDF-Expand are those of A.1.
+
+```text
+exporter_nonce = 1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
+PRK            = HKDF-Extract(salt = exporter_nonce, IKM = exporter_secret)
+```
+
+```text
+curve25519-sha256, HASH = SHA-256, K as an mpint
+  K                000000204a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
+  H = session_id   202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+  exporter_secret  ab559ef9a78c59a68f7be3063df264e2a7ccbe83a49f76ed2aed1327cf89776e
+  PRK              a2d98772f94b8fb96dd30707c7c9ad0d278d0ff90a411ad709ce7069b1e4781f
+  AEAD 15, L = 32
+    C2S  ea9163026944be623b625a50b8f59aa1daf843949e0f98634f178af6e248330a
+    S2C  d9376278448d5de12b0d3ebc3c06bf26c0ccc0c85ac869b6a23d10213b7fc402
+  AEAD 30, L = 16
+    C2S  339eabe19ea8469bbf993ac405a89417
+    S2C  26823c8acd419d57fd901749dc6d5d76
+
+curve25519-sha256, HASH = SHA-256, K as an mpint with a leading zero octet
+  K                0000002100c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552
+  H = session_id   a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+  exporter_secret  8cd543f0ab53001f308b027ad13bd42ff218559a5d26d025a410a806ef7b9c77
+  PRK              24e54cd9033daa7bb1e5047b90a6a0f53f24e62ad9b9e743a3dfb17a159e4ffb
+  AEAD 15, L = 32
+    C2S  6d38e2ff8aaaab4842eb4cb3d66712d93d8675efc0cea721f3828f8de3fce947
+    S2C  3a177a3612e473add6c214cbdf858b59e7012e0e68676f57692998fb5192a208
+
+mlkem768x25519-sha256, HASH = SHA-256, K as a string
+  K                00000020404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f
+  H = session_id   606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f
+  exporter_secret  2d7dce6143d5be80605b07662a01e4735b32202106be64c66f8392dc51d887f6
+  PRK              d4a0a37898cd1bf17500c5c0a6c9285d66087742df355873f912dd058fc94027
+  AEAD 15, L = 32
+    C2S  10f3f639e505ca255ac1a51d235bac0d0ba15b078774e0c13f7f97a15b93df05
+    S2C  8a1e71fceb65e99f0d171f6472e8c9bd7f92f20ad8a5085d3bf9b1d7fec9c28f
+
+sntrup761x25519-sha512, HASH = SHA-512, K as a string
+  K                00000040
+                   808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f
+                   a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+  H = session_id   c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf
+                   e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+  exporter_secret  2d3d49427d4a01a90e66867b65064c5ae726c4ceb833aa06cf03a8a54e1f667c
+                   36289f14bfd84e15d4a6793e1bbc7532f3ab4bdc68bab34b0aa471a5068ff4dd
+  PRK              ac0a32957f57e5f41866387c4d8313183a6d93b8995d2c84acfe5070af261894
+                   80d5dd64e36838e2ac5af9ea77c5c5d8a6d8c207f556880fe5e6e251dbc31615
+  AEAD 15, L = 32
+    C2S  d8df38f63a6c606738f00b416ee530c2c5b8d54881a72a73e983eac1968bf5b5
+    S2C  b611446e12a524681f9fd023eee1a57468a624a3f73b0dd7c6a6d45dd2297414
+  AEAD 30, L = 16
+    C2S  891071d4dcddf3ec6a2074d58ebe5059
+    S2C  423acfe0d50b1c0e571835f70cb4fef0
+```
+
+From `exporter_secret` on, for an implementation that is handed the secret: with the 32 bytes of the `nts_ke_secret` of A.1 as `exporter_secret`, the nonce `202122…3f` and SHA-256, the nonce is what makes the keys differ from those of option B:
+
+```text
+exporter_secret  000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+exporter_nonce   202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+PRK              a27b86e7a70a029cba778d6f738d952696d6d8361b95103dd84ae9df6af063af
+AEAD 15, L = 32
+  C2S  dcf81015c16cb4b955624949e824e89f45cac437995a873e938ec3c7adc0218b
+  S2C  6b91d1a3ad1eb448fa5010e20dd79b280f7c303aec2252b464a4642fb70ea12d
+AEAD 30, L = 16
+  C2S  fd8733d215d9d3a79f0d95b86884ed28
+  S2C  f7fe123370cdd2ed478906c34bd6d7b8
+AEAD 31, L = 32
+  C2S  05d23579f0905080af0243173053808adad6d276ed0560a9fe64ef714b690554
+  S2C  d72234762b25d744d00016818b8f23ad65d1ac5c85009d1ada6215046c73ebcc
+```
+
+The [tests of Hermod](https://github.com/Vanaheimr/Hermod/blob/master/HermodTests/SSH/Transport/SshExporterTests.cs) check the exporter against these vectors, and the tests of Norn check the keys it derives through the exporter.
+
 
 ## ToDo's
 
@@ -517,12 +620,10 @@ c002 0022 0002 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 - How a node is configured to host the NTS server of section 8.3: its NTP port, the master key, and the NTP server it names to its stations.
 - Configuration keys for OCPP v1.6+SE, in line with section 3.3 of the Secure Time Synchronization white paper.
 - Key rotation for `SSHClientPublicKey`, and security events for host key mismatches.
-- Test vectors for option A, from K, H and the session identifier of a recorded key exchange, once Hermod computes the exporter secret (step 4 of section 8.1). Appendix A covers option B.
 - Specify the SSH exporter of section 4.3 as an Internet-Draft of its own in the SSHM working group, independent of NTS. It is useful beyond NTS, and as cryptography of its own it needs an outside review most.
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
 - OCPP over SSH itself, which section 8.3 builds on, as a white paper of its own.
-- Whether a variant of option A that mixes fresh values of both peers into the exporter would allow repeated exchanges on long-lived connections (section 8.3).
-- Whether any scenario justifies a contribution of the client to the secret of option B, which adds nothing against outsiders (section 4.4).
+- Whether any scenario justifies a contribution of the client to the nonce of option A or the secret of option B, which adds nothing against outsiders as long as the server learns both keys anyway (sections 4.3 and 4.4). The request would need room for data of its own, as its *SSH Key Binding* record carries method ids only.
 - How the policies per client of section 6.2 are configured: groups of SSH identities, the NTP servers and cookie master keys of each group, and the commands of section 8.2 for them.
 - The path to standardization of the subsystem and the record: an Internet-Draft in the NTP working group; a specification of our own with IANA registrations only, i.e. the subsystem name through *Expert Review* (section 3.1) and the record type through *Specification Required* (section 5), neither of which needs an RFC; or the private name and record type alone. Proposed: a specification of our own first, with an early registration of the record type.
