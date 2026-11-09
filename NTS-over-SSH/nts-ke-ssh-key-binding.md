@@ -1,6 +1,6 @@
 # NTS-KE Record Type "SSH Key Binding"
 
-**Version 1.0 — Draft**, 2026-11-09
+**Version 1.0 — Draft**, 2026-11-10
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · white paper: [NTS Key Establishment over SSH](README.md) · reference implementation: [Vanaheimr/Norn](https://github.com/Vanaheimr/Norn)
 
 This document specifies the NTS-KE record *SSH Key Binding* of section 5 of the white paper
@@ -219,7 +219,7 @@ Exporter(label, context, L) = HKDF-Expand(PRK,
   as string for some).
 - `exporter_secret` is computed once, when the first key exchange completes, and kept for the
   lifetime of the connection. A re-key does not change it, just as a KeyUpdate does not change
-  the exporter secret of TLS 1.3 [RFC8446]. Both peers therefore agree on it however re-keys
+  the exporter secret of TLS 1.3 [RFC9846]. Both peers therefore agree on it however re-keys
   and NTS-KE exchanges interleave.
 - `exporter_nonce` is the 32 octets of Method Data, generated anew for every exchange
   (Section 4.1). It need not be secret; it keeps the keys of the exchanges on one connection
@@ -335,10 +335,10 @@ document; new methods are added by a later version of it.
   Considerations Section in RFCs", BCP 26, RFC 8126, June 2017.
 - **[RFC7748]** Langley, A., Hamburg, M., and S. Turner, "Elliptic Curves for Security",
   RFC 7748, January 2016.
-- **[RFC8446]** Rescorla, E., "The Transport Layer Security (TLS) Protocol Version 1.3",
-  RFC 8446, August 2018.
 - **[RFC8731]** Adamantiadis, A., Josefsson, S., and M. Baushke, "Secure Shell (SSH) Key
   Exchange Method Using Curve25519 and Curve448", RFC 8731, February 2020.
+- **[RFC9846]** Rescorla, E., "The Transport Layer Security (TLS) Protocol Version 1.3",
+  RFC 9846, July 2026.
 
 
 ## Appendix A. Test Vectors

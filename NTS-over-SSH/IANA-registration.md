@@ -102,13 +102,13 @@ the specification before they approve it.
   Specification Required asks for a permanent specification. Proposed: publish it as
   *Version 1.0*, without *Draft*, on the day of the request. `TBD` stays until the
   assignment. A later version that adds methods does not change the record type.
-- **The white paper is a normative reference of the specification, and its status line is
-  out of date.** It reads that nothing in it is implemented yet, while Appendix C of the
-  specification says that Norn implements both methods. An expert who follows the reference
-  would read both. Proposed: update the status line of [README.md](README.md) before sending.
-- **[RFC8446] in the specification is obsolete.** RFC 9846 obsoletes it (July 2026). The
-  specification cites it informatively, for the KeyUpdate of TLS 1.3. Proposed: cite
-  RFC 9846 instead.
+- ~~**The white paper is a normative reference of the specification, and its status line is
+  out of date.**~~ Done 2026-11-10: the status line of [README.md](README.md) no longer reads
+  that nothing is implemented, but that Norn implements both options on Hermod, as
+  Appendix C of the specification says, and it points to the specification and to this
+  request.
+- ~~**[RFC8446] in the specification is obsolete.**~~ Done 2026-11-10: the specification
+  cites RFC 9846, which obsoletes RFC 8446 (July 2026), for the KeyUpdate of TLS 1.3.
 - **The contact details become public.** IANA publishes the contact name in the registry and
   the mail address in the archived template. The address is the one of the registration of
   MetrologicalCBOR, so nothing new is disclosed.

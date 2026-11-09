@@ -10,7 +10,7 @@ This white paper proposes to run the [Network Time Security Key Establishment (N
 - **Trust anchors without X.509**: pinned host keys, SSH certificate authorities and SSHFP records, and client authorization through SSH public keys. Pinned host keys need no correct clock at all.
 - **A mapping onto the OCPP v2.x Device Model** as an extension of the *NTP Client Controller* of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper.
 
-*Status*: this is a draft for discussion. Nothing in it is implemented yet, and the subsystem name, the record type and the device model variables are provisional.
+*Status*: this is a draft for discussion. The NTS-KE server and client of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn) implement both options of key binding, on the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod); section 8.1 says what is implemented so far. The subsystem name, the record type and the device model variables are provisional. The record of section 5 is specified on its own in [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md), for the registration of its record type with IANA ([IANA-registration.md](IANA-registration.md)).
 <!--  -->
 <!--  -->
 
