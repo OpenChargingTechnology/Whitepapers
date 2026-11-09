@@ -186,20 +186,20 @@ Label and context are those of RFC 8915. Option B thus differs from option A onl
 
 ## 5. The SSH Key Binding Record
 
-A single new NTS-KE record negotiates the source of the keys and carries the nonce of option A or the secret of option B. All other records remain as defined by RFC 8915.
+A single new NTS-KE record negotiates the source of the keys and carries the nonce of option A or the secret of option B. All other records remain as defined by RFC 8915. The record is specified on its own as well, for the registration of its record type with IANA: [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md).
 
 | Field                | Value |
 |----------------------|-------|
 | Name                 | SSH Key Binding |
 | Record type          | 16386 (provisional), from the *Private or Experimental Use* range 16384 … 32767 of the [NTS-KE record type registry](https://www.rfc-editor.org/rfc/rfc8915.html#section-7.6) |
 | Critical bit         | set; the subsystem name implies that the server knows the record |
-| Body of the request  | a list of 16-bit method ids, in order of preference |
+| Body of the request  | one entry per method offered, in order of preference: a 16-bit method id, a 16-bit data length and that many bytes of data for the method |
 | Body of the response | one 16-bit method id, followed by method-specific data |
 | Method `0x0001`      | Exporter (option A), 32 bytes `exporter_nonce` |
 | Method `0x0002`      | Transport (option B), 32 bytes `nts_ke_secret` |
 
-- The client sends exactly one such record and must offer `0x0002` (mandatory to implement).
-- The server answers with exactly one such record and selects the first method of the list it supports. It generates the data of that method anew for every exchange: the nonce of the exporter or the secret of the transport. When the record is missing or no method fits, the server answers with the *Error* record *Bad Request*.
+- The client sends exactly one such record and must offer `0x0002` (mandatory to implement). Methods `0x0001` and `0x0002` take no data from the client: their entries have the data length 0. The data length lets a later method take data from the client, e.g. a contribution to the keying material, without an older server reading it as method ids.
+- The server answers with exactly one such record and selects the first entry whose method it supports; it skips an entry of a method it does not know by its data length. It generates the data of the selected method anew for every exchange: the nonce of the exporter or the secret of the transport. When the record is missing, its entries do not fill its body exactly, an entry of `0x0001` or `0x0002` carries data, or no method fits, the server answers with the *Error* record *Bad Request*.
 - The client aborts the exchange when the response selects a method it did not offer, or carries data of another length than the method defines.
 - Over TLS on port 4460 the record does not occur. A server according to RFC 8915 refuses it, as it is critical, with *Unrecognized Critical Record*.
 - Values of the private range are not coordinated; 16384 and 16385 are already in experimental use elsewhere. A coordinated value is a type from the *Specification Required* range 1024 … 16383. It needs a stable, public specification and the approval of the designated experts, but no RFC.
@@ -210,7 +210,7 @@ Example: the client could use the exporter, but the server runs behind an unmodi
 Client → Server
   NTS Next Protocol Negotiation  [C]  0x0000 (NTPv4)
   AEAD Algorithm Negotiation          15, 30
-  SSH Key Binding                [C]  0x0001, 0x0002
+  SSH Key Binding                [C]  0x0001 (no data), 0x0002 (no data)
   End of Message                 [C]
 
 Server → Client
@@ -498,10 +498,19 @@ For AEAD_AES_128_GCM_SIV the context carries the id 30, as section 4.3 requires 
 The request of the example of section 5, offering the exporter and the transport:
 
 ```text
-c002 0004 0001 0002
-│    │    └─ methods 0x0001, 0x0002
-│    └─ length of the body, 4
+c002 0008 0001 0000 0002 0000
+│    │    │    │    │    └─ no data
+│    │    │    │    └─ method 0x0002
+│    │    │    └─ no data
+│    │    └─ method 0x0001
+│    └─ length of the body, 8
 └─ critical bit and record type 16386
+```
+
+A server skips an entry of a method it does not know by its length, here one of the private range with two bytes of data before the transport:
+
+```text
+c002 000a 8001 0002 abcd 0002 0000
 ```
 
 The response selecting the transport, with the `nts_ke_secret` of A.1:
@@ -624,6 +633,6 @@ The [tests of Hermod](https://github.com/Vanaheimr/Hermod/blob/master/HermodTest
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
 - OCPP over SSH itself, which section 8.3 builds on, as a white paper of its own.
-- Whether any scenario justifies a contribution of the client to the nonce of option A or the secret of option B, which adds nothing against outsiders as long as the server learns both keys anyway (sections 4.3 and 4.4). The request would need room for data of its own, as its *SSH Key Binding* record carries method ids only.
+- Whether any scenario justifies a contribution of the client to the nonce of option A or the secret of option B, which adds nothing against outsiders as long as the server learns both keys anyway (sections 4.3 and 4.4). A method that takes one would carry it in the data of its entry in the request (section 5).
 - How the policies per client of section 6.2 are configured: groups of SSH identities, the NTP servers and cookie master keys of each group, and the commands of section 8.2 for them.
-- The path to standardization of the subsystem and the record: an Internet-Draft in the NTP working group; a specification of our own with IANA registrations only, i.e. the subsystem name through *Expert Review* (section 3.1) and the record type through *Specification Required* (section 5), neither of which needs an RFC; or the private name and record type alone. Proposed: a specification of our own first, with an early registration of the record type.
+- The path to standardization of the subsystem and the record: an Internet-Draft in the NTP working group; a specification of our own with IANA registrations only, i.e. the subsystem name through *Expert Review* (section 3.1) and the record type through *Specification Required* (section 5), neither of which needs an RFC; or the private name and record type alone. Proposed: a specification of our own first, with an early registration of the record type; its draft is [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md).
