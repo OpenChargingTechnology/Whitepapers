@@ -1,6 +1,6 @@
 # IANA registration of the NTS-KE record type "SSH Key Binding"
 
-**Status: draft, not yet submitted.**
+**Status: ready to be sent, not yet submitted.**
 
 This document holds the registration request for the NTS-KE record type *SSH Key Binding* in
 the IANA registry
@@ -98,10 +98,10 @@ the specification before they approve it.
 
 ### Please check before sending
 
-- **The specification calls itself a draft.** Its header reads *Version 1.0 — Draft*, and
-  Specification Required asks for a permanent specification. Proposed: publish it as
-  *Version 1.0*, without *Draft*, on the day of the request. `TBD` stays until the
-  assignment. A later version that adds methods does not change the record type.
+- ~~**The specification calls itself a draft.**~~ Done 2026-11-10: its header reads
+  *Version 1.0*, as Specification Required asks for a permanent specification. `TBD` stays
+  until the assignment. A later version that adds methods does not change the record type.
+  The white paper, which the specification references, is still a draft for discussion.
 - ~~**The white paper is a normative reference of the specification, and its status line is
   out of date.**~~ Done 2026-11-10: the status line of [README.md](README.md) no longer reads
   that nothing is implemented, but that Norn implements both options on Hermod, as

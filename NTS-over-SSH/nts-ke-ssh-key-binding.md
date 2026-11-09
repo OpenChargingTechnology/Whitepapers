@@ -1,6 +1,6 @@
 # NTS-KE Record Type "SSH Key Binding"
 
-**Version 1.0 — Draft**, 2026-11-10
+**Version 1.0**, 2026-11-10
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · white paper: [NTS Key Establishment over SSH](README.md) · reference implementation: [Vanaheimr/Norn](https://github.com/Vanaheimr/Norn)
 
 This document specifies the NTS-KE record *SSH Key Binding* of section 5 of the white paper
