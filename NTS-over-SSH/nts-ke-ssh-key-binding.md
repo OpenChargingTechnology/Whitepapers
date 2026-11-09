@@ -73,29 +73,36 @@ The record uses the record format of Section 4 of [RFC8915]:
 
 A method is a source of keying material. Each method is identified by a 16-bit Method ID:
 
-| Method ID | Name | Data in a response | Requirement |
-|---|---|---|---|
-| `0x0000` | Reserved | – | MUST NOT be sent |
-| `0x0001` | SSH Exporter | `exporter_nonce` (32 octets) | OPTIONAL |
-| `0x0002` | Transported Secret | `nts_ke_secret` (32 octets) | REQUIRED to implement |
-| `0x0003`–`0x7FFF` | Unassigned | – | assigned by a later version of this document |
-| `0x8000`–`0xFFFF` | Private or Experimental Use | defined by the user | – |
+| Method ID | Name | Data in a request | Data in a response | Requirement |
+|---|---|---|---|---|
+| `0x0000` | Reserved | – | – | MUST NOT be sent |
+| `0x0001` | SSH Exporter | none (0 octets) | `exporter_nonce` (32 octets) | OPTIONAL |
+| `0x0002` | Transported Secret | none (0 octets) | `nts_ke_secret` (32 octets) | REQUIRED to implement |
+| `0x0003`–`0x7FFF` | Unassigned | – | – | assigned by a later version of this document |
+| `0x8000`–`0xFFFF` | Private or Experimental Use | defined by the user | defined by the user | – |
 
 Clients and servers MUST implement method `0x0002`. Section 5 specifies the key derivation of
-each method.
+each method. A later method defines the data it takes from the client in a request and the
+data it carries in a response.
 
 ### 3.3. In a Request
 
-The body is a list of one or more Method IDs, most preferred first:
+The body is a list of one or more entries, most preferred first. Each entry names a method and
+carries the data the client sends for it:
 
 ```
-Body = Method ID (2 octets) || Method ID (2 octets) || ...
+Body  = Entry || Entry || ...
+Entry = Method ID (2 octets) || Data Length (2 octets) || Method Data (Data Length octets)
 ```
 
-A request over SSH MUST carry exactly one SSH Key Binding record. Its body MUST NOT be empty,
-and its length MUST be even. Since every server implements method `0x0002`, a client MUST
-include it in every offer; it MAY place other methods before it, including methods the server
-may not know.
+The entries MUST fill the body exactly. The Data Length lets a receiver skip an entry whose
+method it does not know. A later method can therefore take data from the client, for instance
+a contribution of the client to the keying material, without a new record type. Methods
+`0x0001` and `0x0002` take no data from the client: their Data Length MUST be 0.
+
+A request over SSH MUST carry exactly one SSH Key Binding record, with at least one entry.
+Since every server implements method `0x0002`, a client MUST include it in every offer; it MAY
+place other methods before it, including methods the server may not know.
 
 ### 3.4. In a Response
 
@@ -118,14 +125,18 @@ record. An error response (Section 4.1.3 of [RFC8915]) carries none.
 Over SSH, the server:
 
 1. MUST respond with Error code 1 (Bad Request) to a request that does not carry exactly one
-   SSH Key Binding record, or whose SSH Key Binding body is empty or of odd length.
-2. MUST ignore Method IDs it does not know. They are not an error.
-3. MUST select the first method of the client's list that it supports, and MUST respond with
-   Error code 1 (Bad Request) when it supports none of them.
-4. MUST generate the Method Data of the selected method, `exporter_nonce` for method `0x0001`
+   SSH Key Binding record, whose SSH Key Binding body holds no entry, or whose entries do not
+   fill the body exactly.
+2. MUST skip, by their Data Length, the entries whose Method ID it does not know. They are not
+   an error.
+3. MUST respond with Error code 1 (Bad Request) to a request with an entry for method `0x0001`
+   or `0x0002` whose Data Length is not 0.
+4. MUST select the first entry of the client's list whose method it supports, and MUST respond
+   with Error code 1 (Bad Request) when it supports none of them.
+5. MUST generate the Method Data of the selected method, `exporter_nonce` for method `0x0001`
    and `nts_ke_secret` for method `0x0002`, anew for every exchange, from a cryptographically
    secure random number generator, and MUST NOT use it for more than one exchange.
-5. MUST derive the keys it seals into the cookies of the response as specified for the
+6. MUST derive the keys it seals into the cookies of the response as specified for the
    selected method in Section 5.
 
 Over TLS, the record has no meaning. A server that implements this document MUST treat an SSH
@@ -269,8 +280,9 @@ the nonce only has to keep the exchanges apart.
 
 ### 6.4. Method Negotiation
 
-The offer and the selection travel inside the encrypted and authenticated SSH channel. An
-on-path attacker cannot remove methods from the offer without breaking SSH.
+The offer, with the data of its entries, and the selection travel inside the encrypted and
+authenticated SSH channel. An on-path attacker cannot remove methods from the offer, or change
+their data, without breaking SSH.
 
 ### 6.5. Transport Confusion
 
@@ -374,10 +386,18 @@ PRK             = a27b86e7a70a029cba778d6f738d952696d6d8361b95103dd84ae9df6af063
 
 `T` is the 16-bit value `0x8000 | TBD`, the record type with the Critical Bit set.
 
-A request that prefers the SSH Exporter and also offers the Transported Secret:
+A request that prefers the SSH Exporter and also offers the Transported Secret, neither with
+data:
 
 ```
-T  0004  0001 0002
+T  0008  0001 0000  0002 0000
+```
+
+A request that offers a method of the private range with two octets of data first, which a
+server that does not know it skips by its Data Length:
+
+```
+T  000a  8001 0002 abcd  0002 0000
 ```
 
 A response that selects the Transported Secret:
