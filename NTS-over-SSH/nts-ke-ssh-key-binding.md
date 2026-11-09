@@ -333,13 +333,18 @@ document; new methods are added by a later version of it.
   Protocol", RFC 4254, January 2006.
 - **[RFC8126]** Cotton, M., Leiba, B., and T. Narten, "Guidelines for Writing an IANA
   Considerations Section in RFCs", BCP 26, RFC 8126, June 2017.
+- **[RFC7748]** Langley, A., Hamburg, M., and S. Turner, "Elliptic Curves for Security",
+  RFC 7748, January 2016.
 - **[RFC8446]** Rescorla, E., "The Transport Layer Security (TLS) Protocol Version 1.3",
   RFC 8446, August 2018.
+- **[RFC8731]** Adamantiadis, A., Josefsson, S., and M. Baushke, "Secure Shell (SSH) Key
+  Exchange Method Using Curve25519 and Curve448", RFC 8731, February 2020.
 
 
 ## Appendix A. Test Vectors
 
-All vectors use HKDF with SHA-256.
+All vectors use HKDF with SHA-256, except the last vector of A.3.1, whose key exchange method
+hashes with SHA-512.
 
 ### A.1. The HKDF info
 
@@ -366,8 +371,81 @@ nts_ke_secret = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 
 ### A.3. Method 0x0001
 
-From `exporter_secret` on, for a key exchange method that hashes with SHA-256. The
-`exporter_secret` is the `nts_ke_secret` of A.2, so the nonce is what makes the keys differ:
+#### A.3.1. From the Key Exchange
+
+The inputs are those of the first key exchange of a connection, so `session_id` equals `H`.
+`K` is encoded as the key exchange method encodes it for its own key derivation (Section 5.2).
+The first vector takes the shared secret of Section 6.1 of [RFC7748] as `K` of
+`curve25519-sha256` [RFC8731], which encodes it as mpint. The second takes the output of
+Section 5.2 of [RFC7748], whose first octet `0xc3` gives the mpint a leading zero octet. The
+last two encode `K` as string, as the hybrid methods `mlkem768x25519-sha256` and
+`sntrup761x25519-sha512` do; their `K` is a pattern of the length of the hash. `H` counts
+upwards, as it is treated as opaque octets. The last vector hashes with SHA-512, and so do
+its HKDF-Extract and HKDF-Expand.
+
+Every vector uses the same nonce, and `info` built as in A.1:
+
+```
+string("ssh-exporter@open.charging.cloud")
+  00000020 7373682d6578706f72746572406f70656e2e6368617267696e672e636c6f7564
+
+exporter_nonce = 1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100
+```
+
+```
+curve25519-sha256, HASH = SHA-256, K as an mpint
+  K                000000204a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
+  H = session_id   202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+  exporter_secret  ab559ef9a78c59a68f7be3063df264e2a7ccbe83a49f76ed2aed1327cf89776e
+  PRK              a2d98772f94b8fb96dd30707c7c9ad0d278d0ff90a411ad709ce7069b1e4781f
+  AEAD 15, L = 32
+    C2S  ea9163026944be623b625a50b8f59aa1daf843949e0f98634f178af6e248330a
+    S2C  d9376278448d5de12b0d3ebc3c06bf26c0ccc0c85ac869b6a23d10213b7fc402
+  AEAD 30, L = 16
+    C2S  339eabe19ea8469bbf993ac405a89417
+    S2C  26823c8acd419d57fd901749dc6d5d76
+
+curve25519-sha256, HASH = SHA-256, K as an mpint with a leading zero octet
+  K                0000002100c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552
+  H = session_id   a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+  exporter_secret  8cd543f0ab53001f308b027ad13bd42ff218559a5d26d025a410a806ef7b9c77
+  PRK              24e54cd9033daa7bb1e5047b90a6a0f53f24e62ad9b9e743a3dfb17a159e4ffb
+  AEAD 15, L = 32
+    C2S  6d38e2ff8aaaab4842eb4cb3d66712d93d8675efc0cea721f3828f8de3fce947
+    S2C  3a177a3612e473add6c214cbdf858b59e7012e0e68676f57692998fb5192a208
+
+mlkem768x25519-sha256, HASH = SHA-256, K as a string
+  K                00000020404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f
+  H = session_id   606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f
+  exporter_secret  2d7dce6143d5be80605b07662a01e4735b32202106be64c66f8392dc51d887f6
+  PRK              d4a0a37898cd1bf17500c5c0a6c9285d66087742df355873f912dd058fc94027
+  AEAD 15, L = 32
+    C2S  10f3f639e505ca255ac1a51d235bac0d0ba15b078774e0c13f7f97a15b93df05
+    S2C  8a1e71fceb65e99f0d171f6472e8c9bd7f92f20ad8a5085d3bf9b1d7fec9c28f
+
+sntrup761x25519-sha512, HASH = SHA-512, K as a string
+  K                00000040
+                   808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f
+                   a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf
+  H = session_id   c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf
+                   e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+  exporter_secret  2d3d49427d4a01a90e66867b65064c5ae726c4ceb833aa06cf03a8a54e1f667c
+                   36289f14bfd84e15d4a6793e1bbc7532f3ab4bdc68bab34b0aa471a5068ff4dd
+  PRK              ac0a32957f57e5f41866387c4d8313183a6d93b8995d2c84acfe5070af261894
+                   80d5dd64e36838e2ac5af9ea77c5c5d8a6d8c207f556880fe5e6e251dbc31615
+  AEAD 15, L = 32
+    C2S  d8df38f63a6c606738f00b416ee530c2c5b8d54881a72a73e983eac1968bf5b5
+    S2C  b611446e12a524681f9fd023eee1a57468a624a3f73b0dd7c6a6d45dd2297414
+  AEAD 30, L = 16
+    C2S  891071d4dcddf3ec6a2074d58ebe5059
+    S2C  423acfe0d50b1c0e571835f70cb4fef0
+```
+
+#### A.3.2. From exporter_secret On
+
+For an implementation that is handed `exporter_secret` (Section 5.2), with SHA-256 and every
+algorithm. The `exporter_secret` is the `nts_ke_secret` of A.2, so the nonce is what makes the
+keys differ:
 
 ```
 exporter_secret = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
@@ -418,8 +496,13 @@ T  0022  0001 <exporter_nonce, 32 octets>
 This appendix is informative.
 
 - **Norn** (GraphDefined GmbH, <https://github.com/Vanaheimr/Norn>, AGPL-3.0): client and
-  server. Implements method `0x0002`. Method `0x0001` is in preparation, on the SSH exporter of
-  [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod).
+  server. Implements both methods, `0x0001` on the SSH exporter of
+  [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod), and the request entries of
+  Section 3.3; its tests check the keys of Appendix A.2 and A.3.2, and those of Hermod its
+  exporter against A.3.1. A Norn client offers `0x0001` only
+  where its SSH stack gives it the exporter. Behind the `ssh -s` of OpenSSH it offers `0x0002`
+  alone. A Norn server selects `0x0001` only on connections of Hermod's SSH server. As of
+  2026-11-09: Norn 962d4c6, Hermod 57c6add.
 
 Before the registration, Norn used the provisional value 16386 (`0x4002`) from the Private or
 Experimental Use range. Implementations of this document use only the value assigned by IANA.
