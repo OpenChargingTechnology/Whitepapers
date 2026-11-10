@@ -19,6 +19,10 @@ Chapters 1 to 10 are about the connections between a station and **one** CSMS. C
 extend this to **several** back ends at the same time, and to what a server does with a second
 connection under an identity that is still connected.
 
+The companion document [Key Pins and TLS 1.3 Raw Public Keys for Local Controllers](RawPublicKeys.md)
+covers the hop from a station to a Local Controller, for which no public certificate exists
+(section 6.9).
+
 ---
 
 ## Contents
@@ -988,6 +992,27 @@ Rules:
   recipient's certificate as `x5t` (RFC 9360) rather than a `kid`. During the overlap the recipient
   picks the matching private key, and it refuses a thumbprint that matches none of its
   certificates instead of trying its keys in turn.
+
+### 6.9 Local Controllers without a PKI: key pins and raw public keys
+
+Towards its stations a Local Controller is the TLS server (OCPP 2.1 Part 4 §6.5), in a private
+network for which no public CA issues a certificate. The companion document
+[Key Pins and TLS 1.3 Raw Public Keys for Local Controllers](RawPublicKeys.md) compares an internal
+PKI, a pinned self-signed certificate, TLS 1.3 raw public keys (RFC 7250) and OCPP over SSH, and
+proposes:
+
+- **Key pins:** per endpoint, SHA-256 over the Local Controller's SubjectPublicKeyInfo (TLSA
+  `3 1 1`). On a key-pinned endpoint they replace the chain, name and validity checks, and only
+  there.
+- **One key, three wrappers:** the same key in a CA-issued certificate, in a self-signed carrier
+  certificate or raw. Unmodified stations, stations with a verify callback and stations with RFC
+  7250 share one listener and one pin.
+- **Distribution** by the CSMS, signed end to end (chapter 7); trust on first use only on request,
+  and on probation until the CSMS confirms the pin.
+- **Roles:** a raw key carries no role extension (section 6.2), so its role is configuration.
+  Privileged channels keep their role certificates (section 6.6).
+
+Its work packages are phase K of chapter 14.
 
 ---
 
@@ -2402,6 +2427,15 @@ Phase R is independent of phase P and can run in parallel. Found on the way and 
 this plan (section 12.1): profile 2 and 3 on one port, with a certificate made mandatory per
 networking node, and the one-time password the WebSocket client never sent.
 
+### Phase K: key pins and raw public keys (section 6.9)
+
+The packages K1 to K8 of [RawPublicKeys.md](RawPublicKeys.md#11-work-plan): key pins over
+self-signed certificates with `SslStream` first, in Hermod, ChargingStation, LocalController,
+WWCP_OCPP and the CSMS (K1–K4). Then RFC 7250 in Hermod's own TLS 1.3 for HTTP/3 (K5) and through
+BouncyCastle for HTTP/1.1 and HTTP/2 (K6), negative and interoperability tests (K7) and a
+specification (K8). Independent of the other phases, except that K4 needs the message signatures
+of phase S. Size: **M–L**.
+
 ### Phase F: load and abuse tests
 
 10,000 simulated stations; CSMS restart (storm); carrier-grade NAT scenario; slowloris on upgrade
@@ -2436,6 +2470,7 @@ headers (question 23). Size: **M**, ongoing.
 | **M7** | End-to-end encryption through a Local Controller | D6, S2, S6 |
 | **M8** | CSMS migration in a parallel run: a successor registered, compared, promoted and rolled back, with running transactions ending at their owner | P1–P13, P16 |
 | **M9** | No takeover of a live connection by stolen credentials: `Probe` by default on every WebSocket and SSH server, with continuity tokens and alarms | R1–R8 |
+| **M10** | A station authenticates its Local Controller by key pin, without a PKI and without a synchronized clock; RFC 7250 on that hop | K1–K7 |
 
 M1 and M2 are independent of each other and can run in parallel. M1 delivers the most benefit
 fastest because HTTP/1.x is already in production. M8 and M9 need none of the other milestones, and
