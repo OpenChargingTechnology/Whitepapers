@@ -7,7 +7,7 @@ This document belongs to [EVQI Transport](README.md). It is about one hop: from 
 to a **Local Controller** in the same private network, and to other local servers like it. A
 Local Controller has to offer an OCPP WebSocket server, and no public certificate authority will
 issue a certificate for it. Today this leaves an internal PKI or
-[OCPP over SSH](https://github.com/OpenChargingCloud/LocalControllerCLI/blob/master/docs/OCPP-over-SSH.md). This document
+[OCPP over SSH](../OCPP-over-SSH/README.md). This document
 adds a third way, TLS 1.3 with raw public keys (RFC 7250), weighs its advantages and
 disadvantages, and proposes how to build it, in C# included.
 
@@ -961,7 +961,9 @@ give a usable result with option B; K5 and K6 add RFC 7250 without changing what
    `sshHostKey`, i.e. does an empty host key stop meaning "learn"? The OCPP-over-SSH plan asked for
    that (its section 5.6), the station does not do it today, and one test
    (`HostKey_NonePinned_TheFirstOneShownIsBelievedAndPinned_ImplicitTOFU`) holds today's behaviour
-   and would be turned round.
+   and would be turned round. *For SSH decided on 2026-11-10:* yes. Trust on first use of a host
+   key only where configured, and on probation until a signed pin set confirms it
+   ([OCPP over SSH](../OCPP-over-SSH/README.md), decision 4, section 10.4). Not built yet.
 3. **Notation:** hexadecimal, as in the other white papers (proposed), or base64, as in RFC 7469
    and curl? Both are accepted on input.
 4. **Downgrade:** is the change of a slot from CA-checked to key-pinned a security downgrade in the
@@ -1023,8 +1025,8 @@ give a usable result with option B; K5 and K6 add RFC 7250 without changing what
   `OnPinMismatch`, trust on first use
 - [TLS Client/Server Configuration for OCPP v2.x](../TLSConfiguration/README.md): 1.34 Raw Public Key
 - [NTS over SSH](../NTS-over-SSH/README.md), chapter 10: alternatives without SSH
-- OCPP over SSH, implementation plan: `docs/OCPP-over-SSH.md` in
-  [LocalControllerCLI](https://github.com/OpenChargingCloud/LocalControllerCLI)
+- [OCPP over SSH](../OCPP-over-SSH/README.md): the white paper; its implementation plan is
+  `docs/OCPP-over-SSH.md` in [LocalControllerCLI](https://github.com/OpenChargingCloud/LocalControllerCLI)
 
 ---
 

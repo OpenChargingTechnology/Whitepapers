@@ -31,6 +31,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 - [Resilient, high-available and pooled parallel Connections](AdvancedConnections/README.md)
   - [EVQI Transport: Multi-Channel Communication between Charging Stations and CSMS](EVQITransport/README.md) (EU RED/CRA, EU MID)
 - [TLS Client/Server Configuration for OCPP v2.x](TLSConfiguration/README.md) (EU RED/CRA)
+- [OCPP over SSH](OCPP-over-SSH/README.md) (EU RED/CRA)
 - [Advanced Diagnostics with Self and Integration Tests for OCPP](AdvancedDiagnostics/README.md) (EU RED/CRA, EU NIS2)
 - [Ad hoc Payments via Secure Dynamic QR-Codes for OCPP and OCPI](SecureDynamicQRCodes/README.md) (EU AFIR, EU RED/CRA)
 - [OCPP 2.x Firmware Updates with Software Separation](FirmwareUpdateSeparation/README.md) (EU RED/CRA, EU MID)
