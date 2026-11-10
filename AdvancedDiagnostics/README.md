@@ -908,5 +908,137 @@ This tool will test whether the network configuration to access a CSMS is comple
 
 This tool will test whether the configured *Network Time Secure* time server are configured correctly (complete, free of contradictions) and the time server can be reached. The last response will also include the *NTP/NTS* time information received.
 
+### QueryDNS
+
+This tool asks the charging station to resolve a name **the way the charging station itself resolves names**: with its own name servers, transports, pins and root CAs (see [Secure Name Resolution for OCPP](../SecureDNS/README.md)), and from its own place in the network. It answers the questions a CSMS cannot answer from its own side: whether the charging station resolves the name of a (new) CSMS or of its NTS-KE servers at all, which name server answered, whether the certificate of a name server reached over DNS-over-TLS or DNS-over-HTTPS was accepted, and, where the charging station validates DNSSEC, whether the answer is secure. Typical uses are the preparation of a CSMS migration (see *TestCSMSNetworking*), a failing NTS key exchange (see *TestNetworkTimeSecure*), and the DNS-published records (SRV, SVCB, TXT, TLSA) of [Critical Legal Time Services](../CriticalLegalTimeServices/). The request and its response are small and fully described below, so that an AI agent can call the tool through the CSMS without any further tool specification.
+
+**Which name servers are asked.** Without `serverId` (`server` in OCPP v1.6), the question is put to the configured name servers exactly as every other service of the charging station puts it, including its cache: the answer is the one the charging station would work with. With `serverId`, only this one configured name server is asked, and without the cache, so that the answer says what this server answers now. Only configured name servers can be named. A charging station SHALL NOT ask a name server it is not configured with: its firewall rules admit only those ([Secure DNS](../SecureDNS/README.md), section 4.1), and a charging station that queries arbitrary addresses on request would be a probe inside the operator's network. A name server configured by its domain name cannot be asked on its own, because its own name would have to be resolved first, which is the thing being tested.
+
+**Which name is asked.** `name` is a domain name or an IP address. An IP address is turned into its reverse name (`in-addr.arpa`, [RFC 1035 §3.5](https://datatracker.ietf.org/doc/html/rfc1035#section-3.5); `ip6.arpa`, [RFC 3596 §2.5](https://datatracker.ietf.org/doc/html/rfc3596#section-2.5)), which is asked for `PTR` unless other record types are given, and the response says so in `reverseLookupOf`.
+
+**One response.** Unlike the other tools, QueryDNS needs no intermediary responses: a query ends within the query timeout of the name servers (`DNSClientController.QueryTimeout`, at most 120 seconds, usually a few) and its retries, and the response carries the whole result. A CSMS SHALL wait at least `DNSClientController.QueryTimeout × (MaxRetries + 1)` for it.
+
+**Accepted and Rejected.** `Accepted` means that the question was put. What came of it — an answer, `NXDomain`, a timeout, a refused certificate — is part of the response and no reason for `Rejected`. `Rejected` means that nothing was asked, for one of these reasons, given as `statusInfo.reasonCode` in OCPP v2.x and as `reasonCode` in OCPP v1.6, and in words in `error` in both versions:
+
+| reasonCode | Meaning |
+|-|-|
+| `Disabled` | Name resolution is switched off (`DNSClientController.Enabled = false`). |
+| `UnknownServer` | `serverId` (`server`) names no configured name server. |
+| `ServerByName` | The name server is configured by its domain name and cannot be asked on its own. |
+| `InvalidName` | `name` is neither a domain name nor an IP address. |
+| `InvalidRecordType` | A record type is neither a mnemonic of the IANA registry, nor a number, nor of the form `TYPE` and a number. |
+| `TooManyRecordTypes` | More than 8 record types were asked for. |
+
+**Who asked.** QueryDNS changes nothing on the charging station, but makes it send queries. A charging station SHALL write every QueryDNS into its log, with the CSMS that asked and what came back, and MAY require the request to be signed by an entity with diagnostic rights, as for *Diagnostic Control* requests.
+
+#### OCPP v1.6
+
+*QueryDNSRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|name|M|String|String *(≤ 255)*|The domain name or IP address to look up.|
+|recordTypes|O|Array&lt;String&gt;|Array&lt;String&gt;|The record types to ask for, at most 8, each the mnemonic of the [IANA registry](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4) (e.g. `A`, `AAAA`, `SRV`, `TLSA`), its number, or the generic form of [RFC 3597 §5](https://datatracker.ietf.org/doc/html/rfc3597#section-5) (`TYPE65`). Default: `A` and `AAAA`, or `PTR` for an IP address.|
+|server|O|Integer|Number *(Integer ≥ 1)*|The one name server to ask, as the *n*-th server of the configuration key `dns.servers`. Default: all of them, the way the charging station resolves names.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*QueryDNSResponse:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatus|String|`Accepted` when the question was put, `Rejected` when nothing was asked.|
+|reasonCode|O|String|String|With `Rejected`: the reason code of the table above.|
+|name|O|String|String|The name that was asked: `name` of the request, or the reverse name made of its IP address.|
+|reverseLookupOf|O|String|String|The IP address of the request, where its reverse name was asked instead.|
+|recordTypes|O|Array&lt;String&gt;|Array&lt;String&gt;|The record types that were asked for.|
+|server|O|Integer|Number|The one name server that was asked, where the request named one.|
+|answeredBy|O|String|String|The name server the answer came from, as `transport://address:port`, e.g. `tls://192.0.2.53:853`.|
+|responseCode|O|String|String|The RCODE of the answer, as the name of the [IANA registry](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6) (`NoError`, `NXDomain`, `ServFail`, `Refused`, …) or as its number. Absent when no answer came.|
+|authoritative|O|Boolean|Boolean|The *Authoritative Answer* bit of the answer.|
+|truncated|O|Boolean|Boolean|The *Truncation* bit of the answer.|
+|timedOut|O|Boolean|Boolean|Whether no name server answered within its query timeout.|
+|dnssec|O|String|String|The security status the charging station validated the answer to, one of the four of [RFC 4033 §5](https://datatracker.ietf.org/doc/html/rfc4033#section-5): `Secure`, `Insecure`, `Bogus`, `Indeterminate`. Absent where the charging station did not validate it.|
+|runtime|O|Integer|Number *(Integer ≥ 0)*|How long the query took, in milliseconds.|
+|answers|O|Array&lt;DNSAnswer&gt;|Array&lt;Object&gt;|The records of the answer section, at most 200.|
+|omittedAnswers|O|Integer|Number *(Integer > 0)*|How many further records of the answer section were left out.|
+|certificates|O|Array&lt;NameServerCertificate&gt;|Array&lt;Object&gt;|What the charging station made of the certificates of the name servers it asked over TLS or HTTPS during this query.|
+|error|O|String|String|Why nothing was asked (`Rejected`), or why no answer was received (`Accepted`), in words.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+
+*DNSAnswer:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|name|M|String|String|The owner name of the record.|
+|type|M|String|String|Its record type, as the mnemonic of the IANA registry or, where it has none, in the generic form of RFC 3597 §5 (`TYPE65534`).|
+|ttl|M|Integer|Number *(Integer ≥ 0)*|Its time to live, in seconds.|
+|value|M|String|String|Its data in presentation format ([RFC 1035 §5.1](https://datatracker.ietf.org/doc/html/rfc1035#section-5.1)), e.g. `192.0.2.80` or `10 5 4460 ntp.example.org.`.|
+
+*NameServerCertificate:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|server|M|String|String|The name server, as it was asked.|
+|accepted|M|Boolean|Boolean|Whether the connection went ahead.|
+|status|M|String|String|The verdict, with the values of `DNSServerController.CertificateStatus` ([Secure DNS](../SecureDNS/README.md), section 3.1.2): `Accepted`, `Recorded`, `Tolerated`, `PinMismatch`, `Untrusted`, `WrongName`, `NoCertificate`.|
+|certificateFingerprint|O|String|String|The SHA-256 fingerprint of the certificate the server showed.|
+|rootFingerprint|O|String|String|The SHA-256 fingerprint of the root CA its chain ended at.|
+
+#### OCPP v2.x
+
+*QueryDNSRequest:*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|name|M|String|String *(≤ 255)*|The domain name or IP address to look up.|
+|recordTypes|O|Array&lt;String&gt;|Array&lt;String&gt;|As in OCPP v1.6.|
+|serverId|O|String|String *(≤ 50)*|The one name server to ask, as the instance of its `DNSServerController` ([Secure DNS](../SecureDNS/README.md), section 3.1.2). Default: all of them, the way the charging station resolves names.|
+|signatures|M/O|Array&lt;Signature&gt;|Array&lt;Object&gt;|An (optional) enumeration of cryptographic signatures.|
+|customData|O|CustomData|Object|Optional custom data.|
+
+*QueryDNSResponse:*
+
+The properties of OCPP v1.6, with `statusInfo` instead of `reasonCode` and `serverId` instead of `server`, and:
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|statusInfo|O|StatusInfo|Object|With `Rejected`: the `reasonCode` of the table above, and `error` as `additionalInfo`.|
+|serverId|O|String|String|The one name server that was asked, where the request named one.|
+|customData|O|CustomData|Object|Optional custom data.|
+
+*Example:* the NTS-KE server of the legal time, asked of the first name server alone, which is reached over DNS-over-TLS:
+
+```json
+[2, "19223201", "QueryDNS", {
+    "name":        "ntske1.cpo.example",
+    "recordTypes": [ "A", "AAAA" ],
+    "serverId":    "dns-1"
+}]
+```
+
+```json
+[3, "19223201", {
+    "status":         "Accepted",
+    "name":           "ntske1.cpo.example.",
+    "recordTypes":    [ "A", "AAAA" ],
+    "serverId":       "dns-1",
+    "answeredBy":     "tls://192.0.2.53:853",
+    "responseCode":   "NoError",
+    "authoritative":  false,
+    "truncated":      false,
+    "timedOut":       false,
+    "runtime":        38,
+    "answers": [
+        { "name": "ntske1.cpo.example.", "type": "A", "ttl": 3600, "value": "198.51.100.123" }
+    ],
+    "certificates": [
+        { "server": "192.0.2.53", "accepted": true, "status": "Accepted",
+          "certificateFingerprint": "41C7…3F61", "rootFingerprint": "9D2E…D8E" }
+    ]
+}]
+```
+
+*Reference implementation*: Both versions. The charging station answers QueryDNS with the same result as the DNS test of its local web interface (`POST /api/v1/configuration/dns/query`) and the `queryDNS` command of its command line, which every kind of node of the [reference implementation](https://github.com/OpenChargingCloud/WWCP_Node) has: `queryDNS <name> [<record type> …] [@<server>]`, where a server is named by its id, its place in the list or its address. The command line of the CSMS sends the request to the charging station it is working with: `queryDNS <name> [<record type> …] [@<serverId>]`, in OCPP v1.6 `[@<n>]`.
+
 
 

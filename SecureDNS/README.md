@@ -108,7 +108,7 @@ Encrypted transports authenticate the *resolver*, not the *data*: a compromised 
 - The *Authenticated Data* (AD) bit of an answer is only meaningful when the channel to a validating resolver is itself authenticated ([RFC 6840 §5.8](https://datatracker.ietf.org/doc/html/rfc6840#section-5.8)), i.e. over DoT or DoH with strict authentication.
 - Local validation on the charging station, including the automated trust anchor rollover of [RFC 5011](https://datatracker.ietf.org/doc/html/rfc5011), is required before DANE (TLSA) or DNS-published policies can be trusted.
 
-*Reference implementation*: The DO bit is configurable and the DNSSEC status of an answer is shown in the diagnostic look-up. Hermod contains a DNSSEC validator, but resolution does not validate inline yet; aggressive NSEC caching ([RFC 8198](https://datatracker.ietf.org/doc/html/rfc8198)) stays dormant until it does.
+*Reference implementation*: The DO bit is configurable and the DNSSEC status of an answer is shown in the diagnostic look-up, which a CSMS can also have a charging station make: *QueryDNS* of [Advanced Diagnostics](../AdvancedDiagnostics/README.md#querydns). Hermod contains a DNSSEC validator, but resolution does not validate inline yet; aggressive NSEC caching ([RFC 8198](https://datatracker.ietf.org/doc/html/rfc8198)) stays dormant until it does.
 
 
 ### 2.7 Robustness and Privacy
@@ -477,6 +477,7 @@ When no name server can be reached or authenticated, a charging station cannot r
 
 - [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): NTS-KE servers are found by name. The `NetworkTimeRootCertificate` and the `certificateGroup` extension are reused here. Its components are named alike, its NTP Client Controller (section 3.2.4) holds time servers to pins, `OnPinMismatch` and trust on first use that mean the same as in section 2.3, and its `InvalidTimeServerCertificate` and `TimeServerCertificateChanged` (section 3.2.6) are the twins of the events of section 3.1.4.
 - [Critical Legal Time Services](../CriticalLegalTimeServices/): SRV, SVCB, TXT and TLSA based discovery of time servers requires authenticated name resolution and, for TLSA, DNSSEC validation (section 2.6).
+- [Advanced Diagnostics for OCPP](../AdvancedDiagnostics/README.md#querydns): *QueryDNS* has a charging station resolve a name with the name servers of this paper, one of them alone or all of them as the station asks them, and reports the answer and what was made of each name server's certificate.
 - [TLS Configuration for OCPP](../TLSConfiguration/README.md): the questions raised there about root CA groups, pinning and notifications on certificate changes are answered here for name servers, and could be answered the same way for every other TLS server a charging station connects to.
 
 
