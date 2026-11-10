@@ -399,7 +399,7 @@ Rounds come when they are due (section 3.2.3), and the read-only variables of se
 
 **Many charging stations.** A CSMS that asks many charging stations to synchronize, e.g. all of them before a tariff change, SHALL spread its requests over time, as the random intervals of section 3.2.3 spread the scheduled rounds: legal time servers are shared by everybody.
 
-**Carriage.** The three messages are new actions. Where a CSMS or a charging station cannot send or receive new actions, they are carried by *DataTransferRequest*, with the `vendorId` `org.openchargingcloud.time`, the action as `messageId` and the payload as `data`; the payload of the response is the `data` of the *DataTransferResponse*. Like every message, they may carry `customData` and `signatures`, which the tables below leave out.
+**New actions.** The three messages are new actions. Like every message, they may carry `customData` and `signatures`, which the tables below leave out.
 
 *SyncNetworkTimeRequest*
 
@@ -582,7 +582,7 @@ CSMS → CS:  [3, "a3ca", {}]
 
 The key exchange over TCP port 4460 went through, the time request over UDP port 123 got no answer: a firewall or a NAT on the way lets the one through and not the other (section 7).
 
-*Reference implementation*: Every node of Open Charging Cloud has the command `syncNTS [<group>] [<time server>]` on its command line, at the console and over SSH. Without a time server it is `SyncNetworkTime`, with one `TestTimeServer`. The NTS page of the node has the same as the button *Sync now* and a *Test* button for every server, and its HTTP API has it again. All of them end in the same two functions of [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node/blob/master/WWCP_Node/WWCPNode.Diagnostics.cs), `SyncTimeAsync` and `TestTimeServerAsync`, check the same permission `nts:run`, and write the same log lines, apart from the one that says who asked. The round is a round as described above; the clock is verified, not set (section 2.2). Every step of a test carries its stage, and a test that ends without a time says where in `failedAt`. The command line tests only servers of the node, as specified here; the HTTP API tests a server by any name. The three messages are those of [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), for OCPP 2.1 and for OCPP 1.6 (section 3.3.5), and its Device Model bridge answers them for a node; who asked is written into the node's log, as the command line and the page write it. One requested round or test runs at a time, whichever version asked, and another is `Busy`; the rounds the node runs on its own are not counted, so a requested round may overlap a scheduled one, and the node checks at a fixed period, which a round on demand does not move. Not implemented yet: their carriage by *DataTransferRequest*.
+*Reference implementation*: Every node of Open Charging Cloud has the command `syncNTS [<group>] [<time server>]` on its command line, at the console and over SSH. Without a time server it is `SyncNetworkTime`, with one `TestTimeServer`. The NTS page of the node has the same as the button *Sync now* and a *Test* button for every server, and its HTTP API has it again. All of them end in the same two functions of [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node/blob/master/WWCP_Node/WWCPNode.Diagnostics.cs), `SyncTimeAsync` and `TestTimeServerAsync`, check the same permission `nts:run`, and write the same log lines, apart from the one that says who asked. The round is a round as described above; the clock is verified, not set (section 2.2). Every step of a test carries its stage, and a test that ends without a time says where in `failedAt`. The command line tests only servers of the node, as specified here; the HTTP API tests a server by any name. The three messages are those of [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), for OCPP 2.1 and for OCPP 1.6 (section 3.3.5), and its Device Model bridge answers them for a node; who asked is written into the node's log, as the command line and the page write it. One requested round or test runs at a time, whichever version asked, and another is `Busy`; the rounds the node runs on its own are not counted, so a requested round may overlap a scheduled one, and the node checks at a fixed period, which a round on demand does not move.
 
 
 ### 3.3 OCPP v1.6+SE Client Configuration
@@ -732,7 +732,7 @@ See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWC
 
 *SyncNetworkTime.req*, *TestTimeServer.req* and *NotifyNetworkTimeResult.req*
 
-These are the messages of section 3.2.7, with the same payloads, the same rules and the same carriage, *DataTransfer.req* included. They differ in three points, the first two because OCPP v1.6 has no client ids:
+These are the messages of section 3.2.7, with the same payloads and the same rules. They differ in three points, the first two because OCPP v1.6 has no client ids:
 - *TestTimeServer.req* names the server by `group` and `server` (below). A name that `ntp.<group>.servers` does not list is `Rejected` with the `reasonCode` `UnknownServer`.
 - In `round.clients` and in `test`, `client` is left out, and `host` names the server.
 - The responses carry `statusInfo`, which responses of OCPP v1.6 otherwise lack, so that a rejection says why.
