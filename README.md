@@ -25,6 +25,7 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 - [HTTP Basic Authentication with Time-Based One-Time Passwords](OCPP/OCPPwithHTTPBasicAuthPlusTOTP.md) (EU RED/CRA)
 - [Alternative HTTP Authentication Methods for OCPP](HTTPAuthExtensions/README.md) (EU RED/CRA)
+- [Signed OCPP Messages and Signer Roles](SignedMessages/README.md) (EU RED/CRA)
 - [Secure Time Synchronization for OCPP v1.6 and v2.x](SecureTimeSync/README.md) (EU RED/CRA, EU MID)
 - [Secure Name Resolution for OCPP v1.6 and v2.x](SecureDNS/README.md) (EU RED/CRA)
 - [Resilient, high-available and pooled parallel Connections](AdvancedConnections/README.md)
