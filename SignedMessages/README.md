@@ -57,7 +57,7 @@ is the third factor of the same intersection.
 5. [From messages to signer roles: the policy](#5-from-messages-to-signer-roles-the-policy)
 6. [Provisioning roles and keys on a charging station](#6-provisioning-roles-and-keys-on-a-charging-station)
 7. [Implementation plan](#7-implementation-plan)
-8. [Open questions and decisions](#8-open-questions-and-decisions)
+8. [Questions and decisions](#8-questions-and-decisions)
 9. [References](#9-references)
 
 ---
@@ -126,9 +126,10 @@ response, and of every OCPP 2.1 SEND message:
    web interface, opens the SSH console or signs an OCPP message.
 4. **Provisioning with a root of trust** (chapter 6).
    - An *owner* key is installed out of band: at manufacture, or on site with physical presence.
-   - Role assignments are signed, versioned data objects. They are installed by repaired
-     `AddUserRole` / `UpdateUserRole` / `DeleteUserRole` messages and a new `GetUserRoles`, or
-     come as certificates with EVQI's role extension under a `MessageSigningRootCertificate`.
+   - Role assignments are signed, versioned data objects. They are installed by
+     `AddSignerRole` / `UpdateSignerRole` / `DeleteSignerRole`, which replace today's
+     `AddUserRole` / `UpdateUserRole` / `DeleteUserRole`, and read by a new `GetSignerRoles`. Or
+     they come as certificates with EVQI's role extension under a `MessageSigningRootCertificate`.
    - Two device model components, `MessageSignatureController` and
      `SignerRoleController[<role>]`, plus OCPP 1.6 configuration keys, configure the rest.
 5. **Fix the verification semantics first.** It is the smallest step, it can be tested on its
@@ -730,7 +731,7 @@ This paper proposes to use the same roles for signed messages:
 | `SetChargingProfile`, `ClearChargingProfile` | `charging:edit` | narrowed by purpose with `where` |
 | `UpdateFirmware`, `PublishFirmware` | `firmware:edit` | metrologically classified components: `metrology:edit` (EVQI 6.3) |
 | `SetNetworkProfile` | `network:edit` | |
-| `AddUserRole`, `UpdateUserRole`, `DeleteUserRole`, signature policy | `signatures:edit` | held by `owner` only by default |
+| `AddSignerRole`, `UpdateSignerRole`, `DeleteSignerRole`, signature policy | `signatures:edit` | held by `owner` only by default |
 
 The resource names `station`, `charging`, `firmware`, `metrology`, `network` and `signatures`
 are new and would be added to the node's list.
@@ -799,7 +800,7 @@ signatures, into the node's signed log (EVQI 6.7), so that it can be verified ag
 |---|---|---|
 | What the station stores | a signed role assignment object per role | a trust anchor per role group (`MessageSigningRootCertificate`) |
 | Who is trusted | exactly the listed keys | every key with a valid certificate under the anchor, whose role extension names the role |
-| Rotation of a signer | `UpdateUserRole` signed by the owner | issue a new certificate; nothing on the station |
+| Rotation of a signer | `UpdateSignerRole` signed by the owner | issue a new certificate; nothing on the station |
 | Revocation | remove the key | short-lived certificates (hours to days, EVQI 6.2), or OCSP/CRL where reachable |
 | Fits | small operators, few signers, bootstrap | fleets, operators with a PKI, short-lived technician certificates |
 | How a message names the key | `kid` (JWK thumbprint) | `x5t#S256`, the certificate in `x5c` (JWS) or `x5chain` (COSE) |
@@ -832,7 +833,7 @@ that EVQI section 7.4 names as the alternative to a role certificate:
 Acceptance rules:
 
 - **Signers.** The object is signed by keys holding `signatures:edit`, with the quorum the policy
-  requires for `AddUserRole` and `UpdateUserRole`.
+  requires for `AddSignerRole` and `UpdateSignerRole`.
 - **Version.** `version` is greater than the stored version of that role, which protects against
   rollback and replay.
 - **Permissions.** `permissions` is optional. Without it the station's own definition of the role
@@ -891,15 +892,28 @@ Keys are deliberately **read-only** in the device model:
 
 ### 6.4 Messages
 
-The existing message names are kept and get a defined payload. Each one is signed as section 4
-describes, and the policy entry for it requires `signatures:edit`:
+`AddSignerRole`, `UpdateSignerRole` and `DeleteSignerRole` replace today's `AddUserRole`,
+`UpdateUserRole` and `DeleteUserRole` (Q10), and get a defined payload:
+
+- **Why the new names.**
+  - *User* belongs to a vocabulary the node has given up (its `UserRole` is obsolete, section
+    5.3), and in OCPP a user is usually the driver.
+  - A bare *Role* would read as the connection role of EVQI chapter 6, which EVQI 7.4 intersects
+    with the signer role. It would also suggest that the message defines a role, when it assigns
+    keys to one.
+  - `…SignerRole` matches `SignerRoleController[<role>]` of section 6.3.
+- **What the rename costs.** No peer loses anything: today's messages carry no payload a peer
+  could rely on (F5).
+
+Each message is signed as section 4 describes, and the policy entry for it requires
+`signatures:edit`:
 
 | Message | Request | Response |
 |---|---|---|
-| `AddUserRole` | `userRole`: a role assignment (section 6.2) for a role without keys yet | `status` `Accepted` / `Rejected`, `reasonCode` (below) |
-| `UpdateUserRole` | `userRole`: a role assignment with a higher `version`; replaces keys and permissions of the role | as above |
-| `DeleteUserRole` | `role`, `version` (the version being deleted, so that a stale delete is refused) | as above |
-| `GetUserRoles` *(new)* | optional `roles` filter | `userRoles`: the stored role assignments as received |
+| `AddSignerRole` | `signerRole`: a role assignment (section 6.2) for a role without keys yet | `status` `Accepted` / `Rejected`, `reasonCode` (below) |
+| `UpdateSignerRole` | `signerRole`: a role assignment with a higher `version`; replaces the keys of the role, and its permissions only as far as section 6.2 lets an assignment carry them (Q4) | as above |
+| `DeleteSignerRole` | `role`, `version` (the version being deleted, so that a stale delete is refused) | as above |
+| `GetSignerRoles` *(new)* | optional `roles` filter | `signerRoles`: the stored role assignments as received |
 | `SetSignaturePolicy` *(replaces Add/Update/DeleteSignaturePolicy)* | `policy`: the policy table of section 5.2 as a signed data object with `version` | as above |
 | `GetSignaturePolicy` *(new)* | – | `policy` as stored |
 
@@ -941,7 +955,7 @@ The station signs responses, and the messages listed in `SignOwnMessages`, with 
 - **Certificate.** The station obtains a certificate for it by `SignCertificate` with a new
   `certificateType` `MessageSigningCertificate`, answered by `CertificateSigned`.
 - **Raw key.** Without a PKI, the CSMS learns the key's thumbprint from
-  `MessageSignatureController.OwnKeyId`, and the key itself from `GetUserRoles` for the built-in
+  `MessageSignatureController.OwnKeyId`, and the key itself from `GetSignerRoles` for the built-in
   role `station`.
 - **Meters.** Meter keys (signed meter values) stay the meters' own. The station countersigns
   where it forwards them.
@@ -1009,7 +1023,10 @@ network test does so.
 ### Phase 4: provisioning
 
 1. Role assignments are signed data objects.
-2. The messages of section 6.4 are repaired and added, with persistence in the station.
+2. The messages of section 6.4 are built, with persistence in the station. In WWCP_OCPP, for 1.6
+   and 2.1, `AddSignerRole`, `UpdateSignerRole` and `DeleteSignerRole` replace `AddUserRole`,
+   `UpdateUserRole` and `DeleteUserRole`, `SetSignaturePolicy` replaces the three signature
+   policy messages, and `GetSignerRoles` and `GetSignaturePolicy` are new.
 3. The device model components of section 6.3 are added, with the 1.6 keys.
 4. The web page and the CLI of section 6.6 follow.
 5. The security events of section 5.4 are sent.
@@ -1028,11 +1045,12 @@ network test does so.
 
 ---
 
-## 8. Open questions and decisions
+## 8. Questions and decisions
 
-Each question has a proposal; none is decided yet.
+All fourteen were decided on 2026-11-10, for now: Q10 with other names than first proposed, the
+others as proposed. A phase that finds a reason against one reopens it.
 
-| No. | Question | Proposal |
+| No. | Question | Decision |
 |---|---|---|
 | Q1 | Is the CSMS an `owner` by default? | No. The operator decides; by default the CSMS holds the everyday roles only, so that a compromised CSMS cannot rewrite roles (U5). |
 | Q2 | May the CSMS install the first owner key (trust on first use)? | Offered, off by default, writable only locally (section 6.1). |
@@ -1043,10 +1061,10 @@ Each question has a proposal; none is decided yet.
 | Q7 | Format 0: how long is it accepted? | Behind `AcceptFormat0`, off by default from phase 2; removed one release after phase 5. |
 | Q8 | A station without synchronized time: refuse all signed commands, or accept with station-issued nonces? | Accept only messages carrying an `OCPPNonce` the station handed out (a new `GetSigningNonce` exchange), otherwise refuse; time sync is a precondition of `Enforce`. |
 | Q9 | Embedded `signatures` towards standard peers: inside `customData`, or only `-Signed`? | `-Signed` towards standard peers, `customData` only where a peer is known to need the embedded form. |
-| Q10 | Keep the message names `AddUserRole`/`UpdateUserRole`/`DeleteUserRole`, or rename (the node's web roles are also called user roles)? | Keep them: they are on the wire in WWCP_OCPP already; replace the three signature policy messages by `SetSignaturePolicy`/`GetSignaturePolicy`. |
+| Q10 | Keep the message names `AddUserRole`/`UpdateUserRole`/`DeleteUserRole`, or rename (the node's web roles are also called user roles)? | Rename them to `AddSignerRole`/`UpdateSignerRole`/`DeleteSignerRole`, with a new `GetSignerRoles` (section 6.4 gives the reasons). The first proposal, keeping the names because they are on the wire already, did not hold: nothing on the wire can carry a role today (F5). The three signature policy messages are replaced by `SetSignaturePolicy`/`GetSignaturePolicy`. |
 | Q11 | Component names `MessageSignatureController`, `SignerRoleController`, certificate types `MessageSigningRootCertificate`, `MessageSigningCertificate`, 1.6 prefix `signatures.`? | As proposed. |
-| Q12 | Resource names `station`, `charging`, `firmware`, `metrology`, `network`, `signatures` in the node's permission model? | As proposed, agreed with the Local Controller CLI session that owns the node's role list. |
-| Q13 | Remove the stale copy of the signature classes in `WWCP_OverlayNetworking`? | Yes, in phase 1, if nothing outside WWCP_Core references it. |
+| Q12 | Resource names `station`, `charging`, `firmware`, `metrology`, `network`, `signatures` in the node's permission model? | As proposed. They are agreed with the Local Controller CLI session, which owns the node's role list, before phase 3 adds them. |
+| Q13 | Remove the stale copy of the signature classes in `WWCP_OverlayNetworking`? | Yes, if nothing outside WWCP_Core references it. Nothing does: the only reference is WWCP_Core's own `WWCP_OverlayNetworking_Tests`. Done after phase 1 in WWCP_Core ba199945, on master and pushed; not yet pinned in the ChargingStationCLI superproject. The overlay now uses WWCP_CoreData's classes, and its copies of `ACustomData`, `CustomData` and `Vendor_Id` went too, because the signable base class needs them from the same assembly. |
 | Q14 | Where does the paper live? | Its own folder `SignedMessages`, listed under the OCPP papers of the repository README. |
 
 ---
