@@ -923,7 +923,7 @@ The steps of a test are written for people and diagnostic agents to read; what a
    - `TimeRequest`: UDP port 123 is blocked, or a stateful firewall or a NAT drops the answer.
 4. Once the cause is removed, it sends one `SyncNetworkTime`, to confirm that the group produces a time again and, for the legal group, that the time is legal time.
 
-*Reference implementation*: the command `syncNTS [<group>] [<time server>]` of the command lines of Open Charging Cloud does the same, at the console and over SSH: without a time server it is `SyncNetworkTime`, with one `TestTimeServer`. The messages of OCPP 2.1 and OCPP 1.6 are implemented in [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP).
+*Reference implementation*: the command `syncNTS [<group>] [<time server>]` of the command lines of Open Charging Cloud does the same, at the console and over SSH: without a time server it is `SyncNetworkTime`, with one `TestTimeServer`. The messages of OCPP 2.1 and OCPP 1.6 are implemented in [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP). The CSMS of Open Charging Cloud ([CSMSCLI](https://github.com/OpenChargingCloud/CSMSCLI)) sends them from its command line as `stationSyncNTS <station> [<group> | @<client>]` and writes what the station tells in the lines of `syncNTS`: the command an agent following the procedure above types.
 
 ### QueryDNS
 
