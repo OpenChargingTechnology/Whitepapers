@@ -30,9 +30,10 @@ unchanged:
 *Status*: this is a draft for discussion. The protocol is implemented in the reference
 implementations named above, between charging stations and their Local Controllers or CSMS, in
 OCPP 1.6 and 2.x, with end-to-end tests in OCPP 2.1 (chapter 12). The questions of version 0.1
-were decided on 2026-11-10 (chapter 13). Most of what they decided is not built yet; section 12.3
-says what differs. The subsystem name stays private for now, and the device model, the messages
-and the security events are proposals for OCPP.
+were decided on 2026-11-10 (chapter 13), and most of what they decided is built in the reference
+implementations (section 12.1); section 12.3 says what still differs. The subsystem name stays
+private for now, and the device model, the messages and the security events are proposals for
+OCPP.
 
 ## Contents
 
@@ -506,7 +507,8 @@ peer's message loop, which a keepalive does not reach. Like WebSocket pongs, the
   the station's PINGs off, as it does for a WebSocket; the transport's keepalive still runs.
 - The probe of section 6.3 is such a PING.
 
-Today the station sends no PINGs, and the servers do not evaluate the PONGs (section 12.3).
+The reference implementation does both (section 12.1); the station's interval is fixed at 30 s for
+now (section 12.3).
 
 ### 6.2 Dialling and coming back
 
@@ -605,9 +607,8 @@ would, on the station's own SSH server:
 - **Versions.** `ocpp2.1`, `ocpp2.0.1` and `ocpp1.6` (decision 13). A subsystem has one handler,
   and a station runs one OCPP node per version. A handler in front of both nodes therefore reads
   the HELLO, chooses the version as the framing would, and hands the connection with its HELLO to
-  the node of that version, which answers with the WELCOME. Today only the 2.x node serves the
-  subsystem, and a HELLO offering `ocpp1.6` alone is refused with `unsupported-subprotocol`
-  (section 12.3).
+  the node of that version, which answers with the WELCOME. In OCPP 1.6 such a request is for the
+  Central System, by that name, as in 2.x for the CSMS.
 - **Security events** (proposed, not reported yet): a tool signing in is a
   `MaintenanceLoginAccepted`, a failed attempt a `MaintenanceLoginFailed`, as OCPP 2.1 defines them
   for the local maintenance interface. In OCPP 1.6 the same types go out by the security
@@ -660,12 +661,19 @@ Per slot:
 
 | Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
 |---|---|---|---|---|---|---|
-| HostKeyPins | optional | rw | string | "" | comma separated, ≤ 16 | SHA-256 fingerprints of the host keys the server of this slot may show, in the notation `SHA256:<base64>` of `ssh-keygen -l`. An MD5 fingerprint is `Rejected` with `reasonCode` `InvalidValue` and a hint to use SHA-256 (decision 3). |
+| HostKeyPins | optional | rw | string | "" | comma separated, ≤ 16 | SHA-256 fingerprints of the host keys the server of this slot may show, in the notation `SHA256:<base64>` of `ssh-keygen -l`, or public-key lines. An MD5 fingerprint is `Rejected` with `reasonCode` `InvalidValue` and a hint to use SHA-256 (decision 3). Taken only from a signed pin set, with `HostKeyPinsVersion` in the same request (section 10.4). |
+| HostKeyPinsVersion | optional | rw | integer | 0 | ≥ 0 | The version of the signed pin set the pins came from: a pin set is taken only with a higher one, so that an older one cannot come back. |
 | HostCAs | optional | rw | string | "" | comma separated, ≤ 4 | SHA-256 fingerprints of SSH CA keys that may sign the host certificate of the server, for the host name of the URL. |
 | TrustOnFirstUse | optional | rw | OptionList | `None` | `None`, `HostKey` | `HostKey`: with neither pins nor CAs, learn the host key of the first handshake, on probation (section 10.4; decision 4). |
-| ProbationTime | optional | rw | integer | 600 | ≥ 60 (s) | How long a learned host key waits for a signed pin set that confirms it (section 10.4). |
+| ProbationTime | optional | rw | integer | 600 | 1 … 604800 (s) | How long a learned host key waits for a signed pin set that confirms it (section 10.4). A short probation is the stricter one. |
 | OnPinMismatch | optional | rw | OptionList | `Refuse` | `Refuse`, `Record`, `Accept` | What a host key that neither a pin nor a CA vouches for leads to (section 10.4; decision 15). |
 | HostKeyFingerprint | optional | ro | string | "" | - | The SHA-256 fingerprint of the host key the server showed at the last handshake of this slot. |
+| LearnedHostKey | optional | ro | string | "" | - | The SHA-256 fingerprint of the host key learned on first use while it is on probation; empty otherwise. |
+
+Every write of a slot's instance - its pins, how it trusts on first use, its probation and what a
+mismatch leads to - is taken only from a SetVariables request that a signer of pin sets the station
+believes signed (section 10.4); otherwise each entry is `Rejected` with the reason code
+`Unsigned`.
 
 Station-wide, with one variable instance per purpose (`OCPP`, `NTS`, `SFTP`), as the station has
 one key per purpose (decision 9):
@@ -769,7 +777,7 @@ of the Local Controller's host keys, which the CSMS gives the station as pins. R
 | `networkingNodeId` | identifier string[0..48] | 1..1 | The station's login. |
 | `keyFingerprint` | string[0..100] | 1..1 | The SHA-256 fingerprint of the key. |
 
-Response: `status` `Accepted` or `NotFound`. Sessions on the key end as section 5.3 says.
+Response: `status` `Accepted`, or `Rejected` with the reason code `NotFound`. Sessions on the key end as section 5.3 says.
 
 **`GetInstalledSSHKeys`**, CSMS → Local Controller: what the Local Controller holds.
 
@@ -778,7 +786,7 @@ Response: `status` `Accepted` or `NotFound`. Sessions on the key end as section 
 | `networkingNodeId` | identifier string[0..48] | 0..1 | Only this station's keys. |
 | `purpose` | `SSHKeyPurposeEnumType` | 0..1 | Only keys of this purpose. |
 
-Response: `status` `Accepted` or `NotFound`; `keys`, each with `networkingNodeId`, `purpose`,
+Response: `status` `Accepted`, or `Rejected` with `NotFound`; `keys`, each with `networkingNodeId`, `purpose`,
 `publicKey` and `keyFingerprint`; and `hostKeys` as above.
 
 **`TriggerMessage`** asks a station for a `SignSSHKey`: in OCPP 2.1 with `requestedMessage`
@@ -914,6 +922,11 @@ A pending key that is never confirmed stays pending and unused; the next `SignSS
   A learned key is never kept unconfirmed, so a server that answered first cannot lock the real one
   out. This is the rule section 5.6 of that paper proposes for pinned TLS keys, and it is one rule
   for both.
+- **Who signs a pin set.** The station is given the public keys of the signers it believes - the
+  CSMS's signing anchor - at commissioning, in the reference implementation on its Connections page.
+  A write of `SSHClientController` for a connection that none of them signed is `Rejected` with the
+  reason code `Unsigned`, on probation or not: the pins are taken over OCPP only from a signed pin
+  set, with a higher `HostKeyPinsVersion` than the one the station holds.
 - **A mismatch** is a host key that neither a pin nor a CA vouches for. `OnPinMismatch` says what
   follows (decision 15), with the values of [Secure Time Synchronization](../SecureTimeSync/README.md)
   and [NTS-over-SSH](../NTS-over-SSH/README.md):
@@ -980,7 +993,8 @@ The profile of this paper:
   [draft-ietf-sshm-strict-kex](https://datatracker.ietf.org/doc/draft-ietf-sshm-strict-kex/)). A
   station aborts where the server does not signal it and reports `InvalidSSHAlgorithms`, and a
   server refuses a client that does not signal it (decision 10). OpenSSH signals it since 9.6.
-  Hermod uses strict KEX whenever the peer signals it, and does not insist yet (section 12.3).
+  In the reference implementation the station requires it, and so does the shared SSH listener of
+  a node unless its `ssh.strictKex` says otherwise (section 12.1).
 - **Post-quantum.** Unlike the NTS keys of [NTS-over-SSH](../NTS-over-SSH/README.md), which lose
   their worth with the time synchronization they protected, OCPP traffic carries tokens, tariffs,
   meter values and configuration whose confidentiality lasts. A recording decrypted years later
@@ -1051,6 +1065,19 @@ fingerprint, the source and the rule that decided. On the station the security e
 | CSMS, CSMSCLI | `9a50ec6`, `35b0f95` | the same for the CSMS |
 | ChargingStation | `256d77f`, `4b36729` | `ssh://` connections with the station's own Ed25519 key and a pinned host key; commissioning over SSH |
 
+What decisions 2 to 15 asked for was built and pushed on 2026-11-10, Hermod's part as
+[pull request #241](https://github.com/Vanaheimr/Hermod/pull/241):
+
+| Repository | Commits | What |
+|---|---|---|
+| Hermod | `e17acbb1`, `20800d8c`, `b9602558` | `RequireStrictKex` for client and server; `MaxOutstandingPings` (3) on both sides of the message protocol; REFUSED `retryAfter` and `connection-exists`; 64 MiB; `SshMessageServer.RoutedBySubprotocol` |
+| WWCP_Core | `b12367b2` | the retries before a first connection wait for a `retryAfter` |
+| WWCP_Node | `a17dfb4` | the shared SSH listener turns away a client without strict KEX (`ssh.strictKex`, on by default, a switch on its page) |
+| WWCP_OCPP | `ac963634`, `2833c515`, `4eb810e7` | a request gate on the IN adapters of 1.6 and 2.1; the five messages of section 9.3; `SSHClientController`; `OnCustomTrigger` of the test station |
+| ChargingStation | `2b23a98`, `2a9c391`, `494a730`, `cf1f46d` | dialling with strict KEX, PINGs, pin sets, trust on first use on probation and `OnPinMismatch`; `SSHClientController`, signed pin sets and their signers; a key per purpose and its rotation; the security events; commissioning in OCPP 1.6; no key exchange of a time server over a connection on probation |
+| LocalController | `864e57e` | `InstallSSHKey`, `DeleteSSHKey`, `GetInstalledSSHKeys` answered from the station logins |
+| CSMS | `dd7bbcf` | a station's next key enrolled on `SignSSHKey`, at the CSMS or at its Local Controller |
+
 ### 12.2 Tests
 
 - In the libraries: framing (lengths, unknown kinds, frames over several SSH packets, concurrent
@@ -1079,28 +1106,25 @@ fingerprint, the source and the rule that decided. On the station the security e
 
 | | Today | This paper |
 |---|---|---|
-| Trust on first use | implicit: an empty `sshHostKey` takes the first key shown and pins it, as OpenSSH's `StrictHostKeyChecking=accept-new` | explicit and on probation (decision 4, section 10.4) |
-| Pins | one host key per connection: a `SHA256:` or `MD5:` fingerprint, or a public key line; a key change on the server locks the station out | a set of up to 16, SHA-256 only, MD5 refused with a hint (decision 3, sections 9.2, 10.4) |
-| Pin mismatch | refused | `OnPinMismatch`: `Refuse` by default, `Record`, `Accept` (decision 15, section 10.4) |
-| Strict KEX | used when the peer signals it | required by client and server (decision 10, section 11.2) |
-| PING and PONG | the Local Controller and the CSMS send a PING every 30 s, the station none; PONGs are not evaluated | both sides ping and evaluate the PONGs; 3 unanswered end the connection (decision 11, section 6.1) |
 | Subsystem refused at the SSH level | retried | final, like a REFUSED (section 6.2) |
 | HELLO without `subprotocols` | welcomed without a subprotocol | refused by an OCPP server (section 3.3) |
 | WELCOME without `subprotocol` | accepted | refused by an OCPP client (section 3.3) |
-| Duplicate connections | the newest wins, CLOSE `1000` | probe; REFUSED `connection-exists` with `retryAfter`; `connectionToken` and `previousConnection`; `4000`/`4001` (decision 12, section 6.3) |
+| Duplicate connections | the newest wins, CLOSE `1000`; REFUSED `connection-exists` and its `retryAfter` are read and honoured by the clients, but no server sends them yet | probe, `connectionToken` and `previousConnection`, `4000`/`4001` (decision 12, section 6.3): with phase R of EVQI Transport, for WebSocket and SSH alike |
+| PINGs of the station | every 30 s, fixed | every `OCPPCommCtrlr.WebSocketPingInterval`, which the station does not map yet (section 6.1) |
+| Slots | the instances of `SSHClientController` are named after the station's connections, which has no configuration slots | named after the slot (section 9.2) |
+| `SetNetworkProfile` | the test nodes answer `Accepted` and apply nothing; no `customData` is read | section 9.2 |
+| `HostCAs`, host certificates | not checked by the station; no variable | section 10.4 |
+| Client certificates | an `SSHKeySigned` certificate is kept and shown, not used to sign in | section 10.5 |
+| Probation | the gate refuses every request but a pin set, and a time server makes no key exchange over the connection (NTS-over-SSH, section 8.3); the other messages the station sends of its own accord are not held back | section 10.4 |
+| Signers of pin sets | the station's own list, on its Connections page; no role certificates | a signer with `evqi:security-admin` (Key Pins and Raw Public Keys, section 5.7) |
+| NTS key | shown as `ClientPublicKey[NTS]`; it is the node's and is not rotated over OCPP | section 10.3 |
+| SFTP key | made and rotated; nothing signs in with it yet | section 7.2 |
+| OCPP 2.0.1 and 1.6 | the five messages exist for OCPP 2.1 only; no `DataTransfer` mapping, no `SSHClient.*` configuration keys | sections 9.3, 9.5 |
 | Local Controller to its CSMS | over WebSocket only; the libraries could dial `ssh://` | section 1.3 |
 | `wwcp@open.charging.cloud` | in WWCP_Core, served by no node | section 7.1 |
-| `ntske/1@` for stations of a Local Controller or CSMS | not served; station logins get `ocpp@` only | sections 5.1, 7.1 |
-| Station keys | the OCPP key in `ocpp-connections/ssh/`, and the NTS client key of the node; none for SFTP | one per purpose, OCPP, NTS and SFTP (decision 9, section 10.1) |
-| Message size | 16 MiB over SSH, 64 MiB over WebSocket | 64 MiB for both (decision 2, section 3.3) |
-| Device Model, `SetNetworkProfile` | not built; the test nodes answer `Accepted` and apply nothing | `SSHClientController` and `customData` (decisions 5 and 6, chapter 9) |
-| Messages | none; station keys are given to a Local Controller or CSMS over its HTTP API or command line | `SignSSHKey`, `SSHKeySigned`, `InstallSSHKey`, `DeleteSSHKey`, `GetInstalledSSHKeys` (decisions 7 and 8, section 9.3) |
-| Security events of section 9.4 | not reported | section 9.4 |
-| SSH certificates | in Hermod, not used for stations or hosts of OCPP; a `cert-authority` line is refused as a station key | section 10.5 |
+| `ntske/1@` for stations of a Local Controller or CSMS | not served; station logins get `ocpp@` only, and the Local Controller installs keys of OCPP only | sections 5.1, 7.1 |
 | `hostkeys-00@openssh.com` | the server announces its keys; the station ignores them | section 10.4 |
-| Key rotation | none | section 10.3 |
 | Acting for another node | in WWCP_Core, granted only in tests | section 4.1 |
-| Commissioning | OCPP 2.x only | OCPP 1.6 too, through a handler in front of both nodes (decision 13, chapter 8) |
 | OpenSSH as the server | no helper program | appendix B.2 |
 
 ---
