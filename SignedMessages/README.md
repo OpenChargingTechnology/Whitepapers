@@ -725,6 +725,7 @@ This paper proposes to use the same roles for signed messages:
 | `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` | |
 | `GetLog` | `log:read` | |
 | `Reset`, `TriggerMessage` | `station:run` | |
+| `SyncNetworkTime`, `TestTimeServer` | `nts:run` | as `syncNTS` on the command line ([Secure Time Synchronization](../SecureTimeSync/README.md), section 3.2.7) |
 | `RequestStartTransaction`, `RequestStopTransaction`, `UnlockConnector` | `session:run` | |
 | `SetChargingProfile`, `ClearChargingProfile` | `charging:edit` | narrowed by purpose with `where` |
 | `UpdateFirmware`, `PublishFirmware` | `firmware:edit` | metrologically classified components: `metrology:edit` (EVQI 6.3) |

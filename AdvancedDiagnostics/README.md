@@ -906,7 +906,24 @@ This tool will test whether the network configuration to access a CSMS is comple
 
 ### TestNetworkTimeSecure
 
-This tool will test whether the configured *Network Time Secure* time server are configured correctly (complete, free of contradictions) and the time server can be reached. The last response will also include the *NTP/NTS* time information received.
+This tool tests whether the configured *Network Time Security (NTS)* time servers are configured correctly (complete, free of contradictions) and whether they can be reached, and reports the *NTP/NTS* time information received.
+
+It is specified as two requests of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper (section 3.2.7). Both are answered at once, and report their outcome in a *NotifyNetworkTimeResultRequest*:
+- `TestTimeServer` asks one time server step by step, and says at which stage it failed: name resolution, connection, server authentication, key exchange or time request. It changes nothing the legal time rests on, and can be repeated as often as it helps.
+- `SyncNetworkTime` asks a group of time servers now, and says whether its answers reach the quorum and whether the time is legal time. It is a round of the group with all its consequences: a failed one counts towards `MaxErrors`.
+
+The steps of a test are written for people and diagnostic agents to read; what a machine is to evaluate is in the other properties. A diagnostic agent typically proceeds as follows:
+1. It reads the state: `NTPController.LegalTime` and `LegalTimeReason`, `ErrorsInARow`, `Limited` and `LastCheck` of the group, and `Problem` of its clients, via *GetVariablesRequest*.
+2. It sends `TestTimeServer` for every client whose `Problem` is `true`, or for every client of the group, one after the other.
+3. It reads `failedAt`, and the steps of that stage:
+   - `NameResolution`: the name resolution of the charging station ([Secure Name Resolution](../SecureDNS/README.md)).
+   - `Connection`: the server is down, or TCP port 4460 (or the SSH port) is blocked on the way.
+   - `ServerAuthentication`: `RootCAs`, the installed `NetworkTimeRootCertificate`s and the pins; a certificate that ran out, or a clock so far off that a valid certificate looks invalid (`NoCertTimeCheckAfterReboot`).
+   - `KeyExchange`: the server refuses the request, or offers none of the AEAD algorithms of the client.
+   - `TimeRequest`: UDP port 123 is blocked, or a stateful firewall or a NAT drops the answer.
+4. Once the cause is removed, it sends one `SyncNetworkTime`, to confirm that the group produces a time again and, for the legal group, that the time is legal time.
+
+*Reference implementation*: the command `syncNTS [<group>] [<time server>]` of the command lines of Open Charging Cloud does the same, at the console and over SSH: without a time server it is `SyncNetworkTime`, with one `TestTimeServer`. The messages of OCPP 2.1 and OCPP 1.6 are implemented in [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP).
 
 ### QueryDNS
 

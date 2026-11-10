@@ -116,7 +116,7 @@ repeated NTS-KE negotiations.
 
 OCPP v1.6+SE and v2.x are very different in the way a charging station is configured. While OCPP v1.x uses a simple Key-Value-Store for configuration data OCPP v2.x provides its own Device Model. At the time of writing this white paper OCPP v1.6 still has by far the largest market share, so we have to provide solutions for both.
 
-Since OCPP time synchronization serves two main use cases: ***legal time*** for billing and ***local time*** for load balancing, many settings are organized around these purposes and can differ significantly. In practice, it is often beneficial to synchronize local time every few seconds, whereas legal time may only need to be synchronized once or twice per hour, or on demand, e.g. shortly before scheduled dynamic tariff changes will be applied.
+Since OCPP time synchronization serves two main use cases: ***legal time*** for billing and ***local time*** for load balancing, many settings are organized around these purposes and can differ significantly. In practice, it is often beneficial to synchronize local time every few seconds, whereas legal time may only need to be synchronized once or twice per hour, or on demand, e.g. shortly before scheduled dynamic tariff changes will be applied (section 3.2.7).
 
 **Logging.** Each group of time servers (section 3.2.3) writes to one log: the **secure metrological log** (section 4) for the legal group, the **security log** for every other group. This applies to
 - every change of the configuration of the group, naming what changed and who changed it: the CSMS via OCPP, a local web interface, a service technician,
@@ -384,6 +384,207 @@ The following *SecurityEventNotificationRequest* types are used. `SettingSystemT
 *Reference implementation*: Every one of these security events is sent, `SettingSystemTime` once per offset that reaches the threshold (section 2.2). They are kept in a queue in a file while the CSMS is out of reach, and sent oldest first once it is back. The queue holds up to 1000 messages and 30 days, and lets monitor events go before security events. A change the CSMS made itself is not told back to it. Monitors of the kinds `Delta`, `UpperThreshold` and `LowerThreshold` can be set on every variable of the NTP controllers, and on every variable of `ClockCtrlr` but `DateTime`.
 
 
+#### 3.2.7 Synchronization and Server Tests on Demand
+
+Rounds come when they are due (section 3.2.3), and the read-only variables of sections 3.2.3 and 3.2.4 say how the last one went. Two questions they cannot answer: whether the time is legal time *now*, e.g. shortly before a dynamic tariff changes or right after a repair, and *where* a time server fails: in name resolution, at the connection, at its certificate, in the key exchange or at the time request. Two requests answer them. A CSMS sends them on behalf of an operator, or of a diagnostic agent ([Advanced Diagnostics](../AdvancedDiagnostics/README.md), *TestNetworkTimeSecure*):
+
+| Request (CSMS → CS) | What the charging station does | Is it a round? |
+|---------------------|--------------------------------|----------------|
+| `SyncNetworkTime`   | It asks a group of time servers now, in a round as in section 3.2.3. | Yes, with every consequence of a round. |
+| `TestTimeServer`    | It asks one client, step by step, and reports every step. | No. It changes nothing the legal time rests on. |
+
+**Answered at once, reported later.** Both requests are answered at once, before anything is asked, and the outcome follows in a *NotifyNetworkTimeResultRequest* (CS → CSMS) with the `requestId` of the request, as a *GetReportRequest* is followed by *NotifyReportRequest*s. A round can take several times the `Timeout` of its group, once for every priority it needs, and OCPP-J asks each side to have only one request outstanding at a time: a response held back until the end of the round would hold up every other request of the CSMS to the charging station.
+
+**Who may send them.** Neither request changes anything a scheduled round would not change anyway. They are therefore no *Diagnostic Control* requests, and may be used in production. Under [Signed OCPP Messages](../SignedMessages/README.md) they need the permission `nts:run` (its section 5.3). Before anything is asked, a `SyncNetworkTime` is entered in the log of the group (section 3) and a `TestTimeServer` in the security log, naming who asked: the CSMS, and the signer where the request was signed. The entries that follow record what was asked and what came of it, and nothing in them says who wanted it.
+
+**Many charging stations.** A CSMS that asks many charging stations to synchronize, e.g. all of them before a tariff change, SHALL spread its requests over time, as the random intervals of section 3.2.3 spread the scheduled rounds: legal time servers are shared by everybody.
+
+**Carriage.** The three messages are new actions. Where a CSMS or a charging station cannot send or receive new actions, they are carried by *DataTransferRequest*, with the `vendorId` `org.openchargingcloud.time`, the action as `messageId` and the payload as `data`; the payload of the response is the `data` of the *DataTransferResponse*. Like every message, they may carry `customData` and `signatures`, which the tables below leave out.
+
+*SyncNetworkTimeRequest*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|requestId|M|integer|Number *(Integer)*|Chosen by the CSMS. The *NotifyNetworkTimeResultRequest* carries it.|
+|group|O|string[50]|String|The group to ask: an instance of `NTPClientGroupController`. Default: `legal`.|
+
+- The round is a round as in section 3.2.3, begun now: with the enabled clients of the group, their priorities, the quorum `MinServers`, `Preflight` and `Timeout`.
+- It counts as a round in every respect. A round that produces a time sets `LastCheck` and `LastOffset`, may make the time legal time again, and ends a run of failed rounds. A round that fails counts towards `ErrorLogging` and `MaxErrors`. Its offset is reported as `SettingSystemTime` when it reaches the threshold (section 2.2), and it is entered in the log of the group with what every client said. Whether it sets the clock or only verifies it is what every round of the charging station does (section 2.2).
+- A CSMS that wants to know *why* rounds fail sends `TestTimeServer`, which counts for nothing. Sending `SyncNetworkTime` again and again brings a failing group to `MaxErrors` sooner.
+- The next scheduled round is due as after any other round: at a random time between `MinInterval` and `MaxInterval` after this one.
+- `Rejected` with the `reasonCode`
+  - `UnknownGroup`: the group is no instance of `NTPClientGroupController`. The `additionalInfo` names the groups there are.
+  - `Disabled`: the group is disabled.
+  - `Busy`: a charging station MAY reject a request while a round or a test that was requested before is still running.
+
+*TestTimeServerRequest*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|requestId|M|integer|Number *(Integer)*|Chosen by the CSMS. The *NotifyNetworkTimeResultRequest* carries it.|
+|client|M|string[50]|String|The client to test: an instance of `NTPClientController`.|
+
+- The charging station asks the client what a round would ask it, with the settings of the client (`Mode`, ports, `NTSKEServerURL`, `RootCAs`, pins, `AEADAlgorithm`) and the `Timeout` of its group, and reports every step as it happened: name resolution, connection, server authentication, key exchange and time request. A server that fails does so at one of these, and which one is the whole of what somebody needs to know.
+- Only clients of the charging station can be tested: a mistyped name would otherwise be a key exchange with whoever answers to it. A server that is to be added is added as a disabled client first (section 3.2.5), and tested before it is enabled: disabled clients are tested as well. A client of a disabled group is not. A group that is switched off asks nobody, not even for a test, so that switching it off is a promise that nothing goes out on its behalf.
+- A test is no round. `LastCheck`, `LastOffset`, `ErrorsInARow`, `Limited` and `LegalTime` stay as they are, no `SettingSystemTime` is reported, and the clock is neither set nor verified by it.
+- Its key exchange is one of the client, though: the certificate is judged and pins are learned on first use as at any other key exchange, and a refusal is reported as there (sections 3.2.4 and 3.2.6). The charging station MAY keep the cookies it obtains for the client; `LastKeyExchange`, `CertificateFingerprint` and `Cookies` then show them.
+- Who asked, and how the test ended, are entered in the security log. The steps are only in the notification.
+- `Rejected` with the `reasonCode`
+  - `UnknownClient`: the client is no instance of `NTPClientController`. The `additionalInfo` names the clients there are.
+  - `Disabled`: the group of the client is disabled.
+  - `Busy`: as above.
+
+*SyncNetworkTimeResponse* and *TestTimeServerResponse*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|status|M|GenericStatusEnumType|String|`Accepted`: the round or the test has begun, and a notification will follow. `Rejected`: nothing is asked, and no notification follows.|
+|statusInfo|O|StatusInfoType|Object|Why the request was rejected, with the `reasonCode`s above.|
+
+*NotifyNetworkTimeResultRequest*
+
+It is sent once, when the round or the test is over. It is not queued while the CSMS is out of reach: what a round found is kept in the variables of section 3.2.3 and in the log of the group, and a test is cheap to repeat.
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|requestId|M|integer|Number *(Integer)*|The `requestId` of the request.|
+|generatedAt|M|dateTime|String *(ISO 8601)*|When the round or the test ended.|
+|round|O|NetworkTimeRoundType|Object|The outcome of a `SyncNetworkTime`.|
+|test|O|TimeServerTestType|Object|The outcome of a `TestTimeServer`.|
+
+Exactly one of `round` and `test` is present. The *NotifyNetworkTimeResultResponse* has no properties.
+
+Durations and offsets are decimal seconds, as the variables of section 3.2.3. An offset is the time of the servers minus the clock of the charging station, θ of [RFC 5905](https://datatracker.ietf.org/doc/html/rfc5905) section 8: positive when the clock is behind.
+
+*NetworkTimeRoundType*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|group|M|string[50]|String|The group asked.|
+|ok|M|boolean|Boolean|Whether the round produced a time.|
+|duration|M|decimal|Number|How long the round took.|
+|answered|M|integer|Number *(Integer)*|How many clients gave an answer that counts: of the deciding priority, or of the last one asked when none decided.|
+|required|M|integer|Number *(Integer)*|The quorum `MinServers`.|
+|offset|O|decimal|Number|The offset of the clock against the time of the round, as `LastOffset`. Absent when the round produced no time.|
+|spread|O|decimal|Number|How far apart the answers of the deciding priority were (section 2.2).|
+|deviationExceeded|O|boolean|Boolean|Whether the spread reached `MaxDeviation`.|
+|legalTime|O|boolean|Boolean|Legal group only: `NTPController.LegalTime` after the round.|
+|legalTimeReason|O|string|String|Legal group only: `NTPController.LegalTimeReason` after the round, while the time is not legal time.|
+|error|O|string[512]|String|Why the round produced no time.|
+|clients|M|Array&lt;NetworkTimeClientType&gt;|Array&lt;Object&gt;|Every client asked, in the order of the priorities. Clients of priorities the round did not need are left out.|
+
+*NetworkTimeClientType*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|client|M|string[50]|String|The client id.|
+|host|M|string[253]|String|The server asked: the `ServerURL` of the client.|
+|ok|M|boolean|Boolean|Whether its answer counts: it answered, and the answer was authenticated and plausible.|
+|offset|O|decimal|Number|The offset its answer gave.|
+|roundTrip|O|decimal|Number|The round-trip delay of its exchange.|
+|keyExchange|O|`New`, `Reused`|String|Whether the round made a new NTS-KE handshake with it, or used cookies it held.|
+|preflight|O|boolean|Boolean|Whether a preflight packet was sent first (`Preflight`).|
+|signedResponse|O|boolean|Boolean|Where a signed response was asked for (`SignedResponses`): whether its signature was verified.|
+|error|O|string[512]|String|Why its answer does not count.|
+
+*TimeServerTestType*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|client|M|string[50]|String|The client tested.|
+|host|M|string[253]|String|The server asked.|
+|ok|M|boolean|Boolean|Whether the server answered with an authenticated time.|
+|failedAt|O|TimeServerTestStageEnumType|String|The stage at which the test ended without a time. Absent when `ok` is `true`.|
+|duration|M|decimal|Number|How long the test took.|
+|offset|O|decimal|Number|The offset the answer of the server gave.|
+|roundTrip|O|decimal|Number|The round-trip delay of the time request.|
+|steps|M|Array&lt;TimeServerTestStepType&gt;|Array&lt;Object&gt;|What happened, step by step.|
+
+*TimeServerTestStepType*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|elapsed|M|decimal|Number|When the step happened, in seconds since the test began.|
+|stage|M|TimeServerTestStageEnumType|String|The stage the step belongs to.|
+|level|M|`Info`, `Notice`, `Warning`, `Error`|String|`Notice`: a stage was passed, e.g. the certificate was validated. `Warning`: something that does not stop the test but deserves attention, e.g. a certificate that runs out within a week. `Error`: the step that ended the test.|
+|text|M|string[512]|String|What happened, in English, for people and diagnostic agents to read. It is not meant to be parsed: what a machine is to evaluate is in the other properties.|
+
+*TimeServerTestStageEnumType*
+
+| Value | The step concerns |
+|-------|-------------------|
+| `Configuration` | the settings of the client: what is asked, where, on which ports |
+| `NameResolution` | the name of the server and the addresses it resolves to |
+| `Connection` | the TCP connection to the NTS-KE or NTP-over-TLS server, or the SSH connection in mode `NTSv4SSH` ([NTS-KE over SSH](../NTS-over-SSH/README.md)) |
+| `ServerAuthentication` | the TLS handshake, the certificate chain, `RootCAs` and pins, or the SSH host key |
+| `KeyExchange` | the NTS-KE records: AEAD algorithm, cookies, and the NTP server and port they name |
+| `TimeRequest` | the (NTS-protected) NTP request and its answer |
+
+A client in mode `NTPv4` has no steps of the stages `Connection` to `KeyExchange`.
+
+**Example.** A CSMS asks the legal group, and one of its three servers does not answer:
+
+```
+CSMS → CS:  [2, "7d1f", "SyncNetworkTime", { "requestId": 4711, "group": "legal" }]
+CS → CSMS:  [3, "7d1f", { "status": "Accepted" }]
+CS → CSMS:  [2, "a3c9", "NotifyNetworkTimeResult", {
+                "requestId":    4711,
+                "generatedAt":  "2026-11-10T14:03:12Z",
+                "round": {
+                    "group":              "legal",
+                    "ok":                 true,
+                    "duration":           3.021,
+                    "answered":           2,
+                    "required":           2,
+                    "offset":             -0.00175,
+                    "spread":             0.0007,
+                    "deviationExceeded":  false,
+                    "legalTime":          true,
+                    "clients": [
+                        { "client": "ptb1", "host": "ptbtime1.ptb.de", "ok": true,  "offset": -0.0021, "roundTrip": 0.0183, "keyExchange": "Reused" },
+                        { "client": "ptb2", "host": "ptbtime2.ptb.de", "ok": false, "error": "No answer within 3 s." },
+                        { "client": "ptb3", "host": "ptbtime3.ptb.de", "ok": true,  "offset": -0.0014, "roundTrip": 0.0171, "keyExchange": "New" }
+                    ]
+                }
+            }]
+CSMS → CS:  [3, "a3c9", {}]
+```
+
+The time is legal time, and the round says no more about `ptb2` than that it did not answer. A test of it says where:
+
+```
+CSMS → CS:  [2, "7d20", "TestTimeServer", { "requestId": 4712, "client": "ptb2" }]
+CS → CSMS:  [3, "7d20", { "status": "Accepted" }]
+CS → CSMS:  [2, "a3ca", "NotifyNetworkTimeResult", {
+                "requestId":    4712,
+                "generatedAt":  "2026-11-10T14:04:01Z",
+                "test": {
+                    "client":    "ptb2",
+                    "host":      "ptbtime2.ptb.de",
+                    "ok":        false,
+                    "failedAt":  "TimeRequest",
+                    "duration":  3.096,
+                    "steps": [
+                        { "elapsed": 0.000, "stage": "Configuration",        "level": "Info",   "text": "Asking ptbtime2.ptb.de: key exchange on port 4460, time on port 123, 3 second(s) allowed." },
+                        { "elapsed": 0.011, "stage": "NameResolution",       "level": "Info",   "text": "'ptbtime2.ptb.de' resolves to 192.0.2.104, 2001:db8::104." },
+                        { "elapsed": 0.094, "stage": "Connection",           "level": "Info",   "text": "Connected to 192.0.2.104, of 2 address(es) that were offered." },
+                        { "elapsed": 0.094, "stage": "Connection",           "level": "Info",   "text": "Where the time went: name 11 ms, TCP 17 ms, TLS 38 ms, key exchange 27 ms." },
+                        { "elapsed": 0.094, "stage": "ServerAuthentication", "level": "Info",   "text": "TLSv1.3, TLS_AES_256_GCM_SHA384, ALPN ntske/1." },
+                        { "elapsed": 0.094, "stage": "ServerAuthentication", "level": "Notice", "text": "Validated: the chain ends at a root of the group 'ptb', and 'ptbtime2.ptb.de' is one of the server certificate's names." },
+                        { "elapsed": 0.094, "stage": "KeyExchange",          "level": "Notice", "text": "The key exchange succeeded: AEAD_AES_SIV_CMAC_256, 8 cookie(s)." },
+                        { "elapsed": 0.094, "stage": "KeyExchange",          "level": "Info",   "text": "It named no NTP server of its own, so the time is asked of this host." },
+                        { "elapsed": 3.096, "stage": "TimeRequest",          "level": "Error",  "text": "The NTP request to 192.0.2.104:123 failed (Timeout): no answer within 3 s." }
+                    ]
+                }
+            }]
+CSMS → CS:  [3, "a3ca", {}]
+```
+
+The key exchange over TCP port 4460 went through, the time request over UDP port 123 got no answer: a firewall or a NAT on the way lets the one through and not the other (section 7).
+
+*Reference implementation*: Every node of Open Charging Cloud has the command `syncNTS [<group>] [<time server>]` on its command line, at the console and over SSH. Without a time server it is `SyncNetworkTime`, with one `TestTimeServer`. The NTS page of the node has the same as the button *Sync now* and a *Test* button for every server, and its HTTP API has it again. All of them end in the same two functions of [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node/blob/master/WWCP_Node/WWCPNode.Diagnostics.cs), `SyncTimeAsync` and `TestTimeServerAsync`, check the same permission `nts:run`, and write the same log lines, apart from the one that says who asked. The round is a round as described above; the clock is verified, not set (section 2.2). Every step of a test carries its stage, and a test that ends without a time says where in `failedAt`. The command line tests only servers of the node, as specified here; the HTTP API tests a server by any name. The three messages are those of [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), for OCPP 2.1 and for OCPP 1.6 (section 3.3.5), and its Device Model bridge answers them for a node; who asked is written into the node's log, as the command line and the page write it. One requested round or test runs at a time, whichever version asked, and another is `Busy`; the rounds the node runs on its own are not counted, so a requested round may overlap a scheduled one, and the node checks at a fixed period, which a round on demand does not move. Not implemented yet: their carriage by *DataTransferRequest*.
+
+
 ### 3.3 OCPP v1.6+SE Client Configuration
 
 The following tables map the configuration of section 3.2 onto OCPP v1.6+SE configuration keys. A key `ntp.<group>.<name>` or `ntske.<group>.<name>` belongs to the group of that id. The groups of OCPP v1.6 are the well-known ones, `legal` and `local`. Further groups use the same keys with their own id, where a charging station has them, but they cannot be created via OCPP v1.6.
@@ -529,6 +730,21 @@ The same certificate can belong to multiple groups, but must be uploaded separat
 
 See also: [C# Reference Implementation](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/master/WWCP_OCPPv1.6/Messages/Certificates/InstallCertificateRequest.cs)
 
+*SyncNetworkTime.req*, *TestTimeServer.req* and *NotifyNetworkTimeResult.req*
+
+These are the messages of section 3.2.7, with the same payloads, the same rules and the same carriage, *DataTransfer.req* included. They differ in three points, the first two because OCPP v1.6 has no client ids:
+- *TestTimeServer.req* names the server by `group` and `server` (below). A name that `ntp.<group>.servers` does not list is `Rejected` with the `reasonCode` `UnknownServer`.
+- In `round.clients` and in `test`, `client` is left out, and `host` names the server.
+- The responses carry `statusInfo`, which responses of OCPP v1.6 otherwise lack, so that a rejection says why.
+
+*TestTimeServer.req*
+
+|Property|M/O|Type|JSON Type|Description|
+|-|-|-|-|-|
+|requestId|M|Integer|Number *(Integer)*|Chosen by the CSMS. The *NotifyNetworkTimeResult.req* carries it.|
+|group|O|String|String|The group of the server: `legal`, `local`, or the id of a further group the charging station has. Default: `legal`.|
+|server|M|String|String|The server to test, by its name as `ntp.<group>.servers` lists it.|
+
 
 ### 3.4 Example Configuration Using Chrony
 
@@ -655,6 +871,8 @@ national solution for Germany.
 - [Secure Name Resolution for OCPP](../SecureDNS/README.md): NTS-KE servers are found by name, so time synchronization is only as trustworthy as name resolution. Its components are named alike, and pins, `OnPinMismatch` and trust on first use mean the same there.
 - [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md): the `ACID` and `BASE` *DataConsistencyModel* and the conditional updates used in section 3.2.5.
 - [NTS Key Establishment over SSH](../NTS-over-SSH/README.md) (draft): NTS-KE as an SSH subsystem for managed networks without an X.509 PKI of their own. It keeps the NTS-protected NTP of section 2.2 unchanged and proposes a mode `NTSv4SSH` for the NTP Client Controller of section 3.2.4.
+- [Advanced Diagnostics for OCPP](../AdvancedDiagnostics/README.md): its diagnostic tool *TestNetworkTimeSecure* is the pair of requests of section 3.2.7, and its diagnostic agents are among those who send them.
+- [Signed OCPP Messages](../SignedMessages/README.md): who may send the requests of section 3.2.7, under the permission `nts:run`.
 
 
 
