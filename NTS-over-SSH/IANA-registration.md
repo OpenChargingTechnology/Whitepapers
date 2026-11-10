@@ -133,7 +133,13 @@ the type with the Critical Bit set (`8401` for 1025, instead of `c002` today).
 4. **Norn**: `NTSKE_RecordTypes.SSHKeyBinding` and its entry in `Description()`
    (`Norn/NTS-KE/Records/NTSKE_RecordTypes.cs`), and the tests that expect `c002`
    (`NornTests/NTS/NTSKE_SSH_Tests.cs`). The copy of Norn in ntswebui follows Norn.
-5. **The transition:** a client that sends 16386 to a server that knows only `N` is refused
+5. **The conformance suite** ([NTSConformanceTests](https://github.com/Vanaheimr/NTSConformanceTests)):
+   `RawNtsKeRecordTypes.SshKeyBinding` and its comment
+   (`src/NTSConformance.Core/RawNtsKe/RawNtsKeRecords.cs`), the one place the suite names the
+   type, and the sentence on it in its README, in the same commit that moves `libs/Norn` to the
+   Norn of step 4. The suite writes and reads the record with a codec of its own and drives
+   Norn's server and client over SSH with it, so its gate fails as long as the two disagree.
+6. **The transition:** a client that sends 16386 to a server that knows only `N` is refused
    with *Unrecognized Critical Record*, as the record is critical. Where clients and servers
    are not updated together, a server can accept 16386 as well for a while and answer with
    the type the request used. Clients send only `N`. To be decided when Norn changes.
