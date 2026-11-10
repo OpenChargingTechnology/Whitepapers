@@ -281,6 +281,36 @@ The NTP Client Controller of section 3.2.4 of the [Secure Time Synchronization](
 With `SSHUseOCPPConnection` the key exchange is one more channel of the SSH connection the charging station dialled for OCPP to the host `ServerURL` names: the SSH client of OCPP, `SshMessageClient` of [Hermod](https://github.com/Vanaheimr/Hermod/tree/master/Hermod/SSH), hands out its connection while the messages go over it, and the key exchange closes its own channel, never the connection. `SSHClientPublicKey` then reads the station's OCPP key, and no key pair of its own is made. Switched to it, a server loses `SSHPort`, `SSHUserName`, `SSHHostKeyPins`, `SSHHostCAs` and `OnPinMismatch`, which are rejected while it is set; in a request it is applied after `Mode` and before the other variables. A test has a CSMS serve the subsystem beside OCPP on one SSH listener: the station's key exchange makes no second login, its cookies work for NTP, and the OCPP connection goes on after it. Before that connection there is no key exchange, and no other way is tried.
 
 
+### 7.1 OCPP v1.6+SE Configuration Keys
+
+The configuration keys of section 3.3 of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper get the same. `ntp.<group>.mode` becomes a list per server that takes `NTSv4SSH`, and the following keys are added, shown for the legal group; the local group and further groups have them under their own id:
+
+| Key Name      | req/opt  | Accessibility | Type       | Default Value | Example        | Description |
+|---------------|----------|---------------|------------|---------------|----------------|-------------|
+| ntp.legal.mode | required | rw         | CSL String | "NTSv4"       | "NTSv4, NTSv4SSH" | Per server: `NTSv4` or `NTSv4SSH`. One value is every server's, as before, and a charging station reads one value where every server has the same mode. See `NTPClientController.Mode`. |
+| ntske.legal.sshPorts | optional | rw   | CSL String | "22"          | "22, 2222"     | Per server. See `SSHPort`. |
+| ntske.legal.sshUserNames | optional | rw | CSL String | "ntske"      | "ntske, time"  | Per server. See `SSHUserName`. |
+| ntske.legal.sshUseOCPPConnection | optional | rw | CSL String | "false" | "true, false" | Per server, `true` or `false`. See `SSHUseOCPPConnection`. |
+| ntske.legal.sshHostKeyPins.*n* | optional | rw | CSL String | ""    | "SHA256:…"     | The host key pins of the *n*-th server, numbered as `ntske.legal.certificatePins.n`. See `SSHHostKeyPins`. |
+| ntske.legal.sshHostCAs.*n* | optional | rw | CSL String | ""        | "SHA256:…"     | The SSH CAs of the *n*-th server. See `SSHHostCAs`. |
+| ntske.sshClientPublicKey | optional | ro | String     | ""            | "ssh-ed25519 AAAA… cs001" | Common to every group: the key the charging station signs in with. See `SSHClientPublicKey`. A server on the connection of OCPP signs in with the station's OCPP key instead, which the CSMS knows by its login. |
+
+- **Which servers a list is for**: a list is per server, as every list of section 3.3, but written, it changes only the servers it applies to in their mode. A key of SSH leaves the entries of servers over TLS alone, whatever they say; a key of TLS (`ntske.legal.ports`, `ntske.legal.servers`, `ntp.legal.rootCAs`, `ntske.legal.trustOnFirstUse`) those of servers over SSH; and `sshPorts`, `sshUserNames` and `ntske.legal.onPinMismatch` those of servers on the connection of OCPP. A list that applies to none of the group's servers is `Rejected`. The *n*-th server's pins of the other mode are `Rejected` as well, unless they are emptied, which changes nothing.
+- **Order**: *ChangeConfiguration.req* changes one key at a time, so a CSMS sets `mode` first and then the keys of SSH, as section 3.3 asks for an admissible order. A server switched to `NTSv4SSH` leaves behind what only TLS has, and a server switched back what only SSH has; with `sshUseOCPPConnection` a server loses its port, user name, host key pins and CAs of its own.
+- **Pins**: `ntske.legal.onPinMismatch` applies to the host key pins and CAs of a server over SSH. `ntske.legal.trustOnFirstUse` stays `None` for it. An SSH fingerprint has 50 characters, so at most 9 fit into one pin key of 500 characters.
+- **New servers** in `ntp.legal.servers` go as the last server goes: in its mode, at its SSH port, under its user name, on the connection of OCPP where it is, and believing its CAs, but pinned to none of its host keys.
+- `SSHHostKeyFingerprint` has no key, as `CertificateFingerprint` has none in section 3.3.
+
+```
+ntp.legal.mode                = "NTSv4SSH"
+ntske.legal.sshPorts          = "22"
+ntske.legal.sshHostKeyPins.1  = "SHA256:…"
+ntske.legal.sshHostKeyPins.2  = "SHA256:…"
+```
+
+*Implemented* in the Device Model bridge of [WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), as the other keys of section 3.3: a key is turned into the SetVariables entries of the variables it stands for, and set with their checks. A test reads `ntske.sshClientPublicKey`, has it entered at an NTS server of Norn, is refused an SSH port before the mode, sets `ntp.local.mode`, `ntske.local.sshPorts` and `ntske.local.sshHostKeyPins.1` one at a time, and the station's next check of the time makes its key exchange over SSH.
+
+
 ## 8. Deployment Profiles
 
 The primary profile is an NTS-KE server with an SSH listener of its own, which serves time clients and administrators alike. A charging infrastructure node that already runs an SSH listener, e.g. for OCPP over SSH, offers the subsystem next to its other ones. An unmodified OpenSSH server with a small helper program remains possible as an alternative.
@@ -437,7 +467,8 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 
 ## 11. Relation to Other White Papers
 
-- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): defines the NTS-KE and NTP phases used here (section 2), and the NTP Client Controller that section 7 extends by the mode `NTSv4SSH`.
+- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): defines the NTS-KE and NTP phases used here (section 2), and the NTP Client Controller that section 7 extends by the mode `NTSv4SSH`, and the configuration keys of OCPP v1.6+SE that section 7.1 extends.
+- [OCPP over SSH](../OCPP-over-SSH/README.md): the SSH connection of OCPP that section 8.3 and `SSHUseOCPPConnection` open the subsystem on.
 - [Critical Legal Time Services](../CriticalLegalTimeServices/README.md): the managed networks with trust zones of its section 4.2 are the environment this paper is written for.
 - [Secure Name Resolution for OCPP](../SecureDNS/README.md): pins, `OnPinMismatch` and trust on first use mean the same here. SSHFP records are only as trustworthy as the DNSSEC validation of the name resolution.
 - [Secure SSH Configuration](../SecureSSHConfiguration/README.md) (upcoming): the hardening of the SSH servers and clients of this paper.
@@ -638,12 +669,10 @@ The [tests of Hermod](https://github.com/Vanaheimr/Hermod/blob/master/HermodTest
 - Whether the SSH stack and the cookie master key of section 8.1 should run in separate processes, as OpenSSH separates privileges.
 - Test the OpenSSH profile of section 8.4 end to end, which needs the helper program first.
 - How a node is configured to host the NTS server of section 8.3: its NTP port, the master key, and the NTP server it names to its stations.
-- Configuration keys for OCPP v1.6+SE, in line with section 3.3 of the Secure Time Synchronization white paper.
 - Key rotation for `SSHClientPublicKey`, and security events for host key mismatches.
 - Specify the SSH exporter of section 4.3 as an Internet-Draft of its own in the SSHM working group, independent of NTS. It is useful beyond NTS, and as cryptography of its own it needs an outside review most.
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
-- OCPP over SSH itself, which section 8.3 builds on, as a white paper of its own.
 - Whether any scenario justifies a contribution of the client to the nonce of option A or the secret of option B, which adds nothing against outsiders as long as the server learns both keys anyway (sections 4.3 and 4.4). A method that takes one would carry it in the data of its entry in the request (section 5).
 - How the policies per client of section 6.2 are configured: groups of SSH identities, the NTP servers and cookie master keys of each group, and the commands of section 8.2 for them.
 - The path to standardization of the subsystem and the record: an Internet-Draft in the NTP working group; a specification of our own with IANA registrations only, i.e. the subsystem name through *Expert Review* (section 3.1) and the record type through *Specification Required* (section 5), neither of which needs an RFC; or the private name and record type alone. Proposed: a specification of our own first, with an early registration of the record type; its draft is [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md).
