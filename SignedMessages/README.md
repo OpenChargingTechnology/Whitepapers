@@ -515,6 +515,32 @@ relies on it. Following EVQI (its section 7.2), message-level encryption without
 should not be used. An AEAD (AES-GCM or ChaCha20-Poly1305) with a fresh nonce per message, or
 COSE_Encrypt with ECDH-ES, replaces it.
 
+**Decided (Q20):** AES-CTR stays as it is, and AES-GCM is added as a second method.
+
+- Phase 1 already gave every message a nonce of its own.
+- The binary request and response carry `Parameter` (UInt16), `KeyId` (UInt16), `Nonce` (UInt64),
+  `Counter` (UInt64) and `Ciphertext`, written big-endian. `Parameter` has always been 0 so far.
+  It now selects the method:
+
+| `Parameter` | Method | IV | `Ciphertext` |
+|---|---|---|---|
+| 0 | AES-CTR, as before | the 8 bytes of `Nonce` and the 8 bytes of `Counter`, each in the machine's byte order (little-endian on every platform the library runs on); kept for compatibility | the ciphertext |
+| 1 | AES-GCM | 96 bits: the 8 bytes of `Nonce` and the last 4 bytes of `Counter`, as they are on the wire (big-endian) | the ciphertext followed by the 16-byte tag |
+
+AES-GCM in detail:
+
+- **Key.** The key of `KeyId`, as for AES-CTR. Its length (16, 24 or 32 bytes) gives AES-128,
+  AES-192 or AES-256.
+- **Additional authenticated data.** The first 20 bytes on the wire (`Parameter`, `KeyId`,
+  `Nonce`, `Counter`), so that changing any of them breaks the tag.
+- **Nonce.** It must never repeat under one key. The sender draws a random `Nonce` per message
+  and counts `Counter` up.
+- **The response** uses the method of its request.
+- **Refusals.**
+  - A receiver that does not know the `Parameter` answers `Rejected`.
+  - A tag that does not verify is refused, and no plaintext is handed on.
+- **Signatures.** AES-CTR stays without authentication, unless the message is signed as well.
+
 ---
 
 ## 3. Requirements and non-goals
@@ -1006,7 +1032,7 @@ Each phase is one commit series that stays green; tests first, as negative tests
    phase 2.
 
 *Status:* built on 2026-11-10 in WWCP_Core f6d9d100 and WWCP_OCPP 66ddb043 (the tests), both on
-master and pushed; not yet pinned in the ChargingStationCLI superproject.
+master and pushed, and pinned in the ChargingStationCLI superproject since cb4ee69.
 
 Phase 1 leaves the binary path (F17) as it is. Because a rule that wants signatures now refuses
 a message without them, a set-up that wants every message signed has to exempt
@@ -1028,7 +1054,7 @@ network test does so.
 - WWCP_Core 83894c48: decimals in the canonical form on .NET 11.
 - WWCP_OCPP 34b7e7a8: the adapters and tests, on 7596db59.
 
-All four are on master and pushed. They are not yet pinned in the ChargingStationCLI superproject.
+All four are on master and pushed, and pinned in the ChargingStationCLI superproject since 9e5f622.
 What the implementation does:
 
 - **Signing.** Every JSON message a signature policy signs gets a JWS signature in the embedded
@@ -1064,9 +1090,9 @@ What the implementation does:
   - The overlay network tests run this way.
 - **Binary messages** keep format 0, and a valid binary signature counts as before phase 2. They
   have no form yet that binds the frame (F17), and counting them as unverified would make every
-  rule that wants binary messages signed unsatisfiable.
+  rule that wants binary messages signed unsatisfiable. They get one with phase 5 (Q19).
 - **Not yet.**
-  - Signed data objects (charging tariffs, section 4.4) keep format 0.
+  - Signed data objects (charging tariffs, section 4.4) keep format 0 until phase 4 (Q21).
   - The `customData` envelope towards peers that validate the 2.1 schemas is not built. Q9 sends
     `-Signed` to them instead (phase 5).
 - **Tests.**
@@ -1096,12 +1122,15 @@ What the implementation does:
 3. The device model components of section 6.3 are added, with the 1.6 keys.
 4. The web page and the CLI of section 6.6 follow.
 5. The security events of section 5.4 are sent.
+6. Charging tariffs (E2EChargingTariffs) are signed in the form of section 4.4 too (Q21).
 
 ### Phase 5: standard and EVQI encodings
 
 1. OCPP 2.1 `<Action>-Signed` is added to WWCP_OCPP, both directions.
 2. COSE is added on EVQI CBOR channels, with Styx COSE.
 3. Role certificates with the EVQI role extension follow.
+4. Binary messages get COSE_Sign1 with the header of section 4.1 (F17, Q19).
+5. `OCPPVersion` names the subprotocol of each connection (Q17).
 
 ### Phase 6: intermediaries
 
@@ -1109,12 +1138,30 @@ What the implementation does:
 2. It countersigns (RFC 9338 or a JWS countersignature).
 3. It forwards signed objects unchanged.
 
+### Beside the phases: `SecureDataTransfer` with AES-GCM
+
+AES-GCM as the second method of section 2.6 (Q20), in the request and the response, with
+negative tests: a changed header field, a changed ciphertext, a changed tag, an unknown
+`Parameter`.
+
+*Status:* built on 2026-11-11 in WWCP_OCPP b24cb1eb, on master and pushed.
+
+- `SecureDataTransferMethods` holds both methods. The request and the response encrypt and
+  decrypt through it, and `TryDecrypt` gives no plaintext for an unknown method or a tag that does
+  not verify.
+- WWCP_OCPP's test nodes answer by the method of the request, and `Rejected` when they cannot
+  decrypt.
+- The ciphertext for a fixed key, header and text is the one OpenSSL computes. Over the network,
+  a local controller answers AES-GCM in AES-GCM, and an unknown `Parameter` with `Rejected`.
+
 ---
 
 ## 8. Questions and decisions
 
 All fourteen were decided on 2026-11-10, for now: Q10 with other names than first proposed, the
 others as proposed. A phase that finds a reason against one reopens it.
+
+Q15 to Q21 came up while phase 2 was built, and were decided on 2026-11-11.
 
 | No. | Question | Decision |
 |---|---|---|
@@ -1130,8 +1177,15 @@ others as proposed. A phase that finds a reason against one reopens it.
 | Q10 | Keep the message names `AddUserRole`/`UpdateUserRole`/`DeleteUserRole`, or rename (the node's web roles are also called user roles)? | Rename them to `AddSignerRole`/`UpdateSignerRole`/`DeleteSignerRole`, with a new `GetSignerRoles` (section 6.4 gives the reasons). The first proposal, keeping the names because they are on the wire already, did not hold: nothing on the wire can carry a role today (F5). The three signature policy messages are replaced by `SetSignaturePolicy`/`GetSignaturePolicy`. |
 | Q11 | Component names `MessageSignatureController`, `SignerRoleController`, certificate types `MessageSigningRootCertificate`, `MessageSigningCertificate`, 1.6 prefix `signatures.`? | As proposed. |
 | Q12 | Resource names `station`, `charging`, `firmware`, `metrology`, `network`, `signatures` in the node's permission model? | As proposed. They are agreed with the Local Controller CLI session, which owns the node's role list, before phase 3 adds them. |
-| Q13 | Remove the stale copy of the signature classes in `WWCP_OverlayNetworking`? | Yes, if nothing outside WWCP_Core references it. Nothing does: the only reference is WWCP_Core's own `WWCP_OverlayNetworking_Tests`. Done after phase 1 in WWCP_Core ba199945, on master and pushed; not yet pinned in the ChargingStationCLI superproject. The overlay now uses WWCP_CoreData's classes, and its copies of `ACustomData`, `CustomData` and `Vendor_Id` went too, because the signable base class needs them from the same assembly. |
+| Q13 | Remove the stale copy of the signature classes in `WWCP_OverlayNetworking`? | Yes, if nothing outside WWCP_Core references it. Nothing does: the only reference is WWCP_Core's own `WWCP_OverlayNetworking_Tests`. Done after phase 1 in WWCP_Core ba199945, on master and pushed, and pinned in the ChargingStationCLI superproject since cb4ee69. The overlay now uses WWCP_CoreData's classes, and its copies of `ACustomData`, `CustomData` and `Vendor_Id` went too, because the signable base class needs them from the same assembly. |
 | Q14 | Where does the paper live? | Its own folder `SignedMessages`, listed under the OCPP papers of the repository README. |
+| Q15 | When do nodes whose messages pass a relay that renumbers them (WWCP_OCPP's Local Controller) sign with `OCPPMessageId: "*"` and `OCPPNonce`? | When the operator sets it: `SignaturePolicy.NonceInsteadOfMessageId`, off by default. Signed messages through such a relay need it. |
+| Q16 | Is `OCPPDestination` checked on responses too? | No (section 4.1). The message id and `OCPPRequestHash` bind a response more tightly than a name, and nodes are known under aliases (`CSMS`, `CentralSystem`). |
+| Q17 | Does `OCPPVersion` name the library's protocol or each connection's? | The library's for now (`ocpp2.1`, `ocpp1.6`), which keeps 1.6 and 2.x apart. Each connection's comes with phase 5. |
+| Q18 | Does a signer write `exp` by default? | No. The verifier's `MaxSignatureAge` applies. `exp` is written only where a signer sets it explicitly, e.g. for a command signed in advance. |
+| Q19 | When do binary messages get a form that binds the frame (F17)? | With phase 5: COSE_Sign1 with the header of section 4.1. Until then they keep format 0, with the semantics of phase 1. |
+| Q20 | What happens to `SecureDataTransfer` without authentication (F11)? | AES-CTR stays as it is. AES-GCM is added as a second method, selected by `Parameter` (section 2.6), and built. |
+| Q21 | Do signed data objects such as charging tariffs move to the JWS form? | Yes, with phase 4, in the form of section 4.4, as role assignments do. |
 
 ---
 
