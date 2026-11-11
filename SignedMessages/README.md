@@ -264,6 +264,11 @@ which `VerifyRequestMessage` and `VerifyResponseMessage` call, works as follows:
 6. **Refusal.** When the result is `false`, the adapter does not call the handler. It answers with
    the action's own response, with status `Rejected` and the internal result `SignatureError`;
    no CALLERROR is sent.
+   - A refused response is handed to the code that sent the request, also with the result
+     `SignatureError`.
+   - Since WWCP_OCPP 1431cde5, a 2.1 node answers a response it cannot read with a
+     CALLRESULTERROR `FormationViolation` (Part 4 §4.2.3). A signature that does not hold draws
+     none.
 
 #### 1.3.5 Signature policies and the rule engine
 
@@ -572,7 +577,10 @@ Every signature carries a protected header. Its fields are signed together with 
 
 - **Header against frame.** `OCPPVersion`, `OCPPMessageTypeId`, `OCPPAction` and
   `OCPPMessageId` equal the frame and the connection.
-- **Destination.** `OCPPDestination` is the verifying node itself, or a group it belongs to.
+- **Destination.** For a request or SEND, `OCPPDestination` is the verifying node itself, or a
+  group it belongs to. A response is not checked for it. A node is known to its peers under
+  aliases (`CSMS`, `CentralSystem`), and the response binding below ties a response to its
+  requester more tightly than a name does.
 - **Time.** `iat` lies no further in the future than `MaxClockSkew`, and `exp` (or the default)
   has not passed.
 - **Freshness.** The pair (`kid`, `OCPPNonce`), or the pair (`kid`, `OCPPMessageId`) when there is
@@ -1012,6 +1020,64 @@ network test does so.
 3. The replay cache is added.
 4. Format 0 is accepted behind `AcceptFormat0`.
 5. Test vectors are published next to the paper, as for TOTP.
+
+*Status:* built on 2026-11-11, on .NET 11, in four commits:
+
+- WWCP_Core 76b2c24d: RFC 8785 and JWS.
+- WWCP_Core 257d1ad6: the protected header.
+- WWCP_Core 83894c48: decimals in the canonical form on .NET 11.
+- WWCP_OCPP 34b7e7a8: the adapters and tests, on 7596db59.
+
+All four are on master and pushed. They are not yet pinned in the ChargingStationCLI superproject.
+What the implementation does:
+
+- **Signing.** Every JSON message a signature policy signs gets a JWS signature in the embedded
+  form.
+  - The payload is the RFC 8785 form of the JSON that goes on the wire, without `signatures`.
+  - The protected header holds `alg` (ES256, ES384, ES512 as r‖s, which also fixes F13), `kid`,
+    `OCPPVersion`, `OCPPMessageTypeId`, `OCPPAction`, `OCPPMessageId`, `OCPPSource` where it is
+    known, `OCPPDestination` (requests and SEND), `iat`, `OCPPRequestHash` (responses to signed
+    requests), `OCPPSignerName`, `OCPPSignerDescription` and `crit`.
+  - The unprotected header carries the signer's public key as `jwk`, so that a rule without a key
+    can still check the mathematics.
+  - Signing is deterministic (RFC 6979).
+  - `exp` and `OCPPNonce` are read, but not written yet.
+- **Binding.** The node's OCPP adapter binds its policy to the node.
+  - `OCPPSource` is the node's identity.
+  - `OCPPVersion` is the WebSocket subprotocol of the library (`ocpp2.1`, `ocpp1.6`), not yet that
+    of each connection.
+  - A policy refuses to be bound to a second node.
+- **Verifying.** The adapters hand the payload as received to the policy, so that unknown fields
+  are covered (F7).
+  - The checks of section 4.1 run in this order: critical fields, key, mathematics, header against
+    frame, time, freshness.
+  - A failure is told apart as `InvalidSignature`, `WrongFrame`, `OutOfTime`, `Replayed`,
+    `UnknownSigner` or `BrokenSignature`.
+  - A signature of format 0 is `Format0NotAccepted` by default. With `AcceptFormat0` it is checked,
+    and counts as `Unverified` even when it is valid.
+- **Relays.** WWCP_OCPP's Local Controller sends what it forwards under request ids of its own,
+  so that the requests of the stations behind it do not collide (WWCP_OCPP ef49eba6).
+  - A signature bound to the message id cannot pass it, and neither can the response.
+  - Nodes whose messages pass such a relay set `SignaturePolicy.NonceInsteadOfMessageId`. Their
+    signatures then carry `OCPPMessageId: "*"` and an `OCPPNonce` of their own (section 4.3, Q3).
+  - A response is then bound to its request by `OCPPRequestHash` alone.
+  - The overlay network tests run this way.
+- **Binary messages** keep format 0, and a valid binary signature counts as before phase 2. They
+  have no form yet that binds the frame (F17), and counting them as unverified would make every
+  rule that wants binary messages signed unsatisfiable.
+- **Not yet.**
+  - Signed data objects (charging tariffs, section 4.4) keep format 0.
+  - The `customData` envelope towards peers that validate the 2.1 schemas is not built. Q9 sends
+    `-Signed` to them instead (phase 5).
+- **Tests.**
+  - RFC 8785 and JWS are checked against the RFCs' examples and against V8 and OpenSSL, through
+    97 numbers and three signatures made by Node.js.
+  - The protected header is checked by negative tests for every check above.
+  - [test-vectors/](test-vectors/README.md) holds 15 vectors made by an independent JavaScript
+    implementation. The reference implementation passes them: the same RFC 8785 form, the same
+    signing input and the same decision for every frame.
+  - Tests that signed messages an hour in the past, or compared signing times to the millisecond,
+    now sign at the current time and compare whole seconds (`iat` is a NumericDate).
 
 ### Phase 3: policy table and roles
 
