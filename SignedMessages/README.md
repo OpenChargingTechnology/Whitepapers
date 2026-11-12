@@ -1238,6 +1238,33 @@ What the implementation does:
 5. The rule against `ChargingStationExternalConstraints` from a CSMS is checked against the
    OCPP 2.1 text (section 5.3).
 
+*Status:* items 1, 2 and 4 are built (2026-11-12) in WWCP_Core ec3ec309 and WWCP_OCPP de004abd,
+both on master and pushed. Items 3 and 5 are open.
+
+- **The policy table** (`MessagePolicyEntry`) and **what each action needs**
+  (`ActionPermission`) are in WWCP_Core. An entry is read and written as the JSON of section 5.2.
+- **The chain runs in the signature policy.** Every incoming adapter verifies through it, so that
+  is the one place for every action. `SignaturePolicy.Decide` runs after the signatures are
+  verified and before the handler; `DecideVariable` decides one entry of a device model request.
+- **`Mode`** is `Off`, `Observe` or `Enforce`, and `Off` by default: a node then behaves as
+  before. With another mode, the signatures of a request are verified also where no verification
+  rule asks for them.
+- **The station's table** (`ChargingStationActionPermissions`, WWCP_OCPP) is the one of
+  section 5.3. The entries of `SetVariables` and `GetVariables` are decided one by one; with
+  `ACID` and `BASE` none of the request is applied.
+- **The node says** who a key belongs to and what a role may do. WWCP_OCPP's nodes answer the
+  first from their user roles; the test charging station knows one role, `admin`.
+- **Not built yet:**
+  - the first step of the chain, the connection role and the peer's rights profile;
+  - a table for OCPP 1.6;
+  - CALLERROR `SecurityError` for a refusal, which is answered as a signature error is today;
+  - `match.instance` and `match.evse` are matched, `GetBaseReport`, `GetReport` and
+    `SetVariableMonitoring` are not decided per entry.
+- **Tests:** `MessagePolicyTests` (the modes, the station's table, quorum, specificity, entries
+  refused when written, JSON) and `SetVariablesUserRoleTests` (a request with entries of
+  different sensitivity over the network). WWCP_Core 249, Overlay 28, OCPP 2.1 2171, OCPP 1.6 689,
+  OCPP_Node 197, ChargingStation 946, all green.
+
 ### Phase 4: provisioning
 
 1. Role assignments are signed data objects.
