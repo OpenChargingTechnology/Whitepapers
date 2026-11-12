@@ -782,7 +782,8 @@ This paper uses the same roles for signed messages:
 
 | Action | Permission | Note |
 |---|---|---|
-| `GetVariables`, `GetBaseReport`, `GetReport` | `<resource of the component>:read` | `DNSClientController` → `dns`, `NTPClientController` → `nts`, unknown → `configuration` |
+| `GetVariables`, `GetBaseReport`, `GetReport` | `<resource of the component>:read` | per entry. `DNSClientController` → `dns`, `NTPClientController` → `nts`, unknown → `configuration`. A report leaves out what its signers may not read |
+| `SetVariableMonitoring` | `<resource of the component>:read` | per entry: a monitor tells of the value of its variable |
 | `SetVariables` | `<resource of the component>:edit` | per entry |
 | `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` | |
 | `GetLog` | `log:read` | |
@@ -1358,10 +1359,16 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
     A request whose entries are refused one by one is one event.
   - A refused response is not reported: the answer to a security event must not be the next
     one.
+- **`GetBaseReport`, `GetReport` and `SetVariableMonitoring` are decided per entry** (WWCP_OCPP
+  4f687cf8), with `match.instance` and `match.evse` matched as for `SetVariables`.
+  - A report leaves out what its signers may not read. A report of which nothing is left is
+    an `EmptyResultSet`, and no `NotifyReport` follows.
+  - A monitor on a variable its signers may not read is `Rejected` with the reason code
+    `NotAuthorized`; the other monitors of the request are set.
+  - `GetMonitoringReport`, `ClearVariableMonitoring`, `SetMonitoringBase` and
+    `SetMonitoringLevel` are decided as a whole.
 - **Not built yet:**
-  - the first step of the chain, the connection role and the peer's rights profile;
-  - `match.instance` and `match.evse` are matched, `GetBaseReport`, `GetReport` and
-    `SetVariableMonitoring` are not decided per entry.
+  - the first step of the chain, the connection role and the peer's rights profile.
 - **Tests:** `MessagePolicyTests` (the modes, the station's table, quorum, specificity, entries
   refused when written, JSON) and `SetVariablesUserRoleTests` (a request with entries of
   different sensitivity over the network). WWCP_Core 249, Overlay 28, OCPP 2.1 2171, OCPP 1.6 689,
