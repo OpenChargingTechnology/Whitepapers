@@ -1254,7 +1254,7 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 - **Clearing differs:** K10.FR.06 in its 2.1 wording forbids the CSMS a
   `ClearChargingProfileRequest` whose criteria name `ChargingStationExternalConstraints` *or*
   `LocalGeneration`, and a clearing by criteria leaves profiles of both purposes alone. The table
-  refuses both since WWCP_OCPP 3b8ef784 (decided 2026-11-12); in de004abd it still let the second pass
+  refuses both since WWCP_OCPP a2f470b8 (decided 2026-11-12); in de004abd it still let the second pass
   with `power:edit`.
 
 - **The policy table** (`MessagePolicyEntry`) and **what each action needs**
