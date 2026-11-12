@@ -1389,8 +1389,22 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
     was enough; since WWCP_OCPP 50e80f77 a monitor needs the right to edit.
   - `GetMonitoringReport`, `ClearVariableMonitoring`, `SetMonitoringBase` and
     `SetMonitoringLevel` are decided as a whole.
-- **Not built yet:**
-  - the first step of the chain, the connection role and the peer's rights profile.
+- **The first step of the chain is built** (WWCP_Core fd594584, WWCP_OCPP 3443b7d4, OCPP 2.1 and
+  1.6): the connection role and the peer's rights profile.
+  - The incoming adapter asks its node what a connection may carry (`RightsOfConnection`): the
+    permissions of its role, and the requests the rights profile of its peer accepts.
+  - The signature policy holds a request against both before it verifies a signature. What the
+    connection may not carry is refused with CALLERROR `SecurityError`, whoever signed.
+  - A request decided per entry passes this step, and each entry is held against the
+    connection by itself: over a connection that may only read, a variable is read and not set.
+  - A node that fails to say what a connection may carry lets nothing over it. A node that
+    says nothing lets over it what its signers may do.
+  - Nothing of it is looked at while the mode of the policy is `Off`.
+  - No security event is sent for this step: the chain of section 5.1 has none there, and
+    section 5.4 names no type for it.
+  - **Open:** the station does not say yet what its connections may carry. An entry of a rights
+    profile with a qualifier, as `SetChargingProfile:ChargingStationExternalConstraints`, is not
+    understood: only the name of the request is compared.
 - **Tests:** `MessagePolicyTests` (the modes, the station's table, quorum, specificity, entries
   refused when written, JSON) and `SetVariablesUserRoleTests` (a request with entries of
   different sensitivity over the network). WWCP_Core 249, Overlay 28, OCPP 2.1 2171, OCPP 1.6 689,
