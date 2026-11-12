@@ -15,7 +15,7 @@ Precise and secure time synchronization is vital for electric vehicle (EV) charg
 
 Network Time Security (NTS), as defined in [RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915), addresses these shortcomings by providing authenticated and encrypted time synchronization with minimal delay, making it an ideal solution for modern EV charging infrastructure. NTS combines NTS Key Establishment (NTS-KE) for secure key exchange with NTS-protected NTP for robust time queries, ensuring both security and accuracy. This white paper provides a comprehensive guide for configuring OCPP v1.6 and v2.x compliant charging stations to implement NTS, enabling Charge Point Operators (CPOs) to meet emerging regulatory requirements, such as those for time-based and dynamic tariffs in markets. It details the setup of NTS-KE and NTS-protected NTP, including support for multiple prioritized servers with parallel querying to optimize performance and reliability.
 
-The use of [AEAD symmetric authenticated encryption](https://en.wikipedia.org/wiki/Authenticated_encryption) complicates the authenticity gurantees of NTS responses, as local attackers with access to the server-to-client crypto keys could still fake responses. An optional extension is presented to add a digital signature to a second NTS response. This does not disturb the normal time synchronization and provides a ***digital signed proof*** that can be added to the secure metrological log book whenever a larger time discrepancy was detected and corrected.
+The use of [AEAD symmetric authenticated encryption](https://en.wikipedia.org/wiki/Authenticated_encryption) complicates the authenticity gurantees of NTS responses, as local attackers with access to the server-to-client crypto keys could still fake responses. An optional extension is presented to add a digital signature to a second NTS response (section 2.3). This does not disturb the normal time synchronization and provides a ***digital signed proof*** that can be added to the secure metrological log book whenever a larger time discrepancy was detected and corrected.
 
 When multiple charging stations are colocated at a single charging location, maintaining a consistent time across all units may be more critical — such as for load balancing applications — than strict synchronization with legal time sources. To address this, we also present an approach where **OCPP Local Controllers** act as *"auxiliary NTS servers"*. This setup enables charging stations to maintain a highly consistent shared time reference, while still receiving cryptographic proofs that the legal time source does not significantly deviate, even if precise alignment is not guaranteed.
 
@@ -110,6 +110,51 @@ repeated NTS-KE negotiations.
 - On 19 January 2038 at 03:14:08 UTC, implementations that count seconds in signed 32 bit integers overflow.
 - Where leap second announcements are evaluated when converting into system time, the synchronization with the system time needs particular care.
 - [RFC 5905](https://datatracker.ietf.org/doc/html/rfc5905) Appendix A.5.1 and A.5.1.1 give hints on checking received messages for plausibility before they are used for time synchronization.
+
+
+### 2.3 Signed Responses
+
+The NTS authenticator of a response is computed with a symmetric key, which the client holds as well as the server. It proves to the client that the response is the server's, and proves nothing to anybody else: the client could have computed it itself. A response that is to be shown to a third party, e.g. in the secure metrological log book (section 4), therefore carries a digital signature of the server in addition. This is an extension to RFC 8915.
+
+#### Public Keys
+
+In its NTS-KE request the client asks for the public keys of the server. The NTS-KE response then carries one record per key, each with:
+- the **id** of the key, 1 to 65535, by which requests and signatures name it,
+- the **public key** itself, its **elliptic curve** and its **signature algorithm**,
+- optionally the time from which the key is valid (*notBefore*) and the time until which it is valid (*notAfter*).
+
+The keys come over the authenticated key exchange. This is what binds them to the server that was asked, and a client SHALL check a signature against these keys and no others.
+
+#### Request and Second Response
+
+In its NTS-protected NTP request the client asks for a signed response, and names the key it wants it signed with by its id. The id 0 asks for no key in particular and leaves the choice to the server.
+
+The server answers as it would have answered anyway, and adds the authenticated announcement that a second response follows. This first response is the time measurement. The second response repeats the first and carries the signature over it. A server never signs the first response: the time the signature takes would lie between receiving the request and sending the response, and so within the measurement, and a small request would cost the server a signature before anything is sent back.
+
+A server signs with the key that was asked for, as long as it has that key and the key is valid, and otherwise does not sign at all. It does not sign with another key in its place.
+
+#### Several Keys and Their Rotation
+
+A server may have several signing keys. Asked for no key in particular, it signs with the valid key whose *notBefore* is the latest; a key without *notBefore* counts as the oldest. Nothing is switched for a rotation: the successor of a key is given to the server with its *notBefore* still in the future and takes over at that time. Several servers that have been given the same keys change at the same time.
+
+The NTS-KE response names every key a response may be signed with while the cookies of this key exchange are in use: all keys that are valid, and those that become valid within a **lead time**. A key that is past its *notAfter* is no longer named. The lead time SHALL be longer than the time a client uses the result of one key exchange, as otherwise a client meets a signature of a key it has not been told of.
+
+*Reference implementation*: the lead time is one day unless configured otherwise (`PublicKeyLeadTime` of the NTS server of [Norn](https://github.com/Vanaheimr/Norn)). The key in use is named first, the others in the order of their *notBefore*. Keys are added to and removed from a running server.
+
+#### What the Client Concludes
+
+The client checks the signature of the second response and records the outcome. Whether a key was valid is judged at the transmit timestamp of the response, not at the time of the client's own clock: the response is asked for because that clock may be wrong, and the timestamp is covered by the NTS authenticator.
+
+| Outcome | Meaning | The query |
+|---|---|---|
+| Verified | The signature is that of a key the key exchange named, over this response, and the key was valid at the time the response gives. | succeeds |
+| Invalid | The signature is not that of the key it names. | fails |
+| Key not valid | The signature is that of the key it names, and the key was not yet or no longer valid at the time the response gives. | fails |
+| Wrong key | A key was asked for by its id, and the response is signed with another. | fails |
+| Unknown key | The response is signed with a key the key exchange did not name. | fails where a key was asked for by its id, and otherwise succeeds |
+| Not signed | A signed response was asked for and none came: the server does not sign, or did not sign with the key that was asked for. | succeeds |
+
+A query that fails here has failed as one whose NTS authenticator did not verify, and its time is not used. A query that succeeds without *Verified* still has a time the NTS authenticator vouches for, but no proof for a third party; the outcome is recorded beside it. Whoever asks for a key by its id says that no other proof will do, which is why *Wrong key* and *Unknown key* fail such a query.
 
 
 ## 3. Network Time Security OCPP Client Configuration
@@ -264,7 +309,7 @@ The *Instance* of the component is the client id (section 3.2). A client is one 
 | MinRefresh        | optional | rw         | integer    | 43200         | ≥ 60 (s)             | The time since the last NTS-KE handshake after which a new one is started, at a random time between `MinRefresh` and `MaxRefresh`. Unit: `s`. | `servers[n].minRefreshSeconds`, 43200 s when not set |
 | MaxRefresh        | optional | rw         | integer    | 86400         | ≥ `MinRefresh` (s)   | The time since the last NTS-KE handshake within which a new one must have succeeded. Unit: `s`. | `servers[n].maxRefreshSeconds`, 86400 s when not set. A handshake that fails when it is due is not made up for with the old keys: the server is not asked until a new one succeeds. By the server's host name across every group, the first entry that sets either deciding |
 | AEADAlgorithm     | optional | rw         | OptionList | `AES-SIV-CMAC-256` | `AES-SIV-CMAC-256`, `AES-128-GCM-SIV` | The Authenticated Encryption with Associated Data (AEAD) algorithm the client offers for NTS authentication of NTP messages. | `servers[n].aead`. Empty: both are offered, AES-128-GCM-SIV first, and the server chooses; it then reads the algorithm the last NTS-KE handshake agreed on |
-| SignedResponses   | optional | rw         | boolean    | false         | -                    | Whether a digitally signed second response is requested (section 1). | `servers[n].signedResponses`: after every measurement, not in it, a second, scheduled response is asked for, its signature checked against the public key the NTS-KE handshake fetched, and every one written into the metrological log, the response itself included |
+| SignedResponses   | optional | rw         | boolean    | false         | -                    | Whether a digitally signed second response is requested (section 2.3). | `servers[n].signedResponses`: after every measurement, not in it, a second, scheduled response is asked for, its signature checked against the public keys the NTS-KE handshake fetched, and every one written into the metrological log, the response itself included |
 | Problem           | optional | ro         | boolean    | false         | -                    | `true` while the last NTS-KE handshake with this server was refused, or its last exchange failed. Standardized variable name of OCPP; can be monitored. | last judgement |
 | CertificateFingerprint | optional | ro    | string     | ""            | -                    | The SHA-256 fingerprint of the certificate the server showed at its last NTS-KE handshake. | last key exchange |
 | LastKeyExchange   | optional | ro         | dateTime   | -             | -                    | When the last NTS-KE handshake with this server succeeded. | last key exchange |
