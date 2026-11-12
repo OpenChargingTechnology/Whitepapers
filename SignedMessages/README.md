@@ -717,7 +717,7 @@ A policy entry:
 | `match.direction` | `CSMS->CS` or `CS->CSMS`; on a Local Controller per side |
 | `match.versions` | optional, default all |
 | `match.component`, `match.variable`, `match.instance`, `match.evse` | for `SetVariables`, `GetVariables`, `SetVariableMonitoring`, `GetReport`: one entry per device model target; wildcards allowed |
-| `match.where` | optional conditions on payload fields with a closed set of operators (`equals`, `in`), e.g. `{ "type": { "in": ["Immediate"] } }` for `Reset`, `{ "chargingProfile.chargingProfilePurpose": { "equals": "ChargingStationExternalConstraints" } }` for `SetChargingProfile` |
+| `match.where` | optional conditions on payload fields with a closed set of operators (`equals`, `in`), e.g. `{ "type": { "in": ["Immediate"] } }` for `Reset`, `{ "chargingProfile.chargingProfilePurpose": { "equals": "ChargingStationMaxProfile" } }` for `SetChargingProfile` |
 | `require` | `Unsigned` (no requirement), `AnySigner` (a valid signature by any assigned role), or `anyOf` / `allOf` of role ids with `count` (quorum, n of m distinct keys) |
 | `onViolation` | `Refuse` (CALLERROR `SecurityError`, security event) or `Record` (execute, security event; for a migration) |
 
@@ -733,7 +733,8 @@ Resolution and defaults:
   `Rejected` with `reasonCode` `NotAuthorized` (Q6). The rest is applied as the request's
   *DataConsistencyModel* says, so `ACID` refuses the whole request.
 - **The policy protects itself.** Writing the policy, the roles or the components of section 6.3
-  requires the role `owner` (or the permission `signatures:edit`), whatever the table says.
+  requires the permission `signatures:edit`, whatever the table says. By default only the node's
+  `systemadmin`, the owner of section 6.1, holds it.
 
 ### 5.3 Roles are the node's roles
 
@@ -745,13 +746,23 @@ has a role model already:
 - **Operations.** There are three: `read`, `edit` and `run`.
 - **Configuration.** Roles are data, and the configuration file may add roles or change them.
 - **Usage.** The web interface and the SSH console check against it.
+- **The node's roles.** The node brings two: `systemadmin` (`WWCPNode.AdminRole`, every operation
+  on `*`, which the configuration file cannot narrow) and `viewer` (`*:read`). Each kind of node
+  adds its own: `cpo` and `installer` on a charging station, `cpo` on a Local Controller. Q12
+  adds a third role to the node: `support`.
+- **The resources.** The node's are `configuration`, `dns`, `nts`, `certificates`, `ssh` and
+  `log` (`NodeResources`). Each kind of node adds what it is made of:
+  - a charging station `evses`, `rfid`, `availability`, `power`, `calibration`, `display`,
+    `session`, `connections`, `v2g`, `meters`, `providers`, `nameplate` and `commissioning`
+    (`StationAccess`);
+  - a Local Controller `csms`, `stations` and `openadr` (`LocalControllerAccess`).
 
-This paper proposes to use the same roles for signed messages:
+This paper uses the same roles for signed messages:
 
 - A role assignment (section 6.2) binds keys to a node role. There is no separate "user role"
   vocabulary.
 - Each OCPP action is mapped to the permission it needs. The mapping is a table the station
-  ships, and the policy table of section 5.2 can override it. Examples:
+  ships, and the policy table of section 5.2 can override it. On a charging station:
 
 | Action | Permission | Note |
 |---|---|---|
@@ -759,16 +770,105 @@ This paper proposes to use the same roles for signed messages:
 | `SetVariables` | `<resource of the component>:edit` | per entry |
 | `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` | |
 | `GetLog` | `log:read` | |
-| `Reset`, `TriggerMessage` | `station:run` | |
+| `Reset` `OnIdle` (2.1, also with `evseId`), `Soft` (1.6) | `reset:run` | new resource. A 1.6 station waits with a `Soft` reset until nothing is charging, as with `OnIdle`, instead of ending running transactions as the 1.6 text says |
+| `Reset` `Immediate` or `ImmediateAndResume` (2.1), `Hard` (1.6) | `reset-immediate:run` | new resource |
+| `TriggerMessage` for `StatusNotification` | `state:run` | new resource: the EVSE status reported again |
+| `TriggerMessage` for `SignChargingStationCertificate`, `SignV2GCertificate`, `SignV2G20Certificate`, `SignCombinedCertificate` | `certificates:edit` | a new key and certificate are requested |
+| `TriggerMessage` for any other message | `node:run` | new resource |
 | `SyncNetworkTime`, `TestTimeServer` | `nts:run` | as `syncNTS` on the command line ([Secure Time Synchronization](../SecureTimeSync/README.md), section 3.2.7) |
-| `RequestStartTransaction`, `RequestStopTransaction`, `UnlockConnector` | `session:run` | |
-| `SetChargingProfile`, `ClearChargingProfile` | `charging:edit` | narrowed by purpose with `where` |
-| `UpdateFirmware`, `PublishFirmware` | `firmware:edit` | metrologically classified components: `metrology:edit` (EVQI 6.3) |
-| `SetNetworkProfile` | `network:edit` | |
-| `AddSignerRole`, `UpdateSignerRole`, `DeleteSignerRole`, signature policy | `signatures:edit` | held by `owner` only by default |
+| `RequestStartTransaction`, `RequestStopTransaction` | `session:run` | |
+| `UnlockConnector` | `unlock:run` | new resource of the station |
+| `ChangeAvailability` | `availability:edit` | |
+| `SetChargingProfile` with `TxProfile`, `TxDefaultProfile` or `PriorityCharging` | `session:run` | the operator's everyday load management |
+| `SetChargingProfile` with `ChargingStationMaxProfile` or `LocalGeneration` | `power:edit` | what the station may draw and deliver: the installer's |
+| `SetChargingProfile` with `ChargingStationExternalConstraints` | – | refused whatever the role: external constraints come from an energy management system or the grid operator, not from a CSMS (OCPP 2.0.1 K01.FR.22; checked against the 2.1 text in phase 3) |
+| `ClearChargingProfile` | the permissions of the profiles it would clear | criteria without a purpose need all of them together |
+| `UpdateFirmware`, `PublishFirmware` | `firmware:edit` | new resource; a metrologically relevant station also needs `calibration:edit` (EVQI 6.3) |
+| `SetNetworkProfile` | `connections:edit` | where the station dials and what it proves itself with there |
+| `AddSignerRole`, `UpdateSignerRole`, `DeleteSignerRole`, `SetSignaturePolicy` | `signatures:edit` | new resource; `systemadmin` only |
+| `GetSignerRoles`, `GetSignaturePolicy` | `signatures:read` | every role with `*:read` |
 
-The resource names `station`, `charging`, `firmware`, `metrology`, `network` and `signatures`
-are new and would be added to the node's list.
+**New resources (Q12).** Six go into the node's list, because every kind of node has them:
+
+- `node`: the node itself. `run` makes it send a message no other resource covers.
+- `reset`: `run` restarts the node once it is idle.
+- `reset-immediate`: `run` restarts it at once, ending what is running. On a Local Controller
+  that disconnects every station behind it from the CSMS.
+- `state`: what is going on, apart from how the node is configured. `read` shows it, `run` has it
+  reported again. On a charging station that is the state of each EVSE. On a Local Controller it
+  is whether the line to the CSMS stands and since when, which stations were last seen when, and
+  the limits in force.
+- `firmware`: its firmware.
+- `signatures`: its signer roles and its signature policy.
+
+One goes into the station's list: `unlock`, whose `run` releases a connector.
+
+The first draft proposed six names: `station`, `charging`, `firmware`, `metrology`, `network` and
+`signatures`. Where the station already has a resource for the same thing, that resource is used:
+
+- `network` is `connections`;
+- `charging` is split by purpose into `session` and `power`;
+- `metrology` is `calibration`;
+- `station` is split into `node`, `reset`, `reset-immediate`, `state` and `unlock`. They name any
+  kind of node, except `unlock`.
+
+**The role `support`.** The node brings a third role, the same on every kind of node, for an
+operator's telephone support. Many people will hold it, so it may do almost nothing:
+
+- `state:read` and `state:run`: see what is going on, and have the EVSE status reported again;
+- `reset:run`: restart the node once it is idle;
+- `unlock:run`: release a stuck cable, on a charging station.
+
+Nothing else: no configuration, no `log:read`, no `session:run`, no `firmware`, and no
+`reset-immediate` by default. An operator gives single accounts more through a further role.
+
+**Who holds them by default:**
+
+- `signatures:edit`: `systemadmin` only.
+- `node:run`, `reset:run`, `reset-immediate:run`, `state:run` and `firmware:edit`: `cpo` on a
+  charging station and on a Local Controller, on a charging station `unlock:run` as well. The
+  station's `installer` inherits them. Restarts and firmware rollouts are the everyday business
+  of the operator's CSMS. A metrologically relevant station is protected by `calibration:edit`, which only the
+  installer holds.
+- Reading `signatures`, `firmware` and `state`: every role with `*:read`, `viewer` included.
+  Signer roles and the policy hold public keys and rules, nothing secret.
+- Reading the log: only roles with `log:read`. A Local Controller asks for it as the station does
+  (`NodeHTTPAPI.ToReadTheLog`), because the log shows its stations and their connections.
+
+The rights hold on all three ways in: the web page, the SSH console and a signed OCPP message.
+
+**Metrologically relevant.** In 1.6 and 2.1, `UpdateFirmware` names no component, so the firmware
+is the station's.
+
+- A station is metrologically relevant when it holds at least one calibration certificate
+  (`calibration`) *or* signs sessions over a meter it reads (`meters`).
+- The station derives this itself. The message does not say it; otherwise a signer could leave
+  it out and so avoid `calibration:edit`.
+- Both sources are changed only with `calibration:edit` or `meters:edit`, i.e. by the installer.
+  A `cpo` signer cannot downgrade the station.
+- The nameplate has no field for it, and needs none: a derived classification cannot be
+  forgotten.
+
+**A Local Controller** applies its own resources to the messages addressed to itself:
+
+| Action at the Local Controller | Permission |
+|---|---|
+| `SetNetworkProfile`, and anything that changes the line to the CSMS or the login there | `csms:edit` |
+| DNS and NTS settings | `dns:edit`, `nts:edit`, as on the web page and the SSH console |
+| `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` |
+| `Reset` | `reset:run` or `reset-immediate:run`, by type as on the station |
+| `TriggerMessage` | `node:run`, or `certificates:edit` for a certificate |
+
+No signed message gets `stations:*`, the Local Controller's server for its stations, because no
+OCPP action changes it. A message the Local Controller forwards is checked by the station,
+against the station's own resources. The Local Controller's role is no power of attorney for the
+station.
+
+**Implementing it.** Every resource added to `NodeResources.All` changes what `*` means. The full
+suites of every kind of node must run, not only the new tests. When `ssh` came in, tests turned
+red in WWCP_Node, in the Local Controller and in the EV, and the refusal texts list the resources
+too. `state` is real work besides: every kind of node has to separate what is going on from how
+it is configured, on its pages and in its API, so that `support` sees the one without the other.
 
 The result:
 
@@ -808,9 +908,10 @@ signatures, into the node's signed log (EVQI 6.7), so that it can be verified ag
 
 ### 6.1 Root of trust
 
-- **Owner.** Every station has a role `owner`. It holds the permission `signatures:edit` and is
-  the only role that holds it by default. Whoever holds an owner key decides who may sign what on
-  this station.
+- **Owner.** The owner is the node's role `systemadmin`. It holds every permission,
+  `signatures:edit` among them, and no other role holds `signatures:edit` by default (Q12). An
+  *owner key* is a signer key bound to `systemadmin`. Whoever holds an owner key decides who may
+  sign what on this station.
 - **The first owner key comes out of band.** There are three ways, and all of them are configured
   locally:
   1. **At manufacture.** The manufacturer installs the operator's owner key or owner root
@@ -848,7 +949,7 @@ that EVQI section 7.4 names as the alternative to a role certificate:
 {
     "role":         "service",
     "description":  "Service technicians of ACME Ltd.",
-    "permissions":  [ "log:read", "station:run", "session:run", "configuration:read" ],
+    "permissions":  [ "log:read", "reset:run", "session:run", "configuration:read" ],
     "keys": [
         {
             "kid":        "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs",
@@ -901,7 +1002,7 @@ papers:
 | `MaxClockSkew` | rw | integer (s) | 300 | Tolerance for `iat` in the future. |
 | `MaxSignatureAge` | rw | integer (s) | 900 | Validity of a signature without `exp`. |
 | `ReplayCacheSize` | ro | integer | – | How many (`kid`, nonce/ID) pairs the station keeps. |
-| `Roles` | rw | string, comma separated ids | `owner` | The `SignerRoleController` instances. A new id with its variables in the same request (`ACID`/`BASE`, as in the DNS paper) creates a role definition without keys; keys come by section 6.4 only. |
+| `Roles` | rw | string, comma separated ids | `systemadmin` | The `SignerRoleController` instances, each a node role (section 5.3). A new id with its variables in the same request (`ACID`/`BASE`, as in the DNS paper) creates a role definition without keys; keys come by section 6.4 only. |
 | `PolicyVersion` | ro | integer | 0 | Version of the policy table (section 6.4). |
 | `OwnKeyId` | ro | string | – | `kid` of the station's own signing key (section 6.5). |
 | `AllowFirstOwnerByCSMS` | rw | boolean | false | Section 6.1, option 3. Writable only locally. |
@@ -911,7 +1012,7 @@ papers:
 | Variable | Mutability | Type | Description |
 |---|---|---|---|
 | `Description` | rw | string | Text. |
-| `Permissions` | rw | string, comma separated `resource:operation` | The role's permissions on this station. Writing requires `signatures:edit`. |
+| `Permissions` | rw | string, comma separated `resource:operation` | The role's permissions on this station. Writing requires `signatures:edit`. Those of `systemadmin` are every operation on `*` and cannot be written. |
 | `KeyIds` | ro | string, comma separated | The `kid`s of the keys currently assigned. |
 | `CertificateGroup` | rw | string | The `certificateGroup` of `MessageSigningRootCertificate` anchors whose certificates may carry this role (section 6.2). |
 | `Version` | ro | integer | The version of the stored role assignment. |
@@ -1110,7 +1211,17 @@ What the implementation does:
 1. The decision chain of section 5.1 moves into the adapter.
 2. The policy table of section 5.2 is added, with the action → permission mapping of section 5.3.
 3. Roles become node roles.
+   - `node`, `reset`, `reset-immediate`, `state`, `firmware` and `signatures` are added to
+     WWCP_Node's `NodeResources`, `unlock` to the station's `StationAccess`, and the role
+     `support` to WWCP_Node.
+   - `cpo` gets the new rights of section 5.3 on the charging station and the Local Controller.
+   - Every kind of node separates its state from its configuration, on its pages and in its API.
+   - The Local Controller asks for `log:read`.
+   - A 1.6 station waits with a `Soft` reset until nothing is charging.
+   - The full suites of every kind of node run, because `*` changes (section 5.3).
 4. The `SetVariables` gate in `TestChargingStationNode` is replaced by the table.
+5. The rule against `ChargingStationExternalConstraints` from a CSMS is checked against the
+   OCPP 2.1 text (section 5.3).
 
 ### Phase 4: provisioning
 
@@ -1176,7 +1287,7 @@ Q15 to Q21 came up while phase 2 was built, and were decided on 2026-11-11.
 | Q9 | Embedded `signatures` towards standard peers: inside `customData`, or only `-Signed`? | `-Signed` towards standard peers, `customData` only where a peer is known to need the embedded form. |
 | Q10 | Keep the message names `AddUserRole`/`UpdateUserRole`/`DeleteUserRole`, or rename (the node's web roles are also called user roles)? | Rename them to `AddSignerRole`/`UpdateSignerRole`/`DeleteSignerRole`, with a new `GetSignerRoles` (section 6.4 gives the reasons). The first proposal, keeping the names because they are on the wire already, did not hold: nothing on the wire can carry a role today (F5). The three signature policy messages are replaced by `SetSignaturePolicy`/`GetSignaturePolicy`. |
 | Q11 | Component names `MessageSignatureController`, `SignerRoleController`, certificate types `MessageSigningRootCertificate`, `MessageSigningCertificate`, 1.6 prefix `signatures.`? | As proposed. |
-| Q12 | Resource names `station`, `charging`, `firmware`, `metrology`, `network`, `signatures` in the node's permission model? | As proposed. They are agreed with the Local Controller CLI session, which owns the node's role list, before phase 3 adds them. |
+| Q12 | Resource names `station`, `charging`, `firmware`, `metrology`, `network`, `signatures` in the node's permission model? | Agreed on 2026-11-12 with the sessions working on the Local Controller and the charging station, and decided by Achim (section 5.3). New in the node's list: `node`, `reset` (when idle), `reset-immediate`, `state`, `firmware` and `signatures`; new in the station's: `unlock`. For the rest the station's own resources are used: `connections`, `session` and `power` by purpose, `calibration`, `availability`. A 1.6 `Soft` reset is treated as `OnIdle` and needs `reset`, the station waiting until nothing is charging; `Hard` needs `reset-immediate`. `TriggerMessage` is checked per requested message. A new node role `support` for telephone support holds `state:read`, `state:run`, `reset:run` and `unlock:run`, nothing else. The owner is `systemadmin`, the only holder of `signatures:edit`. `cpo` gets the new rights on the station and the Local Controller. Every role with `*:read` reads `signatures`. Whether a station is metrologically relevant it derives itself, from its calibration certificates and signing meters. |
 | Q13 | Remove the stale copy of the signature classes in `WWCP_OverlayNetworking`? | Yes, if nothing outside WWCP_Core references it. Nothing does: the only reference is WWCP_Core's own `WWCP_OverlayNetworking_Tests`. Done after phase 1 in WWCP_Core ba199945, on master and pushed, and pinned in the ChargingStationCLI superproject since cb4ee69. The overlay now uses WWCP_CoreData's classes, and its copies of `ACustomData`, `CustomData` and `Vendor_Id` went too, because the signable base class needs them from the same assembly. |
 | Q14 | Where does the paper live? | Its own folder `SignedMessages`, listed under the OCPP papers of the repository README. |
 | Q15 | When do nodes whose messages pass a relay that renumbers them (WWCP_OCPP's Local Controller) sign with `OCPPMessageId: "*"` and `OCPPNonce`? | When the operator sets it: `SignaturePolicy.NonceInsteadOfMessageId`, off by default. Signed messages through such a relay need it. |
