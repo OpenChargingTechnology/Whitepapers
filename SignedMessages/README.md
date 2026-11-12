@@ -1239,7 +1239,9 @@ What the implementation does:
    OCPP 2.1 text (section 5.3).
 
 *Status:* items 1, 2 and 4 are built (2026-11-12) in WWCP_Core ec3ec309 and WWCP_OCPP de004abd,
-both on master and pushed. Items 3 and 5 are open.
+both on master and pushed. Of item 3, the six resources and the role `support` are in WWCP_Node
+baf880e (2026-11-12, pushed); what the charging station and the Local Controller add to them is
+open, and so is item 5.
 
 - **The policy table** (`MessagePolicyEntry`) and **what each action needs**
   (`ActionPermission`) are in WWCP_Core. An entry is read and written as the JSON of section 5.2.
