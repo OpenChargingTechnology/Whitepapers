@@ -803,6 +803,36 @@ This paper uses the same roles for signed messages:
 | `AddSignerRole`, `UpdateSignerRole`, `DeleteSignerRole`, `SetSignaturePolicy` | `signatures:edit` | new resource; `systemadmin` only |
 | `GetSignerRoles`, `GetSignaturePolicy` | `signatures:read` | every role with `*:read` |
 
+**In OCPP 1.6** the table is the same in the words of 1.6:
+
+| Action at a 1.6 charge point | Permission |
+|---|---|
+| `Reset` `Soft` | `reset:run` |
+| `Reset` `Hard` | `reset-immediate:run` |
+| `TriggerMessage`, `ExtendedTriggerMessage` for `StatusNotification` | `state:run` |
+| `ExtendedTriggerMessage` for `SignChargePointCertificate` | `certificates:edit` |
+| `TriggerMessage`, `ExtendedTriggerMessage` for anything else | `node:run` |
+| `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` |
+| `GetLog`, `GetDiagnostics` | `log:read` |
+| `SyncNetworkTime`, `TestTimeServer` | `nts:run` |
+| `RemoteStartTransaction`, `RemoteStopTransaction` | `session:run` |
+| `UnlockConnector` | `unlock:run` |
+| `ChangeAvailability` | `availability:edit` |
+| `SetChargingProfile`, `ClearChargingProfile` with `TxProfile` or `TxDefaultProfile` | `session:run` |
+| `SetChargingProfile`, `ClearChargingProfile` with `ChargePointMaxProfile` | `power:edit` |
+| `ClearChargingProfile` without a purpose | both |
+| `UpdateFirmware`, `SignedUpdateFirmware` | `firmware:edit`, and `calibration:edit` on a metrologically relevant charge point |
+| `ChangeConfiguration`, `GetConfiguration` | key by key, see below |
+
+OCPP 1.6 has neither external constraints nor local generation. `ChangeConfiguration` and
+`GetConfiguration` are decided key by key, as `SetVariables` and `GetVariables` are entry by
+entry: the first part of a key says which component it belongs to (`dns.` the DNS client,
+`ntp.`, `nts.` and `ntske.` the network time), the component says the resource, and every
+other key belongs to `configuration`. A key its signers may not change is answered
+`Rejected`. A key they may not read is an unknown key when asked for by name, and left out
+when all keys are asked for. Reservations, the local list, the cache and `DataTransfer` are
+not in the table yet and fall to the default of Q5.
+
 **New resources (Q12).** Six go into the node's list, because every kind of node has them:
 
 - `node`: the node itself. `run` makes it send a message no other resource covers.
@@ -1279,7 +1309,7 @@ ChargingStation d5a79d1 (2026-11-12, pushed), read against section 5.3:
   ask for no signer role, because the station holds them to the pin set signers of their
   connection itself, whatever the mode.
 - **Open:** a 1.6 station does not wait with a `Soft` reset yet, and its 1.6 node is not held
-  to the roles, there being no table for OCPP 1.6. `reset`, `reset-immediate`, `unlock`,
+  to the roles yet: the table for OCPP 1.6 came after d5a79d1. `reset`, `reset-immediate`, `unlock`,
   `firmware:edit`, `node:run` and `state:run` are asked for by signed requests only: neither
   the page nor the console has an action for them.
 
@@ -1310,9 +1340,11 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
   `ACID` and `BASE` none of the request is applied.
 - **The node says** who a key belongs to and what a role may do. WWCP_OCPP's nodes answer the
   first from their user roles; the test charging station knows one role, `admin`.
+- **The table for OCPP 1.6** (`ChargePointActionPermissions`, WWCP_OCPP 85ea5a64) is the one of section
+  5.3 in the words of 1.6. The test charge point decides `ChangeConfiguration` and
+  `GetConfiguration` key by key.
 - **Not built yet:**
   - the first step of the chain, the connection role and the peer's rights profile;
-  - a table for OCPP 1.6;
   - CALLERROR `SecurityError` for a refusal, which is answered as a signature error is today;
   - `match.instance` and `match.evse` are matched, `GetBaseReport`, `GetReport` and
     `SetVariableMonitoring` are not decided per entry.
