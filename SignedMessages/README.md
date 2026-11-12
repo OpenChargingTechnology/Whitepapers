@@ -261,9 +261,10 @@ which `VerifyRequestMessage` and `VerifyResponseMessage` call, works as follows:
      method returns `true`, so the message is accepted.
    - `VerifyAny` and `VerifyAll`: each signature is checked against the public key in its own
      `keyId`, on the curve its `algorithm` names (secp256r1 when none is named).
-6. **Refusal.** When the result is `false`, the adapter does not call the handler. It answers with
-   the action's own response, with status `Rejected` and the internal result `SignatureError`;
-   no CALLERROR is sent.
+6. **Refusal.** When the result is `false`, the adapter does not call the handler. Since
+   WWCP_OCPP 9cecf85a it answers with a CALLERROR `SecurityError` whose description gives the
+   reason, and signs nothing; whoever sent the request gets the result `SecurityError`. Before,
+   it answered with the action's own response, with status `Rejected`, and no CALLERROR was sent.
    - A refused response is handed to the code that sent the request, also with the result
      `SignatureError`.
    - Since WWCP_OCPP 1431cde5, a 2.1 node answers a response it cannot read with a
@@ -1343,9 +1344,12 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 - **The table for OCPP 1.6** (`ChargePointActionPermissions`, WWCP_OCPP 85ea5a64) is the one of section
   5.3 in the words of 1.6. The test charge point decides `ChangeConfiguration` and
   `GetConfiguration` key by key.
+- **A refusal is a CALLERROR `SecurityError`** (WWCP_OCPP 9cecf85a, OCPP 2.1 and 1.6), as section
+  5.4 asks: its description names the permission that was missing or the policy entry that
+  refused, and no response of the action is sent. The security events of section 5.4 are not
+  built yet.
 - **Not built yet:**
   - the first step of the chain, the connection role and the peer's rights profile;
-  - CALLERROR `SecurityError` for a refusal, which is answered as a signature error is today;
   - `match.instance` and `match.evse` are matched, `GetBaseReport`, `GetReport` and
     `SetVariableMonitoring` are not decided per entry.
 - **Tests:** `MessagePolicyTests` (the modes, the station's table, quorum, specificity, entries
