@@ -804,7 +804,7 @@ This paper uses the same roles for signed messages:
 | Action | Permission | Note |
 |---|---|---|
 | `GetVariables`, `GetBaseReport`, `GetReport` | `<resource of the component>:read` | per entry. `DNSClientController` → `dns`, `NTPClientController` → `nts`, unknown → `configuration`. A report leaves out what its signers may not read |
-| `SetVariableMonitoring` | `<resource of the component>:read` | per entry: a monitor tells of the value of its variable |
+| `SetVariableMonitoring` | `<resource of the component>:edit` | per entry: a monitor changes what the station does with its variable. Decided 2026-11-12 for now; to be refined |
 | `SetVariables` | `<resource of the component>:edit` | per entry |
 | `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` | |
 | `GetLog` | `log:read` | |
@@ -1384,8 +1384,9 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
   4f687cf8), with `match.instance` and `match.evse` matched as for `SetVariables`.
   - A report leaves out what its signers may not read. A report of which nothing is left is
     an `EmptyResultSet`, and no `NotifyReport` follows.
-  - A monitor on a variable its signers may not read is `Rejected` with the reason code
-    `NotAuthorized`; the other monitors of the request are set.
+  - A monitor on a variable its signers may not edit is `Rejected` with the reason code
+    `NotAuthorized`; the other monitors of the request are set. In 4f687cf8 the right to read
+    was enough; since WWCP_OCPP 50e80f77 a monitor needs the right to edit.
   - `GetMonitoringReport`, `ClearVariableMonitoring`, `SetMonitoringBase` and
     `SetMonitoringLevel` are decided as a whole.
 - **Not built yet:**
