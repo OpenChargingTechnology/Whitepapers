@@ -873,11 +873,24 @@ is the station's.
 | `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` |
 | `Reset` | `reset:run` or `reset-immediate:run`, by type as on the station |
 | `TriggerMessage` | `node:run`, or `certificates:edit` for a certificate |
+| `InstallSSHKey`, `DeleteSSHKey` | `stations:edit` |
+| `GetInstalledSSHKeys` | `stations:read` |
+| `GetFile`, `ListDirectory` | `configuration:read` |
+| `SendFile`, `DeleteFile` | `configuration:edit` |
+| `SetVariables`, `GetVariables` | `configuration:edit`, `configuration:read`, for the request as a whole until the Local Controller has a device model; per entry then, as on the station |
+| `GetLog` | `log:read` |
 
-No signed message gets `stations:*`, the Local Controller's server for its stations, because no
-OCPP action changes it. A message the Local Controller forwards is checked by the station,
-against the station's own resources. The Local Controller's role is no power of attorney for the
-station.
+No signed message gets `stations:*`, the Local Controller's server for its stations, with one
+exception: the three SSH key messages (white paper "OCPP over SSH", section 9.3) change and list
+the logins of the stations on the Local Controller itself, and that is this resource. A message
+the Local Controller forwards is checked by the station, against the station's own resources.
+The Local Controller's role is no power of attorney for the station.
+
+One policy decides everything addressed to the Local Controller itself, whether it comes from
+the CSMS or from one of its stations, and its direction is `CSMS->CS`: an entry a CSMS writes
+for its stations applies to the Local Controller as well. With the mode `Enforce` the default
+of Q5 therefore asks for a signature also on what a station addresses to the Local Controller,
+a `BootNotification` it answers itself for one.
 
 **Implementing it.** Every resource added to `NodeResources.All` changes what `*` means. The full
 suites of every kind of node must run, not only the new tests. When `ssh` came in, tests turned
@@ -1240,7 +1253,8 @@ What the implementation does:
 
 *Status:* items 1, 2 and 4 are built (2026-11-12) in WWCP_Core ec3ec309 and WWCP_OCPP de004abd,
 both on master and pushed. Of item 3, the six resources and the role `support` are in WWCP_Node
-baf880e (2026-11-12, pushed); what the charging station and the Local Controller add to them is
+baf880e (2026-11-12, pushed). The Local Controller's part is LocalController 78f9a3a5
+(2026-11-12, pushed); it has no route for `state:run` yet. What the charging station adds is
 open.
 
 Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
