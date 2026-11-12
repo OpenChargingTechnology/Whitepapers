@@ -1,6 +1,6 @@
 # Signed OCPP Messages and Signer Roles
 
-**Version 0.1, Draft**, 2026-11-10
+**Version 0.2, Draft**, 2026-11-12
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementations: [OpenChargingCloud/WWCP_Core](https://github.com/OpenChargingCloud/WWCP_Core) (signature policies, user roles), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (the signed OCPP messages), [OpenChargingCloud/ChargingStation](https://github.com/OpenChargingCloud/ChargingStation) (station)
 
 TLS authenticates a hop, not an author. A Local Controller, a load balancer, a protocol gateway
@@ -636,10 +636,31 @@ synchronized accepts only messages whose `OCPPNonce` it has asked for, or none (
    - Unknown fields are covered, and any implementation can reproduce the bytes.
    - Towards a peer that validates the 2.1 schemas, the array travels inside `customData`
      (`"vendorId": "org.openchargingcloud.signatures"`), which the schemas allow.
-3. **COSE** (EVQI CBOR channels).
-   - `COSE_Sign1` or `COSE_Sign` with the same fields as text labels in the protected header
-     (EVQI 7.2).
-   - Countersignatures follow RFC 9338.
+3. **COSE** (CBOR connections: EVQI channels, and OCPP 2.1 as CBOR over the subprotocol
+   `ocpp2.1cbor`).
+   - A `COSE_Sign1` (RFC 9052, tag 18) with a **detached payload**. `alg` is the COSE
+     algorithm under label 1, `kid` under label 4 and `crit` under label 2; every other field
+     of section 4.1 keeps its name, as a text label in the protected header (EVQI 7.2).
+   - `kid` is the RFC 9679 COSE Key Thumbprint (SHA-256) of the signer's public key.
+   - The signer's public key may travel with the signature: as a `COSE_Key` in the
+     unprotected header, under the text label `OCPPSignerKey`. It is what `jwk` is to the JWS;
+     COSE has no header parameter of its own for a bare public key, and `x5chain` carries
+     certificates (Q22).
+   - The detached payload is the CBOR of the message without `signatures`, in the
+     deterministic encoding of RFC 8949 §4.2.1 - of the message as it is read from its JSON
+     form. A point in time is whole milliseconds there, so a signer whose CBOR could carry
+     more signs what the JSON form says, and every receiver builds the same bytes (Q24).
+   - The signature is an element of `signatures` like the others: in a CBOR message the
+     `COSE_Sign1` itself, in a JSON message `{ "cose": "<base64url of its bytes>" }`. It signs
+     the same bytes wherever the message is read, so it crosses a node that translates
+     between a CBOR and a JSON connection and is verified behind either. A node that does
+     not know the message carries the signature along and cannot verify it (Q23).
+   - Written are `ES256`, `ES384` and `ES512` (-7, -35, -36), as for the JWS; the
+     fully-specified `ESP256`, `ESP384` and `ESP512` of RFC 9864 (-9, -51, -52) are read as
+     well (Q26).
+   - Several signers are several `COSE_Sign1` next to each other. `COSE_Sign` with several
+     signers in one structure, and countersignatures (RFC 9338) of a forwarding node, are
+     not built.
 
 The verifier builds the same decision input from all three: header fields, key, payload and
 validity. Policy and roles (chapter 5) see no difference.
@@ -1064,7 +1085,7 @@ papers:
 |---|---|---|---|---|
 | `Enabled` | rw | boolean | true | Whether signatures are produced and verified at all. |
 | `Mode` | rw | OptionList `Off`, `Observe`, `Enforce` | `Off` | `Off`: signatures ignored (today's behaviour). `Observe`: verified, policy evaluated, violations only reported (`onViolation: Record` for every entry). `Enforce`: the policy applies. Switching away from `Enforce` requires `signatures:edit`. |
-| `Formats` | rw | MemberList `JWS-Signed`, `Embedded`, `COSE` | per connection | Which encodings the station sends; it accepts all it supports. |
+| `Formats` | rw | MemberList `JWS-Signed`, `Embedded`, `COSE` | per connection | Which encodings the station sends; it accepts all it supports. Where nothing is said, the embedded JWS alone (Q25). |
 | `AcceptFormat0` | rw | boolean | false | Accept the current format (section 4.2) as `Unverified`. |
 | `Algorithms` | ro | MemberList | – | The algorithms this station verifies. |
 | `SignResponses` | rw | boolean | true | Sign every response to a signed request (OCPP 2.1 §7.2 requires it). |
@@ -1391,7 +1412,11 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 ### Phase 5: standard and EVQI encodings
 
 1. OCPP 2.1 `<Action>-Signed` is added to WWCP_OCPP, both directions.
-2. COSE is added on EVQI CBOR channels, with Styx COSE.
+2. COSE is added on EVQI CBOR channels, with Styx COSE. Built for OCPP 2.1 with its CBOR form
+   (subprotocol `ocpp2.1cbor`): WWCP_Core 011c651d and WWCP_OCPP f88c44d8, in the form of
+   section 4.2 and with the decisions Q22 to Q26. What a node writes is
+   `SignaturePolicy.Formats` (`JWS`, `COSE` or both) - a property of the policy so far, not
+   of a connection.
 3. Role certificates with the EVQI role extension follow.
 4. Binary messages get COSE_Sign1 with the header of section 4.1 (F17, Q19).
 5. `OCPPVersion` names the subprotocol of each connection (Q17).
@@ -1427,6 +1452,9 @@ others as proposed. A phase that finds a reason against one reopens it.
 
 Q15 to Q21 came up while phase 2 was built, and were decided on 2026-11-11.
 
+Q22 to Q26 came up while the COSE signature was built for OCPP 2.1 as CBOR, and were decided
+on 2026-11-12.
+
 | No. | Question | Decision |
 |---|---|---|
 | Q1 | Is the CSMS an `owner` by default? | No. The operator decides; by default the CSMS holds the everyday roles only, so that a compromised CSMS cannot rewrite roles (U5). |
@@ -1450,6 +1478,11 @@ Q15 to Q21 came up while phase 2 was built, and were decided on 2026-11-11.
 | Q19 | When do binary messages get a form that binds the frame (F17)? | With phase 5: COSE_Sign1 with the header of section 4.1. Until then they keep format 0, with the semantics of phase 1. |
 | Q20 | What happens to `SecureDataTransfer` without authentication (F11)? | AES-CTR stays as it is. AES-GCM is added as a second method, selected by `Parameter` (section 2.6), and built. |
 | Q21 | Do signed data objects such as charging tariffs move to the JWS form? | Yes, with phase 4, in the form of section 4.4, as role assignments do. |
+| Q22 | How does a COSE signature carry the signer's public key, where it carries one? | As a `COSE_Key` in the unprotected header, under the text label `OCPPSignerKey` - what `jwk` is to the JWS. COSE has no header parameter of its own for a bare public key. |
+| Q23 | Does a COSE signature end where a node translates the message to JSON? | No. It signs the deterministic CBOR of the message, which every node that knows the message builds alike, so it travels in a JSON message as `{ "cose": "<base64url>" }` and is verified behind a JSON connection as behind a CBOR one. It ends at a node that does not know the message: that node carries it along and cannot verify it. |
+| Q24 | Which precision has a point in time in what a COSE signature signs? | Whole milliseconds, as the JSON form of a message has them. The payload is the CBOR of the message as read from its JSON form, so that a signer does not sign what no receiver sees. |
+| Q25 | Which signatures does a node write where nothing is said? | The embedded JWS alone. A node writes COSE, or both, only where it is set to (`Formats`); it verifies every signature it can read. |
+| Q26 | Which COSE algorithm identifiers? | `ES256`, `ES384` and `ES512` are written, as for the JWS. The fully-specified `ESP256`, `ESP384` and `ESP512` of RFC 9864 are read as well. |
 
 ---
 
@@ -1470,6 +1503,7 @@ Q15 to Q21 came up while phase 2 was built, and were decided on 2026-11-11.
   claims) · RFC 7638 JWK Thumbprint
 - RFC 8785 JSON Canonicalization Scheme (JCS)
 - RFC 9052 and RFC 9053 COSE · RFC 9338 COSE Countersignatures · RFC 9679 COSE Key Thumbprint
+- RFC 8949 CBOR (§4.2.1 deterministic encoding) · RFC 9864 Fully-Specified Algorithms for JOSE and COSE
 - RFC 5280 X.509 PKI Certificate and CRL Profile · RFC 6960 OCSP
 
 **Related white papers in this repository:**
