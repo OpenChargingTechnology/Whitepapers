@@ -394,6 +394,10 @@ therefore builds on key pins and treats RFC 7250 as their preferred encoding.
   white papers. Base64 (RFC 7469, curl, Chrome, `ServerCertificate.SubjectPublicKeyInfoPin` in
   Hermod) is the same hash in another notation and is accepted on input in curl's notation,
   `sha256//<base64>`.
+- **Beside fingerprints:** in a list that may also hold the fingerprints of whole certificates
+  (the `pins` of a CA-checked server, below and section 7.1) the same hash is written `spki:` and
+  its 64 hexadecimal digits, or `sha256//<base64>`. Bare hexadecimal digits are a certificate
+  fingerprint there, so the two kinds cannot be taken for one another.
 - **Computation:**
   `openssl pkey -in lc.key -pubout -outform DER | openssl dgst -sha256`, from a certificate
   `openssl x509 -in lc.pem -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256`.
@@ -412,6 +416,27 @@ key pin is a different thing:
 | survives a renewal with the same key | no | yes |
 | works with raw public keys | no | yes |
 | variable names | `CertificatePins`, `RootPins` | `ServerKeyPins` |
+
+**A certificate pin by key is still a certificate pin.** Since WWCP_Node `ef6cb82` the certificate
+pins and root pins of a CA-checked server may name a key instead of a certificate, for every
+service of a node alike: time servers, name servers, meters and the CSMS of a `wss://` endpoint
+(ChargingStation `bd07b18`). The hash is the one of this paper, the SHA-256 over the
+SubjectPublicKeyInfo, written `spki:<64 hexadecimal digits>` or `sha256//<base64>`. Its role is
+the one of the left column:
+
+| | Certificate pin by fingerprint | Certificate pin by key (`spki:`) | Key pin (this paper) |
+|---|---|---|---|
+| hash over | the whole DER certificate | the DER SubjectPublicKeyInfo | the DER SubjectPublicKeyInfo |
+| role | narrows a CA's trust | narrows a CA's trust | replaces it |
+| chain, name, validity | still checked | still checked | not checked |
+| survives a renewal with the same key | no | yes | yes |
+| works with raw public keys | no | no | yes |
+| on a root | the one root certificate | the root's key, also when the root is issued anew | does not apply |
+
+A pin of this kind never makes a server believed that its chain would not. A CA of the operator's
+own comes in through the certificate store, or through a group of roots the endpoint names
+(`rootGroup`), and not through a pin. An endpoint that carries such pins is CA-checked in the
+sense of section 5.4 and carries no `serverKeyPins`.
 
 **Not an SSH fingerprint.** OpenSSH's `SHA256:…` hashes the SSH wire format of a key, not its
 SPKI. The two never match, even for the same key, and the same key should not serve both anyway
@@ -669,6 +694,35 @@ for `ssh://` endpoints:
 | `clientKeyId` | the station's TLS key, presented raw or in its certificate; by reference, like `certificateId` |
 
 The endpoint also keeps the state of its pins: `Configured`, `Learned` or `Confirmed`.
+
+A **CA-checked** `wss://` endpoint carries none of these five. It may carry `pins`, the same
+object every CA-checked server of a node is configured with (time servers, name servers, meters):
+
+```json
+{
+  "url":   "wss://csms.example.org/ocpp/CS001",
+  "pins":  {
+    "certificateFingerprints":  [ "spki:6A1F0C…9B2E" ],
+    "rootFingerprints":         [ "3C9D…71E0", "sha256//x4QzPSC810K5/cMjb05Qm4k3Bw5zBn4lTdO/nEW/Td4=" ],
+    "rootGroup":                "backend",
+    "onMismatch":               "Refuse"
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `certificateFingerprints` | the certificates the server may show, any of up to sixteen: a fingerprint of the whole certificate, or the pin of its key as `spki:<64 hexadecimal digits>` or `sha256//<base64>` |
+| `rootFingerprints` | the roots its chain may end at, written the same way |
+| `rootGroup` | the group of roots the chain has to end at: the roots of the certificate store marked `ocppca-<group>`; without one, the roots kept for `ocpp` |
+| `onMismatch` | `Refuse` (the default), `Record` (used, and written down as evidence) or `Accept` (used, and logged) |
+| `pinsVersion`, beside `pins` | the version of the last signed pin set its root pins came from |
+
+Chain, name and validity are checked whatever `pins` says (section 5.1). `pins` and
+`serverKeyPins` on one endpoint are refused when it is written down: section 5.4 has no third
+mode. Root pins can be replaced by a signed, versioned pin set as key pins can (section 5.7); the
+station's store takes one (`TryTakeSignedServerCAKeyPins`), and no device-model variable hands it
+over yet.
 
 ### 7.2 OCPP 2.x
 

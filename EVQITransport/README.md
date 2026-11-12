@@ -1685,6 +1685,13 @@ root CA (section 11.3.4).
   - installing it is a security event towards the primary and is shown on the station's web page.
 
   Every other trust anchor stays a decision of the primary or of the local operator.
+- **Pins.** A CA-checked endpoint may be held to certain certificates and roots (`pins`), each
+  named by the fingerprint of the certificate or by the pin of its key, `spki:<64 hexadecimal
+  digits>` or `sha256//<base64>`. Such pins narrow the chain that is still checked. A key-pinned
+  endpoint (`serverKeyPins`) is the other mode, in which the key replaces the chain. Both, and the
+  notations, are in the companion document
+  [Key Pins and TLS 1.3 Raw Public Keys for Local Controllers](RawPublicKeys.md), sections 5.1
+  and 7.1.
 
 ### 11.4 Behaviour of a multi-homed station
 
