@@ -1,6 +1,6 @@
 # EVQI Transport: Key Pins and TLS 1.3 Raw Public Keys for Local Controllers
 
-**Version 0.1, Draft**, 2026-11-10
+**Version 0.2, Draft**, 2026-11-12
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementations: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (transport), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (OCPP), [OpenChargingCloud/LocalController](https://github.com/OpenChargingCloud/LocalController), [OpenChargingCloud/ChargingStation](https://github.com/OpenChargingCloud/ChargingStation) (station)
 
 This document belongs to [EVQI Transport](README.md). It is about one hop: from a charging station
@@ -11,7 +11,9 @@ issue a certificate for it. Today this leaves an internal PKI or
 adds a third way, TLS 1.3 with raw public keys (RFC 7250), weighs its advantages and
 disadvantages, and proposes how to build it, in C# included.
 
-It is a concept, not yet a specification. Step 2, the C# implementation, is planned in chapter 10.
+It is a concept, not yet a specification. Step 2, the C# implementation, is planned in chapter 10;
+its first stage, key pins over certificates at the station and at the Local Controller (work
+packages K1 to K3), is built (section 10.8).
 
 ---
 
@@ -96,8 +98,8 @@ real authentication bypasses (OpenSSL CVE-2024-12797, wolfSSL CVE-2026-55960).
 | always | the Local Controller keeps presenting a **CA-issued certificate** to stations that ask for X.509 without a pin | unmodified OCPP 2.x stations |
 
 **OCPP over SSH** stays where SSH is the management plane anyway, and for commissioning. Both
-paths share one trust model: a host key pin is a key pin. The SSH path's open question on implicit
-trust on first use is answered here the same way for both (section 5.6).
+paths share one trust model: a host key pin is a key pin. On both, trust on first use is explicit
+and on probation, and on both it is built that way (section 5.6).
 
 ---
 
@@ -500,10 +502,12 @@ same limit: a revocation list it withholds does not arrive either.
   A learned pin is never kept unconfirmed, so an impostor that answered first cannot lock the real
   Local Controller out.
 - **The same for SSH.** The OCPP-over-SSH plan asked for trust on first use only when configured
-  (`"tofu"`). The station learns implicitly instead, whenever `sshHostKey` is empty, like OpenSSH's
-  `StrictHostKeyChecking=accept-new` (EVQI section 11.1.2); the plan records this as a deviation
-  (its section 5.6). This paper proposes the same rule for both: learning only when configured,
-  probation until confirmed.
+  (`"tofu"`). The station first learned implicitly whenever `sshHostKey` was empty, like OpenSSH's
+  `StrictHostKeyChecking=accept-new` (EVQI section 11.1.2). Since the decisions of 2026-11-10 it
+  learns a host key only where `sshTrustOnFirstUse` is `HostKey`, on probation until a signed pin
+  set confirms it ([OCPP over SSH](../OCPP-over-SSH/README.md), decision 4, section 10.4).
+  A wss:// endpoint follows the same rule with `trustOnFirstUse = Key` (section 10.8): learning
+  only when configured, probation until confirmed, on both paths.
 
 ### 5.7 Distribution
 
@@ -787,7 +791,9 @@ contribute it upstream.
 
 ## 10. Implementation in C#
 
-This chapter is the plan for step 2. It names Hermod's state as of `2113faad`.
+This chapter is the plan for step 2. Sections 10.1 to 10.7 name Hermod's state as of `2113faad`,
+before anything was built; sections 10.8 to 10.10 say what has been built since, what building it
+found, and where it differs from this paper.
 
 ### 10.1 Where Hermod stands
 
@@ -858,8 +864,10 @@ Works with all three bindings now, with no new TLS code:
   `ClientCertificateRequired` where station keys are wanted, and accepts a self-signed client
   certificate in the client validation handler only by its pin, via `AuthorizedKeys`.
 - How SChannel and OpenSSL behave with a self-signed client certificate that chains to nothing
-  (trusted issuer lists in the CertificateRequest, chain errors before the callback) has to be
-  pinned down by tests on Windows and Linux.
+  (trusted issuer lists in the CertificateRequest, chain errors before the callback) had to be
+  pinned down by tests on Windows and Linux. K1's tests did: the client sends such a certificate,
+  and it reaches the server's callback, on SChannel and on OpenSSL alike, for WebSockets over
+  HTTP/1.1 and for HTTP/2 (section 10.9).
 
 ### 10.4 Stage 2: RFC 7250 in Hermod's own TLS 1.3 (QUIC, HTTP/3)
 
@@ -933,6 +941,73 @@ public keys.
   also settles the open point of chapter 4 on validity and name checks).
 - **End to end** in EVChargingTestEnvironment, like the OCPP-over-SSH tests.
 
+### 10.8 What is built
+
+Stage 1, key pins over certificates, at both ends of the hop. Built and pushed on 2026-11-11 and
+2026-11-12:
+
+| Package | Repository | Commit | What |
+|---|---|---|---|
+| K1 | Hermod | `8ac43004` | `KeyPin` (SHA-256 over the SPKI; 64 hex digits with or without colons, or `sha256//<base64>`), `KeyPinPolicy` (up to four pins, their state, `RawPublicKeyMode`, trust on first use), `KeyPinValidator` (accepted, learned or refused; handlers for Hermod's TLS clients and servers and for `SslStream`), `SubjectPublicKeyInfoCheck` (rule 5 of chapter 6); for HTTP/3 `CertificateValidationOptions.KeyPins`, `ClientCertificateOptions.RequirePinned` and `ServerCertificate.KeyPin` |
+| K2 | ChargingStation | `29148bb` | per wss:// endpoint `serverKeyPins`, `serverKeyPinsVersion`, `serverKeyPinState`, `rawPublicKeys`, `trustOnFirstUse`, `serverKeyPinProbationTime` and the learned pin; dialling and the connection test check the key with `KeyPinValidator`; trust on first use on probation, behind the request gate of the SSH path; `TryTakeSignedServerKeyPins` for K4; the events of section 7.5; the fields on the Connections page |
+| K3 | WWCP_Core | `f8093085` | `WWCPWebSocketServer.AcceptedByKeyPin`: a client certificate accepted by its key pin names no node, the URL path does |
+| K3 | LocalController | `8991ac0` | a server key in a self-signed carrier certificate (`ocpp-server-keys`), a next key and the switch; the pins in the log, the JSON, the pages and with `serverKeys`; key pins per station (`stationPins`, `stations/{id}/keyPins`), the method `keypin` of login groups, a station admitted by its pin on its own path only |
+| K3 | LocalControllerCLI | `f88bd50` | the pins in the start banner, the libraries pinned |
+| K2 | ChargingStationCLI | `cb26ae0` | ChargingStation pinned |
+
+Tests: Hermod 66 (Windows and Linux), ChargingStation 25 new (935 in all, Linux too), LocalController
+42 new (686), WWCP_Core 3 new (243). Every negative test is red on a deliberate mutation: 12 in
+Hermod, 41 in ChargingStation, 31 in LocalController and WWCP_Core.
+
+### 10.9 What building it found
+
+- **`SslStream` takes a client certificate that chains to nothing.** The client sends it, and it
+  reaches the server's callback, on SChannel and on OpenSSL alike, for WebSockets over HTTP/1.1 and
+  for HTTP/2: stage 1 needs no other TLS stack at either end (section 10.3).
+- **An HTTP/2 server serves the origins of its certificate.** Hermod's `HTTP2Server` answers a
+  request for an origin its certificate does not name with 421 (RFC 9113, section 9.1.1), and a
+  carrier certificate names none, so every request got 421. A key-pinned HTTP/2 server needs
+  `IsAuthorityServed` or an `OriginSet`.
+- **Ed25519 keys of small order.** Rule 5 asks for a point on the curve. The eight points of small
+  order are on the curve, and a signature under one of them says nothing about who made it
+  (RFC 8032, section 5.1.7): they are refused as well. `SubjectPublicKeyInfoCheck` agrees with
+  BouncyCastle on 400 encodings.
+- **The common name as identity.** WWCP_Core took a station's identity from the common name of its
+  certificate (A00.FR.511) in four places. A certificate accepted by its pin has to be told apart,
+  or a station whose carrier names another station is registered under that name, or turned away
+  with 403.
+- **A pin removed between handshake and upgrade.** The client decides how long it waits between
+  the TLS handshake and the upgrade request. A certificate let through by a pin removed in that gap
+  would have counted as one that passed the accepted chains; the Local Controller checks it
+  against them again.
+- **A learned pin that cannot be written down** is held in memory, on probation all the same, and a
+  signed pin set judges it like a written one.
+- **`Require` cannot be met over `SslStream`**, which offers no raw public keys: such an endpoint is
+  not dialled and says why. `Prefer` checks the same pins in a certificate.
+- **Older station files.** A default login group stored in an older file keeps the methods it
+  lists, so `keypin` is added there once before station pins work; the Local Controller says so
+  beside the station.
+- **The carrier's dates** run from 1970-01-01 to 9999-12-31, the end RFC 5280 (section 4.1.2.5)
+  gives a certificate without a well-defined expiration. .NET reads that end an hour short in local
+  time, so the dates are left out of the JSON.
+
+### 10.10 What is not built, or differs from this paper
+
+| | Today | This paper |
+|---|---|---|
+| Raw public keys | none yet; an endpoint with `rawPublicKeys = Require` is not dialled | chapter 6, K5 and K6 |
+| Signed pin sets over OCPP | the station's store and connection side are ready (`TryTakeSignedServerKeyPins`), and the probation gate lets the writes through; no device-model variables, no OCPP 1.6 keys | sections 5.7, 7.2, 7.3, K4 |
+| The Local Controller's keys towards the CSMS | `EVQICtrlr[TLSServer]` not mapped; next key and switch by command or page only | sections 5.5, 7.4, K4 |
+| Probation | the gate refuses every request but a pin set; BootNotification, queued security events and the offline queue are sent, as on the SSH path | only BootNotification (section 5.6) |
+| `clientKeyId` | the endpoint's existing `certificateId` names the station's TLS client key | section 7.1 |
+| Events at the Local Controller | refusals are logged; no security events | section 7.5 |
+| Which station came with which pin and type; a QR code of the pins | not shown | section 7.4 |
+| Station keys from the CSMS | kept locally only (page, command line, API) | open question 5 |
+| Basic and TOTP for a station with key pins | still decided by its group | open question 6 |
+| Key age | the creation date is kept and shown; no warning | section 5.5, open question 9 |
+| An existing CA key as the server key | not taken over; a server key is always generated | section 5.3 |
+| End to end | not yet in EVChargingTestEnvironment | section 10.7, K7 |
+
 ---
 
 ## 11. Work plan
@@ -951,19 +1026,22 @@ public keys.
 Order: K1 → K2/K3 (parallel) → K4; K5 → K6; K7 along the way; K8 at the end. K1 to K3 already
 give a usable result with option B; K5 and K6 add RFC 7250 without changing what K1 to K4 provision.
 
+**Status, 2026-11-12:** K1 to K3 are built (section 10.8), with the negative tests of 10.7 that
+stage 1 can have, each red on its mutation. K4 to K8 are open.
+
 ---
 
 ## 12. Open questions
 
 1. **Probation:** what may a station do over a learned, not yet confirmed connection, and for how
-   long? Proposed: `BootNotification` and the signed confirmation, 10 minutes.
+   long? Proposed: `BootNotification` and the signed confirmation, 10 minutes. *Built for both
+   paths:* the station executes nothing but a signed pin set, for 10 minutes by default; what it
+   sends of its own accord is not held back yet (section 10.10).
 2. **Implicit trust on first use:** off by default for TLS (proposed here). Does the same apply to
-   `sshHostKey`, i.e. does an empty host key stop meaning "learn"? The OCPP-over-SSH plan asked for
-   that (its section 5.6), the station does not do it today, and one test
-   (`HostKey_NonePinned_TheFirstOneShownIsBelievedAndPinned_ImplicitTOFU`) holds today's behaviour
-   and would be turned round. *For SSH decided on 2026-11-10:* yes. Trust on first use of a host
-   key only where configured, and on probation until a signed pin set confirms it
-   ([OCPP over SSH](../OCPP-over-SSH/README.md), decision 4, section 10.4). Not built yet.
+   `sshHostKey`, i.e. does an empty host key stop meaning "learn"? *Decided on 2026-11-10:* yes.
+   Trust on first use of a host key only where configured, and on probation until a signed pin set
+   confirms it ([OCPP over SSH](../OCPP-over-SSH/README.md), decision 4, section 10.4). *Built:* for
+   SSH since then, for TLS with K2 (section 5.6).
 3. **Notation:** hexadecimal, as in the other white papers (proposed), or base64, as in RFC 7469
    and curl? Both are accepted on input.
 4. **Downgrade:** is the change of a slot from CA-checked to key-pinned a security downgrade in the

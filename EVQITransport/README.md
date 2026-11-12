@@ -2436,6 +2436,10 @@ BouncyCastle for HTTP/1.1 and HTTP/2 (K6), negative and interoperability tests (
 specification (K8). Independent of the other phases, except that K4 needs the message signatures
 of phase S. Size: **M–L**.
 
+Status, 2026-11-12: K1 to K3 are built: Hermod `8ac43004`, ChargingStation `29148bb`,
+LocalController `8991ac0`, WWCP_Core `f8093085`
+([RawPublicKeys.md, section 10.8](RawPublicKeys.md#108-what-is-built)). K4 to K8 are open.
+
 ### Phase F: load and abuse tests
 
 10,000 simulated stations; CSMS restart (storm); carrier-grade NAT scenario; slowloris on upgrade
