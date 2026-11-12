@@ -835,7 +835,8 @@ operator's telephone support. Many people will hold it, so it may do almost noth
 - `unlock:run`: release a stuck cable, on a charging station.
 
 Nothing else: no configuration, no `log:read`, no `session:run`, no `firmware`, and no
-`reset-immediate` by default. An operator gives single accounts more through a further role.
+`reset-immediate` (decided 2026-11-12: the support does not restart a node at once). An
+operator gives single accounts more through a further role.
 
 **Who holds them by default:**
 
@@ -877,7 +878,7 @@ is the station's.
 | `GetInstalledSSHKeys` | `stations:read` |
 | `GetFile`, `ListDirectory` | `configuration:read` |
 | `SendFile`, `DeleteFile` | `configuration:edit` |
-| `SetVariables`, `GetVariables` | `configuration:edit`, `configuration:read`, for the request as a whole until the Local Controller has a device model; per entry then, as on the station |
+| `SetVariables`, `GetVariables` | per entry, by the resource of the component as on the station: the DNS controllers `dns`, the NTS ones `nts`, the certificates `certificates`, the line to the CSMS `csms`. Not built yet, see below |
 | `GetLog` | `log:read` |
 
 No signed message gets `stations:*`, the Local Controller's server for its stations, with one
@@ -885,6 +886,12 @@ exception: the three SSH key messages (white paper "OCPP over SSH", section 9.3)
 the logins of the stations on the Local Controller itself, and that is this resource. A message
 the Local Controller forwards is checked by the station, against the station's own resources.
 The Local Controller's role is no power of attorney for the station.
+
+A Local Controller manages its DNS, its NTS and its connections as a charging station does, and
+shows them through the OCPP device model in the same way (decided 2026-11-12). LocalController
+78f9a3a5 does not: it is not on WWCP_OCPP_Node's device model bridge, and decides a
+`SetVariables` or a `GetVariables` as a whole, by `configuration:edit` and
+`configuration:read`. That is a placeholder until it has its device model.
 
 One policy decides everything addressed to the Local Controller itself, whether it comes from
 the CSMS or from one of its stations, and its direction is `CSMS->CS`: an entry a CSMS writes
@@ -1254,8 +1261,24 @@ What the implementation does:
 *Status:* items 1, 2 and 4 are built (2026-11-12) in WWCP_Core ec3ec309 and WWCP_OCPP de004abd,
 both on master and pushed. Of item 3, the six resources and the role `support` are in WWCP_Node
 baf880e (2026-11-12, pushed). The Local Controller's part is LocalController 78f9a3a5
-(2026-11-12, pushed); it has no route for `state:run` yet. What the charging station adds is
-open.
+(2026-11-12, pushed); it has no route for `state:run` and no device model yet. The charging station's part is
+ChargingStation d5a79d1 (2026-11-12, pushed), read against section 5.3:
+
+- **As the section says:** the resource `unlock`; the station's own `support`, the node's three
+  rights and `unlock:run`; the new rights of `cpo`, which `installer` inherits; the signature
+  policy of the OCPP 2.1 node held to the station's roles, with the table of WWCP_OCPP and the
+  direction `CSMS->CS`; `SetVariables` and `GetVariables` decided per entry, with
+  `SSHClientController` and `TLSClientController` counted as `connections`. The station is
+  metrologically relevant when it holds a calibration certificate or reads a meter for one of
+  its EVSEs. The EVSEs page, `GET api/v1/status/evses` and the `evses` command ask for
+  `state:read`.
+- **Beyond the section:** the four pin set variables of section 4.4 have policy entries that
+  ask for no signer role, because the station holds them to the pin set signers of their
+  connection itself, whatever the mode.
+- **Open:** a 1.6 station does not wait with a `Soft` reset yet, and its 1.6 node is not held
+  to the roles, there being no table for OCPP 1.6. `reset`, `reset-immediate`, `unlock`,
+  `firmware:edit`, `node:run` and `state:run` are asked for by signed requests only: neither
+  the page nor the console has an action for them.
 
 Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 
