@@ -102,7 +102,7 @@ repeated NTS-KE negotiations.
 
 **Logging and Compliance**: For OCPP charging stations, the client logs synchronization events (e.g., successful updates or failures) to support regulatory audits, particularly for time-based or dynamic tariffs requiring traceable time sources. Three quantities must be kept apart:
 - The **correction** of the station's clock or, where the clock is only verified, its measured **offset**. One equal to or greater than a threshold (e.g. 5 seconds) shall be logged as a security critical event and appended to the metrological log book. In OCPP v2.x this threshold is the standard variable `ClockCtrlr.TimeAdjustmentReportingThreshold`, and such a correction or offset is reported as the security event `SettingSystemTime` (sections 3.2.1 and 3.2.6).
-- The **spread** between the servers of a group in one round: how far their answers are apart (`MaxDeviation`, section 3.2.3).
+- The **spread** between the servers of a group in one round: how far their answers are apart (`MaxDeviation`, section 3.2.3). A spread equal to or greater than `MaxDeviation` is always recorded, and it decides whether the round has a time at all: only when a majority of the answers still agree within it.
 - The **tolerance**: how far the station's own clock may be from the time of the legal group and still count as legal time (`LegalTimeTolerance`, section 3.2.3).
 
 **Notes**
@@ -121,7 +121,7 @@ Since OCPP time synchronization serves two main use cases: ***legal time*** for 
 **Logging.** Each group of time servers (section 3.2.3) writes to one log: the **secure metrological log** (section 4) for the legal group, the **security log** for every other group. This applies to
 - every change of the configuration of the group, naming what changed and who changed it: the CSMS via OCPP, a local web interface, a service technician,
 - every new, changed or refused certificate of one of its servers, and every pin mismatch (section 3.2.4),
-- the start and the end of a run of failed measurements (`ErrorLogging`, `MaxErrors`), and every spread equal to or greater than `MaxDeviation`.
+- the start and the end of a run of failed measurements (`ErrorLogging`, `MaxErrors`), and every spread equal to or greater than `MaxDeviation`, whether the round still produced a time or not.
 
 Changes of the root CA certificates for time servers (`NetworkTimeRootCertificate`, section 3.2.5) are always written to the secure metrological log, because they decide which servers can vouch for the legal time.
 
@@ -198,7 +198,14 @@ The *Instance* of the component is the group id. Well-known ids are:
 
 Further groups may be defined, e.g. `grid` for the time source of a grid operator.
 
-**Rounds.** The clients of a group are asked together, in rounds. A round asks the enabled clients of the lowest `Priority` in parallel. When fewer than `MinServers` of them answer, the clients of the next priority are asked, and so on. The time of the round is that of the first priority whose answers reach the quorum. When none does, the round fails, and counts as a measurement error for `ErrorLogging` and `MaxErrors`.
+**Rounds.** The clients of a group are asked together, in rounds. A round asks the enabled clients of the lowest `Priority` in parallel. When fewer than `MinServers` of them answer, or when their answers do not agree, the clients of the next priority are asked, and so on. The time of the round is that of the first priority whose answers reach the quorum and agree. When none does, the round fails, and counts as a measurement error for `ErrorLogging` and `MaxErrors`.
+
+**Agreement.** The time of a priority is the median of the offsets its clients gave, so that one wrong server does not move it while it is outnumbered. While the spread of the answers is less than `MaxDeviation`, all of them agree. Otherwise the answers that agree are the largest set of them that lie within `MaxDeviation` of one another, and
+
+- when they are more than half of the answers, and at least `MinServers`, the time is *their* median: the others are outvoted. The spread is recorded.
+- when they are not, the servers disagree and the priority has **no time**. Two servers 90 seconds apart are the simplest case: their median would be a time that neither of them gave. The spread is recorded here as well.
+
+A single faulty server can therefore not take the time away from a group of three or more, and a group whose servers contradict each other does not pretend to know the time. In earlier versions of this paper a spread equal to or greater than `MaxDeviation` was recorded only, and the round kept its time.
 
 **Legal time.** The time of the charging station is legal time only while all of the following hold; otherwise it is not, and `NTPController.LegalTimeReason` says why:
 - the legal group names a `LegalTimeAuthority`: the operator states who stands behind its servers, which the charging station cannot find out by itself;
@@ -215,7 +222,7 @@ The variables marked *legal only* exist only in the instance `legal`; in any oth
 | Enabled            | optional | rw         | boolean    | true          | -                    | Whether the group is asked. A disabled group keeps its clients. A group created via `NTPController.ClientGroups` starts disabled, and a group must be disabled before it is removed. | `enabled` |
 | Clients            | required | rw         | string     | ""            | comma separated client ids | The ids of the `NTPClientController` instances of this group. A new id creates a client, which needs its `ServerURL` in the same request (section 3.2.5). An id taken out removes the client. The order is the order in which clients of the same `Priority` are listed (section 3.2.1); it is not a priority. | the entries of `servers` |
 | MinServers         | optional | rw         | integer    | 2             | 1 … 255              | The quorum: how many clients of one priority must answer in a round for its time to count. A change that leaves an enabled group with fewer enabled clients is `Rejected`. | `minServers`; when not set, lowered to the number of enabled clients |
-| MaxDeviation       | optional | rw         | decimal    | 60            | 0.001 … 3600 (s)     | The spread between the answers of one round that is accepted silently: the difference between the largest and the smallest offset the clients of the deciding priority gave. A spread equal to or greater than it is recorded in the log of the group. It is not the offset of the station's own clock, which is held to `LegalTimeTolerance`. Unit: `s`. | `maxDeviationSeconds` |
+| MaxDeviation       | optional | rw         | decimal    | 60            | 0.001 … 3600 (s)     | The spread between the answers of one round that is accepted silently: the difference between the largest and the smallest offset the clients of the deciding priority gave. A spread equal to or greater than it is recorded in the log of the group, and the round then has a time only when a majority of the answers, at least `MinServers` of them, lie within it of one another (*Agreement*, above). It is not the offset of the station's own clock, which is held to `LegalTimeTolerance`. Unit: `s`. | `maxDeviationSeconds` |
 | MinInterval        | optional | rw         | integer    | -             | 10 … 86400 (s)       | The shortest time between the start of two rounds. Unit: `s`. | `checkEverySeconds` (see `MaxInterval`) |
 | MaxInterval        | optional | rw         | integer    | -             | 10 … 86400 (s)       | The longest time between the start of two rounds. Each round is due at a random time between `MinInterval` and `MaxInterval` after the last one, so that many charging stations do not ask the same servers at the same moment. For the legal group, `MaxInterval` shall be shorter than `LegalTimeMaxAge`, or the time ceases to be legal time between two rounds. Unit: `s`. | `checkEverySeconds`, 900 s when not set: one fixed period. Both variables are reported as it, and only the same value can be written to both, in one `ACID` request. |
 | Preflight          | optional | rw         | integer    | -             | 1 … 86400 (s)        | Occasional requests to an NTP/NTS server may be delayed by network caching effects such as ARP or DNS resolution, firewall state establishment or TLS tunnel setup. After this long without a round, every client is first sent a *preflight* NTP packet whose response is ignored, so that these delays stay out of the measurement. It is chrony's `presend`. Not set: no preflight packets. Unit: `s`. | `preflightSeconds`, false for never: the NTS-protected query of the round is sent a first time and its answer ignored, which costs no cookie, as every answer brings a new one |
@@ -465,9 +472,10 @@ Durations and offsets are decimal seconds, as the variables of section 3.2.3. An
 |duration|M|decimal|Number|How long the round took.|
 |answered|M|integer|Number *(Integer)*|How many clients gave an answer that counts: of the deciding priority, or of the last one asked when none decided.|
 |required|M|integer|Number *(Integer)*|The quorum `MinServers`.|
-|offset|O|decimal|Number|The offset of the clock against the time of the round, as `LastOffset`. Absent when the round produced no time.|
+|agreeing|O|integer|Number *(Integer)*|How many of these answers agree: the largest set of them within `MaxDeviation` of one another (section 3.2.3). Absent when it equals `answered`.|
+|offset|O|decimal|Number|The offset of the clock against the time of the round, as `LastOffset`: the median of the answers that agree. Absent when the round produced no time.|
 |spread|O|decimal|Number|How far apart the answers of the deciding priority were (section 2.2).|
-|deviationExceeded|O|boolean|Boolean|Whether the spread reached `MaxDeviation`.|
+|deviationExceeded|O|boolean|Boolean|Whether the spread reached `MaxDeviation`. With `ok` false and `answered` not less than `required`, the servers disagree.|
 |legalTime|O|boolean|Boolean|Legal group only: `NTPController.LegalTime` after the round.|
 |legalTimeReason|O|string|String|Legal group only: `NTPController.LegalTimeReason` after the round, while the time is not legal time.|
 |error|O|string[512]|String|Why the round produced no time.|
@@ -631,7 +639,7 @@ The global key `ntp.enabled` of earlier versions of this paper is replaced by `n
 | ntp.legal.preflight | optional | rw        | Integer    | -             | 60             | After this many seconds without a round, preflight packets are sent first. See `NTPClientGroupController.Preflight`. |
 | ntp.legal.timeout | optional | rw          | Decimal    | -             | 3              | How long one exchange may take, in seconds. See `NTPClientGroupController.Timeout`. |
 | ntp.legal.minServers | optional | rw       | Integer    | 2             | 3              | The quorum: how many servers of one priority must answer. See `NTPClientGroupController.MinServers`. |
-| ntp.legal.maxDeviation | optional | rw     | Decimal    | 60            | 0.5            | The spread between the answers of one round, in seconds, that is accepted silently; a spread equal to or greater than it is recorded in the secure metrological log. See `NTPClientGroupController.MaxDeviation`. |
+| ntp.legal.maxDeviation | optional | rw     | Decimal    | 60            | 0.5            | The spread between the answers of one round, in seconds, that is accepted silently; a spread equal to or greater than it is recorded in the secure metrological log, and the round then has a time only when a majority of the answers agree within it. See `NTPClientGroupController.MaxDeviation`. |
 | ntp.legal.errorLogging | optional | rw     | Integer    | 5             | 10             | The number of consecutive failed rounds that leads to an entry in the secure metrological log. When a round produces a time again, another entry is added. |
 | ntp.legal.maxErrors | optional | rw        | Integer    | 10            | 20             | The number of consecutive failed rounds that leads to limited charging session features, e.g. dynamic tariff changes are no longer available, and an entry in the secure metrological log. When a round produces a time again, another entry is added. |
 | ntp.legal.authority | optional | rw        | String     | ""            | "PTB"          | Who stands behind the time of the legal group. Without it the time is not legal time. See `NTPClientGroupController.LegalTimeAuthority`. |
