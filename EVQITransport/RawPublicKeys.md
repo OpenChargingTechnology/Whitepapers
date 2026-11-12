@@ -12,8 +12,8 @@ adds a third way, TLS 1.3 with raw public keys (RFC 7250), weighs its advantages
 disadvantages, and proposes how to build it, in C# included.
 
 It is a concept, not yet a specification. Step 2, the C# implementation, is planned in chapter 10;
-its first stage, key pins over certificates at the station and at the Local Controller (work
-packages K1 to K3), is built (section 10.8).
+its first stage, key pins over certificates at the station and at the Local Controller, and their
+signed distribution by the CSMS (work packages K1 to K4), is built (section 10.8).
 
 ---
 
@@ -587,6 +587,30 @@ held an old key, could bring back pins that were removed. Every pin set therefor
 clock, unlike the timestamp window of EVQI 7.2, which a station without a synchronized clock cannot
 apply.
 
+**Who is behind whom.** Way 1 rests on what the CSMS knows about a site: which station is behind
+which Local Controller. It learns that from frames the Local Controller forwards - the station's
+`BootNotification`, and the `KeyPinLearned` it answers with a pin set. A forwarded frame names its
+sender and its path itself, so the CSMS has to decide whose word it takes for them. Without a rule
+any node that connects to the CSMS, a charging station as well, could name itself the way to a
+station and be handed a pin set of its own pins for it, signed by the CSMS: the signature the
+station trusts would vouch for the impostor. Three rules:
+
+1. **The last hop is the connection.** A frame is taken only where the last hop of its path is
+   the node the connection it came over signed in as. A node that forwards puts itself last.
+2. **A connection speaks for itself.** It speaks for other nodes only where the operator marked
+   its login at the CSMS as a Local Controller's. Dialling in a mode that forwards is no proof of
+   being one: any station can do that.
+3. **The first Local Controller keeps a station.** Another node that names itself the way to a
+   station already seen behind a Local Controller moves nothing, and a `KeyPinLearned` that comes
+   through it is answered with no pin set. A station that really moved is released by the operator.
+
+A frame refused by rule 1 or 2 is dropped without an answer: an answer goes to the node the frame
+names, not to the connection that sent it.
+
+The rules need a Local Controller that forwards with a path. Over a plain OCPP uplink the CSMS sees
+one node where there are several, cannot address the stations behind it, and way 1 is not
+available; ways 2 to 4 remain.
+
 ### 5.8 Stations by key
 
 - The station presents a key, raw or in a certificate. The Local Controller keeps per station
@@ -751,6 +775,12 @@ OCPP 2.1 represents every network profile slot as an instance of the component
 - Dependent variables (pins only with TLS, `RawPublicKeys` only with pins) follow the rule of the
   SecureDNS paper: set in the right order, or as one change with `ACID` from
   [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md).
+- *As built:* the variables are not on `NetworkConfiguration` but on a component of their own,
+  `TLSClientController`, with one instance per connection of the station, named by the station's
+  identification of that connection: `URL`, `ServerKeyPins`, `ServerKeyPinsVersion`,
+  `ServerKeyPinState`, `LearnedKeyPin`, `RawPublicKeys`, `TrustOnFirstUse` and `ClientKeyPin`. A
+  pin set is one `SetVariables` with `ServerKeyPins` and `ServerKeyPinsVersion` of one instance;
+  one without the other is rejected (section 10.10).
 
 ### 7.3 OCPP 1.6
 
@@ -770,6 +800,19 @@ OCPP 1.6 has one connection and no slots. Configuration keys, as in the time syn
 - **Web interface and command line:** show the pins, as text and as a QR code; generate the next
   key; switch; show which stations have connected with which pin and type (RPK, carrier
   certificate, CA certificate).
+- **Uplink:** the Local Controller forwards what its stations send in the stations' own names,
+  with itself as the last hop of the path, so that the CSMS can tell the stations apart and reach
+  each of them (section 5.7, *Who is behind whom*). In the reference implementation that is the
+  overlay network mode of the uplink, its default since 2026-11-12; `"networkingMode": "standard"`
+  is for a CSMS that knows plain OCPP only. What a station sends on is forwarded only in that
+  station's name, and what only a CSMS may ask of the Local Controller is refused when a station
+  asks it.
+- **At the CSMS:** the Local Controller's login is marked as one (`localControllers <login> on`,
+  a switch on the page of the station logins, `"localController": true` over the API). Until it
+  is, what it forwards of its stations is dropped, and the CSMS's log says how to mark it.
+- *As built:* `EVQICtrlr[TLSServer]` has `KeyPins` (current first, then the next), `NextKeyPin`,
+  `KeyCreated`, `RawPublicKeys`, and `ActiveKeyPin`, which the CSMS writes to switch the Local
+  Controller to its announced next key (section 5.5, step 3).
 
 ### 7.5 Security events and logging
 
@@ -780,6 +823,10 @@ OCPP 1.6 has one connection and no slots. Configuration keys, as in the time syn
 | `KeyPinConfirmed` (new) | the CSMS confirmed a learned pin |
 | `KeyPinRejected` (new) | the CSMS's signed pins do not contain the learned pin; they replace it |
 | `KeyPinProbationExpired` (new) | no signed pin set arrived during probation; the learned pin is discarded |
+
+The events of a station behind a Local Controller reach the CSMS through it, with the Local
+Controller as the last hop of their path. The CSMS acts on a `KeyPinLearned` only where it came
+through the Local Controller the station is noted behind (section 5.7).
 
 On the Local Controller, refused station keys are logged per identity, as refusals of a
 credential (EVQI 12.7). All of it goes into the security log; the metrological log only where the
@@ -813,6 +860,13 @@ CPO opts in, as for name servers.
   WWCP_Node have no PKCS#11 or TPM binding yet (EVQI 6.2), and the work package there applies here.
 - **Message signatures stay necessary.** Key pins authenticate the hop, not the author. The Local
   Controller can still read and change what it forwards; EVQI chapter 7 covers that.
+- **The CSMS's signature is only as good as what the CSMS believes.** A signed pin set is
+  unforgeable, but the CSMS composes it from what it was told: which station is behind which Local
+  Controller, and which pins that Local Controller has. Whoever can tell it something false gets a
+  genuine signature on false pins. The three rules of section 5.7 bound who can: a node is taken at
+  its word for itself only, a login marked by the operator for the stations behind it, and nobody
+  for a station already behind another Local Controller. The mark is thus a privilege - a marked
+  login can speak for any station not yet seen elsewhere - and is given to Local Controllers only.
 
 ---
 
@@ -997,8 +1051,8 @@ public keys.
 
 ### 10.8 What is built
 
-Stage 1, key pins over certificates, at both ends of the hop. Built and pushed on 2026-11-11 and
-2026-11-12:
+Stage 1, key pins over certificates, at both ends of the hop, and their signed distribution by
+the CSMS. Built and pushed on 2026-11-11 and 2026-11-12:
 
 | Package | Repository | Commit | What |
 |---|---|---|---|
@@ -1008,10 +1062,22 @@ Stage 1, key pins over certificates, at both ends of the hop. Built and pushed o
 | K3 | LocalController | `8991ac0` | a server key in a self-signed carrier certificate (`ocpp-server-keys`), a next key and the switch; the pins in the log, the JSON, the pages and with `serverKeys`; key pins per station (`stationPins`, `stations/{id}/keyPins`), the method `keypin` of login groups, a station admitted by its pin on its own path only |
 | K3 | LocalControllerCLI | `f88bd50` | the pins in the start banner, the libraries pinned |
 | K2 | ChargingStationCLI | `cb26ae0` | ChargingStation pinned |
+| K4 | WWCP_Core | `018bc064`, `cae5410f` | `VerificationRule.WithoutTimeWindow`: a rule that holds a signature to neither its signing time nor its expiry, for a pin set a station takes by its version; a standard connection carries nothing for the node behind it |
+| K4 | WWCP_OCPP | `deeb37f7` to `18d45f41` | `TLSClientController` and `EVQICtrlr[TLSServer]` (sections 7.2, 7.4), a device model of the Local Controller's own; an answer that is forwarded goes to whoever asked; the sender gate of the incoming adapter, asked before anything is done with a request or a send message, JSON or binary |
+| K4 | ChargingStation | `9344871` | a signed pin set over OCPP 2.1: taken where a pin set signer of the station signed it and its version is higher; a learned pin confirmed, or its server refused - answered first, then the connection is dropped and comes back held to the signed pins |
+| K4 | LocalController | `b3bd90d` | the station port's key in its device model, switched by the CSMS; the uplink in the overlay network by default; what only the CSMS may ask is refused to a station |
+| K4 | CSMS | `bdab32e` | the signing key for pin sets; which station is behind which Local Controller, kept across restarts; a pin set on `KeyPinLearned`; `keyPins rollover`, `confirm`, `forget`; the mark of a Local Controller's login and the three rules of section 5.7 |
+| K4 | EVChargingTestEnvironment | `336c2a6` | station, Local Controller and CSMS end to end: a learned pin confirmed, and the Local Controller's key rolled over without the station losing its connection |
 
 Tests: Hermod 66 (Windows and Linux), ChargingStation 25 new (935 in all, Linux too), LocalController
 42 new (686), WWCP_Core 3 new (243). Every negative test is red on a deliberate mutation: 12 in
 Hermod, 41 in ChargingStation, 31 in LocalController and WWCP_Core.
+
+With K4, on 2026-11-12: WWCP_Core 270, WWCP_OCPP 3228 (OCPP 2.1) and 699 (OCPP 1.6),
+ChargingStation 1004, LocalController 767, CSMS 772, EVChargingTestEnvironment 49, among them the
+two end-to-end tests of the work plan's "done when". The rules of section 5.7 are red on 16
+deliberate mutations of the CSMS and the adapter. One test of the station is not stable: see
+section 10.9, the last entry.
 
 ### 10.9 What building it found
 
@@ -1044,14 +1110,38 @@ Hermod, 41 in ChargingStation, 31 in LocalController and WWCP_Core.
 - **The carrier's dates** run from 1970-01-01 to 9999-12-31, the end RFC 5280 (section 4.1.2.5)
   gives a certificate without a well-defined expiration. .NET reads that end an hour short in local
   time, so the dates are left out of the JSON.
+- **A CSMS that takes a frame's word for its sender.** Built as first planned, the CSMS noted a
+  station behind whoever forwarded its `BootNotification` and sent that node's pins on
+  `KeyPinLearned`. Any connection in the overlay network, a station's too, could thereby take a
+  station over and have its own pins signed for it; it could also have an SSH key enrolled or a
+  login made in another station's name. Found by attacking the finished code, and closed by the
+  three rules of section 5.7 and the mark of section 7.4.
+- **An answer does not come back to a forger.** A request sent in another node's name is answered
+  to that node, by the CSMS's route to it. A test of such a request cannot wait for its answer; it
+  has to look at what the request changed.
+- **A pin set needs no clock, and its signature must not either.** The signature policy held every
+  signature to a time window. A station that was never given the time would have refused the pin
+  set that lets it reach a time server. The rule for pin sets is without a time window (section
+  5.7, *Replay*); the version does what the window did.
+- **A rollover leaves `Configured`.** `Confirmed` says that a signed pin set confirmed a pin the
+  station had learned. Pins that only ever came signed, as after a rollover, are `Configured`.
+- **Answer, then drop.** A pin set that refuses the learned pin is answered over the connection
+  it refuses, which is dropped once the answer is out. Hermod's WebSocket client closes the socket
+  right after its close frame, and on Windows frames sent just before are then sometimes lost: the
+  CSMS does not always learn that its pin set was taken. Open in Hermod; the station's order is
+  right.
 
 ### 10.10 What is not built, or differs from this paper
 
 | | Today | This paper |
 |---|---|---|
 | Raw public keys | none yet; an endpoint with `rawPublicKeys = Require` is not dialled | chapter 6, K5 and K6 |
-| Signed pin sets over OCPP | the station's store and connection side are ready (`TryTakeSignedServerKeyPins`), and the probation gate lets the writes through; no device-model variables, no OCPP 1.6 keys | sections 5.7, 7.2, 7.3, K4 |
-| The Local Controller's keys towards the CSMS | `EVQICtrlr[TLSServer]` not mapped; next key and switch by command or page only | sections 5.5, 7.4, K4 |
+| Signed pin sets over OCPP | OCPP 2.1 only, on `TLSClientController[<connection>]` instead of `NetworkConfiguration`; the OCPP 1.6 keys are let through the probation gate, but nothing hands them over | sections 5.7, 7.2, 7.3 |
+| The signature of a pin set | a JWS signature of the signed-messages paper by a pin set signer the station was given at commissioning; no role `evqi:security-admin` is asked of it | section 5.7, *Authority* |
+| The Local Controller's own uplink | checked against roots only; no key pins, no pin set for it | section 1.5 (a non-goal) |
+| A Local Controller unmarked at the CSMS | what it forwards is dropped, and only the log says so | section 7.4 |
+| A station that moved | forgotten by hand (`keyPins forget`); not detected | section 5.7, rule 3 |
+| OCPP 1.6 at the CSMS | no sender gate; the rules of section 5.7 hold for OCPP 2.1 | section 5.7 |
 | Probation | the gate refuses every request but a pin set; BootNotification, queued security events and the offline queue are sent, as on the SSH path | only BootNotification (section 5.6) |
 | `clientKeyId` | the endpoint's existing `certificateId` names the station's TLS client key | section 7.1 |
 | Events at the Local Controller | refusals are logged; no security events | section 7.5 |
@@ -1060,7 +1150,7 @@ Hermod, 41 in ChargingStation, 31 in LocalController and WWCP_Core.
 | Basic and TOTP for a station with key pins | still decided by its group | open question 6 |
 | Key age | the creation date is kept and shown; no warning | section 5.5, open question 9 |
 | An existing CA key as the server key | not taken over; a server key is always generated | section 5.3 |
-| End to end | not yet in EVChargingTestEnvironment | section 10.7, K7 |
+| End to end | station, Local Controller and CSMS over key pins in certificates; not with raw public keys | section 10.7, K7 |
 
 ---
 
@@ -1080,8 +1170,9 @@ Hermod, 41 in ChargingStation, 31 in LocalController and WWCP_Core.
 Order: K1 → K2/K3 (parallel) → K4; K5 → K6; K7 along the way; K8 at the end. K1 to K3 already
 give a usable result with option B; K5 and K6 add RFC 7250 without changing what K1 to K4 provision.
 
-**Status, 2026-11-12:** K1 to K3 are built (section 10.8), with the negative tests of 10.7 that
-stage 1 can have, each red on its mutation. K4 to K8 are open.
+**Status, 2026-11-12:** K1 to K4 are built (section 10.8), with the negative tests of 10.7 that
+stage 1 can have, each red on its mutation. K4 is built for OCPP 2.1; what it leaves out is in
+section 10.10. K5 to K8 are open.
 
 ---
 
@@ -1109,6 +1200,10 @@ stage 1 can have, each red on its mutation. K4 to K8 are open.
 9. **Key policy:** a default key lifetime for Local Controllers, or only reporting the age?
 10. **The exception of section 5.7** to the role bound of EVQI 7.4: limited to pin sets, as
     proposed? And is it written into EVQI 7.4 itself?
+11. **Who is a Local Controller:** a mark the operator sets at the CSMS (built), a role in the
+    credential the Local Controller signs in with, or a statement the CSMS signs for the station?
+    And what tells the CSMS that a station moved to another Local Controller, other than an
+    operator?
 
 ---
 
