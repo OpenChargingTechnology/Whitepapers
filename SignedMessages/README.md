@@ -675,6 +675,21 @@ use the embedded form (section 4.2, encoding 2) on the object itself:
 This keeps one signature format in the library, and it allows a countersignature by the CSMS or a
 Local Controller without touching the original.
 
+**Until phase 4: key pin sets.** Signed data objects are verified only from phase 4 on. Until
+then, the key pin sets of
+[Key Pins and TLS 1.3 Raw Public Keys](../EVQITransport/RawPublicKeys.md) (section 5.7, work
+package K4) are protected by a message signature, as on the SSH path (a signed `SetVariables`):
+
+- The station's verification rule for pin sets opts out of the `iat`/`exp` check, so that a
+  station without synchronized time can take them.
+- The opt-in belongs to that one rule, not to the policy. Every other check stays, and so does
+  `OutOfTime` for every other message. Q8 is unaffected.
+- Through a Local Controller, the signer uses `NonceInsteadOfMessageId`.
+- The pin set's version replaces freshness. The station accepts only a greater version, and it
+  compares and stores the version atomically. The replay cache gives no protection without a
+  time window.
+- Once phase 4 verifies signed data objects, pin sets become one.
+
 ---
 
 ## 5. From messages to signer roles: the policy
@@ -1234,6 +1249,8 @@ What the implementation does:
 4. The web page and the CLI of section 6.6 follow.
 5. The security events of section 5.4 are sent.
 6. Charging tariffs (E2EChargingTariffs) are signed in the form of section 4.4 too (Q21).
+7. Key pin sets (EVQI Transport, K4) move from a message signature without the time check to a
+   signed data object (section 4.4).
 
 ### Phase 5: standard and EVQI encodings
 
