@@ -1346,8 +1346,18 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
   `GetConfiguration` key by key.
 - **A refusal is a CALLERROR `SecurityError`** (WWCP_OCPP 9cecf85a, OCPP 2.1 and 1.6), as section
   5.4 asks: its description names the permission that was missing or the policy entry that
-  refused, and no response of the action is sent. The security events of section 5.4 are not
-  built yet.
+  refused, and no response of the action is sent.
+- **The security events of section 5.4 are sent** (WWCP_Core c3053df1, WWCP_OCPP b977a5a2, OCPP
+  2.1 and 1.6), all but `RoleTableChanged`, which waits for the role messages of phase 4.
+  - A policy violation says what was wrong with the signatures: `MessageSignatureMissing`,
+    `MessageSignatureInvalid`, `MessageSignerUnknown`, `MessageSignerNotAuthorized`,
+    `MessageReplayed` or `MessageSignatureExpired`. A request whose signatures do not hold is
+    reported as well, not only one whose signers lack a permission.
+  - The station queues one security event per request, also for one that was executed all the
+    same (`Observe`, `onViolation: Record`). Its `techInfo` names the action and the reason.
+    A request whose entries are refused one by one is one event.
+  - A refused response is not reported: the answer to a security event must not be the next
+    one.
 - **Not built yet:**
   - the first step of the chain, the connection role and the peer's rights profile;
   - `match.instance` and `match.evse` are matched, `GetBaseReport`, `GetReport` and
@@ -1366,7 +1376,7 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
    policy messages, and `GetSignerRoles` and `GetSignaturePolicy` are new.
 3. The device model components of section 6.3 are added, with the 1.6 keys.
 4. The web page and the CLI of section 6.6 follow.
-5. The security events of section 5.4 are sent.
+5. `RoleTableChanged` is sent. The other security events of section 5.4 are sent since phase 3.
 6. Charging tariffs (E2EChargingTariffs) are signed in the form of section 4.4 too (Q21).
 7. Key pin sets (EVQI Transport, K4) move from a message signature without the time check to a
    signed data object (section 4.4).
