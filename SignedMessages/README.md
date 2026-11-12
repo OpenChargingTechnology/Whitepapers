@@ -796,8 +796,8 @@ This paper uses the same roles for signed messages:
 | `ChangeAvailability` | `availability:edit` | |
 | `SetChargingProfile` with `TxProfile`, `TxDefaultProfile` or `PriorityCharging` | `session:run` | the operator's everyday load management |
 | `SetChargingProfile` with `ChargingStationMaxProfile` or `LocalGeneration` | `power:edit` | what the station may draw and deliver: the installer's |
-| `SetChargingProfile` with `ChargingStationExternalConstraints` | – | refused whatever the role: external constraints come from an energy management system or the grid operator, not from a CSMS (OCPP 2.0.1 K01.FR.22; checked against the 2.1 text in phase 3) |
-| `ClearChargingProfile` | the permissions of the profiles it would clear | criteria without a purpose need all of them together |
+| `SetChargingProfile` with `ChargingStationExternalConstraints` | – | refused whatever the role: external constraints come from an energy management system or the grid operator, not from a CSMS (K01.FR.22, the same in OCPP 2.0.1 and in OCPP 2.1 Edition 2; a Local Controller counts as a CSMS here, use cases K24 and K25) |
+| `ClearChargingProfile` | the permissions of the profiles it would clear | criteria without a purpose need all of them together; criteria that name `ChargingStationExternalConstraints` or `LocalGeneration` are refused whatever the role (OCPP 2.1 K10.FR.06): a profile of local generation a CSMS has set is cleared by its identification |
 | `UpdateFirmware`, `PublishFirmware` | `firmware:edit` | new resource; a metrologically relevant station also needs `calibration:edit` (EVQI 6.3) |
 | `SetNetworkProfile` | `connections:edit` | where the station dials and what it proves itself with there |
 | `AddSignerRole`, `UpdateSignerRole`, `DeleteSignerRole`, `SetSignaturePolicy` | `signatures:edit` | new resource; `systemadmin` only |
@@ -1241,7 +1241,21 @@ What the implementation does:
 *Status:* items 1, 2 and 4 are built (2026-11-12) in WWCP_Core ec3ec309 and WWCP_OCPP de004abd,
 both on master and pushed. Of item 3, the six resources and the role `support` are in WWCP_Node
 baf880e (2026-11-12, pushed); what the charging station and the Local Controller add to them is
-open, and so is item 5.
+open.
+
+Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
+
+- **K01.FR.22 is unchanged:** "The CSMS SHALL NOT set chargingProfilePurpose to
+  ChargingStationExternalConstraints in a SetChargingProfileRequest." The rule of section 5.3
+  stands. Use cases K24 and K25 say the same of a Local Controller, which "is not seen as an External
+  Control System".
+- **`LocalGeneration` may come from a CSMS:** the purpose "is usually originating from an external
+  system, or a local controller, [...] but can also be provided by a CSMS". `power:edit` stands.
+- **Clearing differs:** K10.FR.06 in its 2.1 wording forbids the CSMS a
+  `ClearChargingProfileRequest` whose criteria name `ChargingStationExternalConstraints` *or*
+  `LocalGeneration`, and a clearing by criteria leaves profiles of both purposes alone. The table
+  refuses both since WWCP_OCPP 3b8ef784 (decided 2026-11-12); in de004abd it still let the second pass
+  with `power:edit`.
 
 - **The policy table** (`MessagePolicyEntry`) and **what each action needs**
   (`ActionPermission`) are in WWCP_Core. An entry is read and written as the JSON of section 5.2.
