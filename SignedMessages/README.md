@@ -892,6 +892,9 @@ shows them through the OCPP device model in the same way (decided 2026-11-12). L
 78f9a3a5 does not: it is not on WWCP_OCPP_Node's device model bridge, and decides a
 `SetVariables` or a `GetVariables` as a whole, by `configuration:edit` and
 `configuration:read`. That is a placeholder until it has its device model.
+It serves the configuration keys of OCPP 1.6 for the same settings, as the station does. Its
+server for its stations gets device model variables as well, by a controller that is still to
+be defined: writing them needs `stations:edit`, the second exception to the rule above.
 
 One policy decides everything addressed to the Local Controller itself, whether it comes from
 the CSMS or from one of its stations, and its direction is `CSMS->CS`: an entry a CSMS writes
