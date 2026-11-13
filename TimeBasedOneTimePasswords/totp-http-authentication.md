@@ -23,9 +23,10 @@ scheme also by [TOTP.ts](https://github.com/OpenChargingCloud/TOTP.TS);
 Appendix A records the implementation status. Unlike the token format
 itself — frozen by deployed verifiers and finalized — this binding document
 is a **draft**: of the server-side verification it specifies, only the
-`Authorization: TOTP` scheme with raw tokens has landed (in Hermod's
-WebSocket server, held to the verification vectors of section 11), and its
-wire details may still change.
+`Authorization: TOTP` scheme has landed (in Hermod's WebSocket server, held
+to the verification vectors of section 11) — with raw tokens over every
+version of HTTP, with bound tokens where the WebSocket is opened over HTTP/3
+— and its wire details may still change.
 
 
 ## 1. Introduction
@@ -296,8 +297,15 @@ of responses to requests with an `Authorization` header field.)
 All three bindings apply unchanged to the HTTP Upgrade request of a
 WebSocket handshake ([RFC 6455]) — the primary use in OCPP, where a charging
 station's WebSocket connection is today typically protected by HTTP Basic
-Auth. Verification happens once, during the handshake; an accepted
-connection stays authenticated for its lifetime. Deployments needing
+Auth. They apply in the same way to the extended CONNECT request that opens
+a WebSocket over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]): the credentials
+travel as header fields of that request, and it is that request the server
+verifies before it answers `200`. A bound token (section 6.2) is bound to
+the TLS session of the connection the request travels on — over HTTP/3, the
+TLS session of the QUIC connection — so every WebSocket opened on one
+connection shows a token bound to the same session. Verification happens
+once, during the handshake; an accepted connection stays authenticated for
+its lifetime. Deployments needing
 periodic re-authentication of long-lived connections re-establish the
 connection or use an application-level mechanism; in OCPP the TOTP then also
 plays its other role, in dynamic QR codes (token format spec section 1.2).
@@ -480,20 +488,23 @@ exercised through the scheme vectors.
 |-------|--------|---------|
 | Token derivation | yes | yes |
 | TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes, verification: no (the WebSocket server checks Basic credentials against static passwords only) | wire: needs no helper (`generateTOTPs()` as the password), verification: no |
-| `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`, `tlscb` with its true-default (Hermod: `HTTPTOTPAuthentication`; TOTP.ts: `formatTOTPAuthorization` / `parseTOTPAuthorization`; vector-driven tests on both sides) | yes; sent by the WebSocket client under its `TOTPLogin`, with a token of the moment for every attempt, a reconnect included — raw only (`tlscb=false`) | yes |
-| `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | wire: yes, raw only; verification: no | no |
-| TLS exporter material (channel binding derivation) | derivation: yes; on a connection: no. `SslStream`, the TLS of the clients and servers over HTTP/1.1 and HTTP/2, exposes no exporter; Hermod's own QUIC, their TLS over HTTP/3, does, and neither side takes it from there yet. A client whose `TOTPConfig` asks for binding therefore sends nothing and says why, rather than a token weaker than configured | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
-| Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`), for a WebSocket opened by an Upgrade over HTTP/1.1 and by an extended CONNECT over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]) alike; raw tokens only: a bound token is rejected, as section 6.2 requires of a verifier without exporter material | no — a client library (a worked example in its README) |
+| `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`, `tlscb` with its true-default (Hermod: `HTTPTOTPAuthentication`; TOTP.ts: `formatTOTPAuthorization` / `parseTOTPAuthorization`; vector-driven tests on both sides) | yes; sent by the WebSocket client under its `TOTPLogin`, with a token of the moment for every attempt, a reconnect included — raw (`tlscb=false`) over every version of HTTP, bound (`tlscb` absent) by a client told to open its WebSocket over HTTP/3 and nothing else | yes |
+| `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | wire: yes — raw, and bound (type `1`) by a WebSocket client without a login that opens its WebSocket over HTTP/3; verification: no | no |
+| TLS exporter material (channel binding derivation) | derivation: yes; on a connection: over HTTP/3 only. `SslStream`, the TLS of the clients and servers over HTTP/1.1 and HTTP/2, exposes no exporter; Hermod's own QUIC, their TLS over HTTP/3, does, and both sides of a WebSocket opened over HTTP/3 take it from there. A client whose `TOTPConfig` asks for binding and that is not told HTTP/3 and nothing else — one left the choice of the version included, since it may come to an `SslStream` — sends nothing and says why, rather than a token weaker than configured | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
+| Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`, `TOTPIsTheOneOf`), for a WebSocket opened by an Upgrade over HTTP/1.1 and by an extended CONNECT over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]) alike. Raw tokens over all three; bound tokens over HTTP/3, verified with the exporter material of the QUIC connection the request arrived on. Over HTTP/1.1 and HTTP/2 a bound token is rejected, as section 6.2 requires of a verifier without exporter material. A login whose configuration asks for binding takes no raw token; one that does not takes a bound token all the same where it can verify it | no — a client library (a worked example in its README) |
 | The challenge `WWW-Authenticate: TOTP` (section 5.3, SHOULD) | no (the WebSocket server challenges `Basic` only) | — |
 | Single-use enforcement and rate limiting (section 5.3, where replay matters) | no | — |
 
 Before this document can leave draft, verification is still missing for the
-Basic binding and the `TOTP` request header, for bound tokens (exporter
-material on the verifier's side), and the challenge; and no client of the
-reference implementation sends a bound token yet.
+Basic binding and the `TOTP` request header, for bound tokens over HTTP/1.1
+and HTTP/2 (exporter material of an `SslStream`), and the challenge.
 
-The Hermod column is as of Hermod `32ac156a` (2026-11-12). That a WebSocket
-opened over HTTP/2 or HTTP/3 is authenticated as one opened over HTTP/1.1 is
-held by tests of the OCPP stack built on it (WWCP_OCPP `fac5ec94`): a station
-is let in with its login and token, and refused with another secret, another
-login or an unknown one, over each of the three.
+The Hermod column is as of Hermod `e315885e` (2026-11-13). That a WebSocket
+opened over HTTP/2 or HTTP/3 is authenticated as one opened over HTTP/1.1,
+and that a bound token is sent and verified over HTTP/3, is held by tests of
+the stack built on it as well (WWCP_Core `bb22ff9a`, WWCP_OCPP `9afd4153`,
+ChargingStation `8a41c97`): a station is let in with its login and token,
+and refused with another secret, another login or an unknown one, over each
+of the three; over HTTP/3 it is let in with a token bound to its connection,
+by a CSMS that asks for the binding and by one that does not; and a CSMS
+that asks for the binding takes no raw token over any of them.
