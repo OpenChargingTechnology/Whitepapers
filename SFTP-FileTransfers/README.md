@@ -767,6 +767,7 @@ On the master branches of the reference implementations:
 | WWCP_OCPP | `df25a599` | the seven variables of section 8.1 at `SSHPeerController` and the keys of section 8.3, carried through every change of the peers |
 | WWCP_OCPP | `9bfa9d93` | `peer` and `login` in `SignSSHKey` and `SSHKeySigned`, as JSON and as CBOR (section 9.2) |
 | ChargingStation | `c51a4218` | the custom triggers `SignSSHKey:SFTP:<peer>:<login>` and `SignSSHKey:SFTP`; an `SSHKeySigned` that names a file server and a login confirms that key, and nothing else does |
+| WWCP_OCPP, ChargingStation | `cfbe26fb`, `41a3ee4e` | `SSHPeerController` and the keys `sshPeers` and `sshPeer.*` of OCPP 1.6 belong to the connections for the signature policy, with what makes a peer a file server (section 8.4); the check by pin set signers that `df25a599` had built into the component is gone |
 
 Tested in each of them, the transfers against a second node as the SFTP server and the enrolment
 at a charging station against a CSMS over SSH; the suites around the tests are green.
@@ -775,7 +776,6 @@ at a charging station against a CSMS over SSH; the suites around the tests are g
 
 | | Today | This paper |
 |---|---|---|
-| Who writes the peers over OCPP | a check built into the component, by the station's pin set signers (WWCP_OCPP `df25a599`, ChargingStation `af774257`), with the keys of OCPP 1.6 read only; being replaced by the signature policy | the signature policy of the station (section 8.4) |
 | The station sends a key by itself | only on a `TriggerMessage`; a CSMS reads it in `FileTransferPublicKeys` otherwise | when a login is added (section 9.2) |
 | The CSMS | does not enter a key at a file server, and does not send `SSHKeySigned` with a peer and a login | section 9.2 |
 | `SignSSHKey` over OCPP 1.6 and 2.0.1 | the messages exist for OCPP 2.1 only | as `DataTransfer` (section 9.2) |
