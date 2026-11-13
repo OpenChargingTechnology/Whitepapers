@@ -434,12 +434,15 @@ With it, `sftp://cs001@logs.example.org:2222/upload/cs001/` is a place for logs,
 
 ### 8.3 OCPP 1.6
 
-`SupportedFileTransferProtocols` lists `SFTP`. The peers are configuration keys, read and written
-by `GetConfiguration` and `ChangeConfiguration`: `SSHPeer.Peers`, and per peer
-`SSHPeer.<name>.Address`, `.Port`, `.UserName`, `.HostKeyPins`, `.HostCAs`, `.FileTransfers`,
-`.FileTransferUsers`, `.UploadPaths`, `.DownloadPaths` and `.FileTransferPublicKey`. A peer is
-complete, and in effect, once it has an address and a pin or a CA; `ChangeConfiguration` writes one
-key at a time, so a peer is written before its name is added to `SSHPeer.Peers`.
+`SupportedFileTransferProtocols` lists `SFTP`. The SSH peers have their configuration keys in
+[OCPP over SSH](../OCPP-over-SSH/README.md), section 9.5: `sshPeers`, and per peer
+`sshPeer.<name>.url`, `.hostKeyPins`, `.hostCAs` and the others. A file server has five more,
+named and read like the variables of section 8.1: `sshPeer.<name>.fileTransfers`,
+`.fileTransferUsers`, `.uploadPaths`, `.downloadPaths` (CSL strings, rw) and
+`.fileTransferPublicKey` (ro). A peer is added by its `url` with its pins, as that section says,
+and is no file server until `fileTransfers` is written. The station-wide values of section 8.2
+are `sshPeers.fileTransferConnectTimeout`, `sshPeers.fileTransferIdleTimeout` and
+`sshPeers.fileTransferMaxDownloadSize`.
 
 ### 8.4 Who may make a file server
 
@@ -579,7 +582,7 @@ Nothing of this paper is built yet. What the reference implementations have of i
 |---|---|
 | SFTP client | Hermod has one: upload, download, streams with offsets, `posix-rename@openssh.com`, `limits@openssh.com`. |
 | SSH peers | WWCP_Node keeps the peers of a node and one shared connection to each; the station adds the hosts of its `ssh://` connections. A peer has no file transfer variables. |
-| `SSHPeerController` | [OCPP over SSH](../OCPP-over-SSH/README.md), section 12.3, names it as built for OCPP 2.1, without keys of OCPP 1.6. It was not on the master branches of WWCP_OCPP and ChargingStation when this draft was written. |
+| `SSHPeerController` | [OCPP over SSH](../OCPP-over-SSH/README.md), section 12.3, names it as built for OCPP 2.1, with the configuration keys of OCPP 1.6. It was not on the master branches of WWCP_OCPP and ChargingStation when this draft was written. |
 | The `SFTP` key | Made and rotated by the station, shown as `ClientPublicKey[SFTP]`; nothing signs in with it. |
 | `GetLog`, `GetDiagnostics`, `UpdateFirmware` | The messages exist in WWCP_OCPP for 1.6 and 2.x. The station nodes answer `Accepted` and transfer nothing. |
 | `FileTransferProtocols` | The station nodes of WWCP_OCPP list `HTTPS`. |
