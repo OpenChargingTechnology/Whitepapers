@@ -1405,7 +1405,9 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 - **Reservations, the local list, the cache and `DataTransfer` have their rights** in both
   tables, OCPP 2.1 and 1.6 (WWCP_OCPP a451bc43). Until then any known signer
   was enough for them while the policy is enforced.
-  - **Open:** the station does not name `authorization` among its resources yet.
+  - The station names `authorization` among its resources since ChargingStation c5a3893: its
+    operator reads and edits it, the installer with him, the support does not, and so does
+    not clear the cache either.
 - **The first step of the chain is built** (WWCP_Core fd594584, WWCP_OCPP 3443b7d4, OCPP 2.1 and
   1.6): the connection role and the peer's rights profile.
   - The incoming adapter asks its node what a connection may carry (`RightsOfConnection`): the
