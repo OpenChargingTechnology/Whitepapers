@@ -602,8 +602,9 @@ a probation ran out, the station closes the SSH connection itself.
   yet.
 - **SFTP for logs and firmware.** `GetLog` and `UpdateFirmware` name a URL the station uploads to or
   downloads from, today HTTP(S) or FTP(S) with credentials in the URL. An `sftp://` location on the
-  same server, opened as a channel of the connection to that SSH peer, would need no credentials at all; a
-  section of its own in a later version of this paper.
+  same server needs no credentials in the URL: the server is an SSH peer whose host key the station
+  holds, and the station signs in with its `SFTP` key. A paper of its own:
+  [SFTP for Logfile Uploads and Firmware Downloads](../SFTP-FileTransfers/README.md).
 - **EVQI channels.** [EVQI Transport](../EVQITransport/README.md) runs further OCPP channels
   (bulk, privileged, …) as further WebSocket connections or HTTP/2 and HTTP/3 streams. Over SSH
   they would be further channels of the same subsystem; the HELLO would carry the channel's class.
