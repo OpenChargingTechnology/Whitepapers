@@ -173,7 +173,9 @@ sftp://[<user>[;fingerprint=<fingerprint>]@]<host>[:<port>]/<path>
   (question 1). A password in a URL was written into every log on its way.
 - **`;fingerprint=`** is never a source of trust. Where it is present in the notation
   `SHA256:<base64>` and names none of the keys the peer is pinned to, the request is rejected: the
-  sender expects another server than the station knows. Other notations are ignored.
+  sender expects another server than the station knows. Other notations are ignored. A `/` of the
+  base64 is written `%2F`, as everywhere in a URL before its path; the `:` after `SHA256` is a part
+  of the parameter, and no password.
 - **`path`**: after the first `/`, percent-decoded once. A path that starts with `~/` is relative
   to the home directory of the login; every other path is absolute. A path with a `..` segment, a
   NUL or a control character after decoding is rejected.
@@ -220,12 +222,16 @@ Only when all four say yes does the station take from the same peer what it need
 - **An SSHFP record makes no peer**, and neither does a host key the server announced by
   `hostkeys-00@openssh.com`.
 
-### 4.3 One host, several servers
+### 4.3 Address and port
 
-The SSH peers of OCPP over SSH are found by their address, as the station keeps one connection to
-a host. A file server is found by address *and* port: the SFTP server of an operator may run on another port of the host the CSMS
-runs on, with another host key and other logins. Two peers with the same address and different
-ports are two peers.
+An SSH peer has one address and one port, and a station has one peer per address, as it keeps one
+connection to a host ([OCPP over SSH](../OCPP-over-SSH/README.md), section 7.3). A request finds
+its file server by both: the host of the URL is the address of the peer, and the port of the URL -
+22 where it names none - is the port of the peer. The right host on another port is no file server.
+
+So an SFTP server on a second port of a host that is a peer already, with a host key of its own,
+cannot be a second peer under that address. It is entered under a name or address of its own, or
+it waits for peers that are found by address and port (question 5).
 
 ---
 
@@ -334,6 +340,7 @@ nothing else:
 | login refused | no | `PermissionDenied` | `DownloadFailed` | `FailedToAuthenticateAtFileServer` |
 | no `sftp` subsystem | no | `NotSupportedOperation` | `DownloadFailed` | - |
 | `SSH_FX_PERMISSION_DENIED`, `SSH_FX_NO_SUCH_FILE` | no | `PermissionDenied` | `DownloadFailed` | - |
+| the name of the upload, or its `.part`, is taken | no | `UploadFailure` | - | - |
 | quota, disk full, other `SSH_FX_FAILURE` | yes | `UploadFailure` after the last try | `DownloadFailed` after the last try | - |
 
 A wrong host key is final for the request. A retry would only ask the same attacker again, and a
@@ -357,12 +364,15 @@ window, one file or an archive of several, signed or not. It hands the transport
 name**, and the name is what the response of the request reports. The transport does the rest:
 
 - **Written under another name, then renamed.** The station writes `<name>.part` and renames it
-  when the last byte is acknowledged, with `posix-rename@openssh.com` where the server has it. A
-  consumer on the server never reads half a file.
-- **Never over a file that is there.** The file is opened with `SSH_FXF_CREAT | SSH_FXF_EXCL`.
-  The station does not list, read, delete or overwrite anything on the server, and a server should
-  not let it (chapter 10). A name that is taken is a failure of the upload, so a name should carry
-  what makes it unique: the station's identity, the `requestId`, the time.
+  when the last byte is acknowledged. A consumer on the server never reads half a file.
+- **Never over a file that is there.** The station looks whether `<name>` or `<name>.part` is
+  there, opens `<name>.part` with `SSH_FXF_CREAT | SSH_FXF_EXCL`, and renames with the plain
+  `SSH_FXP_RENAME`, which fails where the name was taken meanwhile - not with
+  `posix-rename@openssh.com`, which would write over it. A name that is taken is a failure of the
+  upload, and is not tried again; so a name should carry what makes it unique: the station's
+  identity, the `requestId`, the time. A `.part` that an attempt before left behind is neither
+  written over nor removed: it may be somebody else's. The station does not list, read, delete or
+  overwrite anything else on the server, and a server should not let it (chapter 10).
 - **A retry starts anew.** An upload is not resumed: the station cannot read what arrived, and
   must not have to.
 - **Progress and outcome are told to the logic above**, which reports them:
@@ -461,7 +471,7 @@ A peer of a station that speaks OCPP over a WebSocket and SSH for nothing but it
 
 With it, `sftp://cs001@logs.example.org:2222/upload/cs001/` is a place for logs, and
 `sftp://cs001@logs.example.org:2222/firmware/station-4.2.1.bin` a place firmware comes from.
-`sftp://cs001@logs.example.org/upload/cs001/` is neither: port 22 is another server.
+`sftp://cs001@logs.example.org/upload/cs001/` is neither: port 22 is not the port of that peer.
 
 ### 8.2 Station-wide
 
@@ -529,7 +539,9 @@ keys here and not one key:
 - **Made when the login is.** The key pair is made when a login is added to `FileTransferUsers`,
   or at the first read of its `FileTransferPublicKey`, whichever comes first.
 - **Gone when the login is.** A login taken out of `FileTransferUsers`, or a peer that is one no
-  longer, has its private keys deleted. Added again, it gets new ones.
+  longer, has its private keys deleted. Added again, it gets new ones. So does a peer whose
+  address or port changes: under the same name it is another server, and its keys were never
+  shown there.
 - **Not shared.** Two file servers cannot tell from the keys that two logins are the same
   station's, a key that leaked from one login opens no other, and a server operated by somebody
   else is given a key that is good for nothing but that server.
@@ -587,7 +599,7 @@ Any SFTP server will do. What it should be, for this paper to hold what it promi
 | Logins | One per station, named in the URL. A fleet login shared by all stations lets each station write as any other. |
 | Authentication | `publickey` only, with the key the station made for that login at this server, or a certificate for it. |
 | What a login may do | The `sftp` subsystem, and nothing else: no shell, no `exec`, no forwarding, no agent. |
-| Uploads | A directory per station that takes new files and nothing else: no listing, no reading, no overwriting, no deleting, no renaming but of the station's own `.part` file. A quota. |
+| Uploads | A directory per station that takes new files and nothing else: no listing, no reading, no overwriting, no deleting, no renaming but of the station's own `.part` file, and that never over a file. A quota. A station that cannot see whether a name is taken learns it from the open or the rename. |
 | Downloads | Read-only, and only the images that station may have. |
 | Host key | Stable, and announced to the stations (as a pin) *before* it changes: two pins for the time of a change. Or a host certificate of a CA the stations hold. |
 | What arrives | Is untrusted input: a file name and a file from a device in the field. |
@@ -707,6 +719,9 @@ Decided on 2026-11-13:
    the download half? *Proposed*: after.
 4. **Standardization.** The reason codes, the security events, the variables and the two fields
    of `SignSSHKey` are proposals for OCPP, together with OCPP over SSH.
+5. **Two SSH servers on one host.** A peer is found by its address, so a file server on another
+   port of a host that is a peer already needs a name of its own (section 4.3). *Proposed*: left
+   as it is until somebody has such a host.
 
 ---
 
