@@ -1430,8 +1430,9 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 2. COSE is added on EVQI CBOR channels, with Styx COSE. Built for OCPP 2.1 with its CBOR form
    (subprotocol `ocpp2.1cbor`): WWCP_Core 011c651d and WWCP_OCPP f88c44d8, in the form of
    section 4.2 and with the decisions Q22 to Q26. What a node writes is
-   `SignaturePolicy.Formats` (`JWS`, `COSE` or both) - a property of the policy so far, not
-   of a connection.
+   `SignaturePolicy.Formats` (`JWS`, `COSE` or both), and a connection may say otherwise for
+   the messages that leave over it (`Formats` of section 6.3.1, Q27): WWCP_Core 0dbd2a66, WWCP_OCPP
+   cc333ecb, and `signatureFormats` of a connection in ChargingStation 3574244.
 3. Role certificates with the EVQI role extension follow.
 4. Binary messages get COSE_Sign1 with the header of section 4.1 (F17, Q19).
 5. `OCPPVersion` names the subprotocol of each connection (Q17).
@@ -1468,7 +1469,8 @@ others as proposed. A phase that finds a reason against one reopens it.
 Q15 to Q21 came up while phase 2 was built, and were decided on 2026-11-11.
 
 Q22 to Q26 came up while the COSE signature was built for OCPP 2.1 as CBOR, and were decided
-on 2026-11-12.
+on 2026-11-12. Q27 came up the same day, when the signatures a node writes became a matter
+of the connection.
 
 | No. | Question | Decision |
 |---|---|---|
@@ -1498,6 +1500,7 @@ on 2026-11-12.
 | Q24 | Which precision has a point in time in what a COSE signature signs? | Whole milliseconds, as the JSON form of a message has them. The payload is the CBOR of the message as read from its JSON form, so that a signer does not sign what no receiver sees. |
 | Q25 | Which signatures does a node write where nothing is said? | The embedded JWS alone. A node writes COSE, or both, only where it is set to (`Formats`); it verifies every signature it can read. |
 | Q26 | Which COSE algorithm identifiers? | `ES256`, `ES384` and `ES512` are written, as for the JWS. The fully-specified `ESP256`, `ESP384` and `ESP512` of RFC 9864 are read as well. |
+| Q27 | How is `Formats` "per connection" where a node signs before it sends? | The policy asks, for each message it signs, what the connection that message leaves over says; where the connection says nothing, the policy's own `Formats` applies. A request and a message without an answer leave for the next node of their destination; a response leaves for the node its request came from - by that node's name, so two connections to nodes of one name are not told apart for a response. The station has it as `signatureFormats` of a connection. |
 
 ---
 
