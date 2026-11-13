@@ -1,6 +1,6 @@
 # SFTP for Logfile Uploads and Firmware Downloads
 
-**Version 0.2, Draft**, 2026-11-13
+**Version 0.3, Draft**, 2026-11-13
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementations (in part, chapter 12): [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, SFTP client and server), [OpenChargingCloud/WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) (SSH peers, SFTP areas), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), [OpenChargingCloud/ChargingStation](https://github.com/OpenChargingCloud/ChargingStation), [OpenChargingCloud/LocalController](https://github.com/OpenChargingCloud/LocalController), [OpenChargingCloud/CSMS](https://github.com/OpenChargingCloud/CSMS)
 
 OCPP lets a CSMS ask a charging station to upload its logs and diagnostics to a URL, and to download
@@ -124,8 +124,9 @@ And the two directions have different victims:
 1. **The request chooses among servers, it never introduces one.** Which servers exist, what they
    may show and what they may be used for is configuration. The URL of a request picks one of
    them, a login and a path.
-2. **The configuration is better protected than the request.** A CSMS that may send `GetLog` must
-   not be able to make a file server out of any host by the same right
+2. **The configuration can be better protected than the request.** A CSMS that may send `GetLog`
+   need not be able to make a file server out of any host by the same right: the peers are written
+   as the station's signature policy says, and enforced, by a signed request only
    (section 8.4, decision 3).
 3. **Checked before answered.** Everything that can be decided without the network is decided
    before the response, so that a refusal is a `Rejected` and not a failure some minutes later.
@@ -437,7 +438,7 @@ the files on. That is storage and forwarding on the Local Controller, and not sp
 ### 8.1 Per peer: `SSHPeerController`
 
 The instances of `SSHPeerController` ([OCPP over SSH](../OCPP-over-SSH/README.md), section 7.3)
-get eight variables more:
+get seven variables more:
 
 | Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
 |---|---|---|---|---|---|---|
@@ -446,12 +447,26 @@ get eight variables more:
 | UploadPaths | optional | rw | string | "" | comma separated, ≤ 8, each ≤ 255 characters | Directories an upload may go to, each with everything below it. Empty: none, even where `FileTransfers` has `Upload`. An operator who wants security logs apart from diagnostics names two directories, and the CSMS sends each request to its own. |
 | DownloadPaths | optional | rw | string | "" | comma separated, ≤ 8, each ≤ 255 characters | Directories a download may come from, each with everything below it. Empty: none. |
 | FileTransferConnection | optional | rw | OptionList | `Dedicated` | `Dedicated`, `Shared` | `Shared`: a request whose login is the login of the station's connection to this peer goes as one more channel of it (section 5.3). `Dedicated`: every transfer has a connection of its own. |
-| FileTransferPublicKey | optional | ro | string | "" | one variable instance per login | The public key the station signs in with under this login at this peer, as a line of `authorized_keys` (chapter 9). The instance is the login, and there is one for every entry of `FileTransferUsers`. |
-| FileTransferPendingPublicKey | optional | ro | string | "" | one variable instance per login | The next key of that login during a rotation; empty otherwise. |
-| FileTransferKeyState | optional | ro | OptionList | `Unconfirmed` | one variable instance per login: `Unconfirmed`, `Confirmed`, `Rotating` | Whether the key of this login is used. `Unconfirmed`: made and shown, and not used until somebody confirmed that the file server holds it. `Confirmed`: used. `Rotating`: the current key is used, and a pending one waits to be confirmed. |
+| FileTransferPublicKeys | optional | ro | string | "" | comma separated, one per login | The public keys the station signs in with for file transfers at this peer, one per login (chapter 9): each a line of `authorized_keys` whose comment is `<login>@<peer>`, so that the list says which key is whose. |
+| FileTransferKeyStates | optional | ro | string | "" | comma separated, one per login | Whether the key of each login is used, as `<login>=Unconfirmed` or `<login>=Confirmed`. `Unconfirmed`: made and shown, and not used until somebody confirmed that the file server holds it. |
 
 `{id}` in a path stands for the station's identity, so that one value serves a fleet:
 `UploadPaths` `/upload/{id}/`.
+
+The keys and their states are lists of the peer, and not a variable instance per login: the
+instances of this component are its peers, and a login comes and goes with `FileTransferUsers`.
+In the configuration file all of it is the `fileTransfers` object of the peer's entry:
+
+```json
+{ "id": "files", "address": "logs.example.org", "port": 2222,
+  "hostKeyPins": [ "SHA256:hOEj1ea61PSArpO3/qj2Drlp024D2eiJ7DJQNNLl+hU" ],
+  "fileTransfers": {
+    "directions":    [ "upload", "download" ],
+    "users":         [ "cs001" ],
+    "uploadPaths":   [ "/upload/{id}/" ],
+    "downloadPaths": [ "/firmware/" ]
+  } }
+```
 
 The variables this paper relies on and does not change: `Address`, `Port`, `UserName`,
 `HostKeyPins`, `HostCAs`. `OnPinMismatch` is not read for a file transfer.
@@ -468,8 +483,8 @@ A peer of a station that speaks OCPP over a WebSocket and SSH for nothing but it
 | `SSHPeerController[files].FileTransferUsers` | `cs001` |
 | `SSHPeerController[files].UploadPaths` | `/upload/{id}/` |
 | `SSHPeerController[files].DownloadPaths` | `/firmware/` |
-| `SSHPeerController[files].FileTransferPublicKey[cs001]` | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… cs001@files` (read only) |
-| `SSHPeerController[files].FileTransferKeyState[cs001]` | `Confirmed` (read only) |
+| `SSHPeerController[files].FileTransferPublicKeys` | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… cs001@files` (read only) |
+| `SSHPeerController[files].FileTransferKeyStates` | `cs001=Confirmed` (read only) |
 
 With it, `sftp://cs001@logs.example.org:2222/upload/cs001/` is a place for logs, and
 `sftp://cs001@logs.example.org:2222/firmware/station-4.2.1.bin` a place firmware comes from.
@@ -488,33 +503,57 @@ With it, `sftp://cs001@logs.example.org:2222/upload/cs001/` is a place for logs,
 
 `SupportedFileTransferProtocols` lists `SFTP`. The SSH peers have their configuration keys in
 [OCPP over SSH](../OCPP-over-SSH/README.md), section 9.5: `sshPeers`, and per peer
-`sshPeer.<name>.url`, `.hostKeyPins`, `.hostCAs` and the others. A file server has more,
-named and read like the variables of section 8.1: `sshPeer.<name>.fileTransfers`,
-`.fileTransferUsers`, `.uploadPaths`, `.downloadPaths` (CSL strings, rw), `.fileTransferConnection`
-(rw), and per login `sshPeer.<name>.fileTransferPublicKey.<login>` and
-`.fileTransferPendingPublicKey.<login>` and `.fileTransferKeyState.<login>` (ro). A peer is added by its `url` with its pins, as that section says,
-and is no file server until `fileTransfers` is written. The station-wide values of section 8.2
-are `sshPeers.fileTransferConnectTimeout`, `sshPeers.fileTransferIdleTimeout` and
-`sshPeers.fileTransferMaxDownloadSize`.
+`sshPeer.<name>.url`, `.hostKeyPins`, `.hostCAs` and the others. A file server has seven more,
+named and read like the variables of section 8.1:
 
-### 8.4 Who may make a file server
+| Key | Accessibility | Example |
+|---|---|---|
+| sshPeer.*name*.fileTransfers | rw | "Upload,Download" |
+| sshPeer.*name*.fileTransferUsers | rw | "cs001" |
+| sshPeer.*name*.uploadPaths | rw | "/upload/{id}/" |
+| sshPeer.*name*.downloadPaths | rw | "/firmware/" |
+| sshPeer.*name*.fileTransferConnection | rw | "Dedicated" |
+| sshPeer.*name*.fileTransferPublicKeys | ro | "ssh-ed25519 AAAA… cs001@files" |
+| sshPeer.*name*.fileTransferKeyStates | ro | "cs001=Confirmed" |
+
+A peer is added by its `url` with its pins, as that section says, and is no file server until
+`fileTransfers` is written. The station-wide values of section 8.2 are
+`sshPeers.fileTransferConnectTimeout`, `sshPeers.fileTransferIdleTimeout` and
+`sshPeers.fileTransferMaxDownloadSize`. What "rw" means over OCPP 1.6 is section 8.4.
+
+### 8.4 Who may write the peers
 
 A CSMS that could add a peer with `SetVariables` and name it in a `GetLog` a second later would
 have configured nothing in advance. The rule of this paper is only as strong as the write of the
-peer, so that write needs more than the right to send requests:
+peer:
 
 - **On the station**: its web interface, its command line and its configuration file, by an
   account with the right to configure its connections.
-- **Over OCPP**: a write of `Address`, `Port`, `HostKeyPins`, `HostCAs`, `FileTransfers`,
-  `FileTransferUsers`, `UploadPaths`, `DownloadPaths` or `FileTransferConnection` is taken only
-  from a request signed by a
-  signer of pin sets the station believes, as the pins of `SSHClientController` are
-  (OCPP over SSH, section 10.4); unsigned, each entry is `Rejected` with the reason code
-  `Unsigned` (decision 3).
+- **Over OCPP**: `SSHPeerController` is a component of the station's signature policy
+  ([Signed OCPP Messages and Signer Roles](../SignedMessages/README.md)), like every other, and
+  what makes a peer a file server is written by the rule that writes the peer:
 
-With that, the party that operates the OCPP connection - a CSMS, a Local Controller in between, or
-whoever took one of them over - can choose among the file servers the operator's security role
-approved, and cannot add one.
+  | Policy | A write of `SSHPeerController` |
+  |---|---|
+  | enforced | is taken from a request signed by a signer whose role has the right to the station's connections; unsigned, or signed by another role, it is refused |
+  | observed | is taken, and an unsigned one is reported |
+  | off | is taken from whoever may send `SetVariables` or `ChangeConfiguration`, as before there were signatures |
+
+There is no rule of its own for file servers, and none that is built into the component
+(decision 3): a station has one policy, which can be set to allow everything, as it has to talk to
+a CSMS that signs nothing. What this paper asks of an operator is therefore a setting, and not a
+property of the protocol:
+
+- **With the policy enforced**, the party that operates the OCPP connection - a CSMS, a Local
+  Controller in between, or whoever took one of them over - can choose among the file servers the
+  operator's security role approved, and can neither add one nor move one. This is the
+  configuration this paper recommends wherever logs leave a station over SFTP.
+- **With the policy off**, a peer still needs a host key pin or a CA, and there is still no trust
+  on first use: an attacker on the path, or one who controls DNS, gets nothing. But whoever can
+  send requests can add a file server of their own and name it in the next `GetLog`. Against a
+  CSMS that was taken over, the first row of section 11.1 holds and the third does not.
+- **Reading is nobody's secret.** Addresses, pins, logins and public keys are read by whoever may
+  read the device model.
 
 ### 8.5 Security events
 
@@ -539,7 +578,7 @@ purpose `SFTP` of [OCPP over SSH](../OCPP-over-SSH/README.md), section 10.1, whi
 keys here and not one key:
 
 - **Made when the login is.** The key pair is made when a login is added to `FileTransferUsers`,
-  or at the first read of its `FileTransferPublicKey`, whichever comes first.
+  or at the first read of `FileTransferPublicKeys`, whichever comes first.
 - **Gone when the login is.** A login taken out of `FileTransferUsers`, or a peer that is one no
   longer, has its private keys deleted. Added again, it gets new ones. So does a peer whose
   address or port changes: under the same name it is another server, and its keys were never
@@ -559,9 +598,9 @@ the public half. The private half is never read by anybody.
 | What the CSMS needs | Where it reads it |
 |---|---|
 | The logins the station signs in under at this file server | `SSHPeerController[<peer>].FileTransferUsers`; where that is empty, `UserName` of the peer, or the station's identity |
-| The public key of each login | `SSHPeerController[<peer>].FileTransferPublicKey[<login>]`: one variable instance per login, each a line of `authorized_keys` |
-| Whether the station uses that key already | `SSHPeerController[<peer>].FileTransferKeyState[<login>]` |
-| The next key of a login, during a rotation | `SSHPeerController[<peer>].FileTransferPendingPublicKey[<login>]` |
+| The public key of each login | `SSHPeerController[<peer>].FileTransferPublicKeys`: one line of `authorized_keys` per login, comma separated, each with the comment `<login>@<peer>` |
+| Whether the station uses that key already | `SSHPeerController[<peer>].FileTransferKeyStates`: `<login>=Unconfirmed` or `<login>=Confirmed` |
+| The next key of a login, during a rotation | `SSHPeerController[<peer>].FileTransferPendingPublicKeys` (section 9.3) |
 
 A `GetVariables` or a `GetReport` for the component `SSHPeerController` returns all of them: the
 list of logins and public keys of every file server the station has.
@@ -573,29 +612,29 @@ sequenceDiagram
     participant FS as File server
     CSMS->>CS: SetVariables (signed): peer "files", pins,<br/>FileTransfers, FileTransferUsers = cs001, paths
     Note over CS: makes a key pair for cs001 at "files"
-    CSMS->>CS: GetVariables(FileTransferPublicKey[cs001])
+    CSMS->>CS: GetVariables(FileTransferPublicKeys of "files")
     CS-->>CSMS: ssh-ed25519 AAAA… cs001@files
     CSMS->>FS: enter the line into authorized_keys of cs001
     CSMS->>CS: SSHKeySigned(SFTP, publicKey, peer = files, login = cs001)
-    Note over CS: FileTransferKeyState[cs001] = Confirmed
+    Note over CS: FileTransferKeyStates = cs001=Confirmed
     CSMS->>CS: GetLog(sftp://cs001@logs.example.org:2222/upload/cs001/)
     CS->>FS: publickey(cs001), sftp
 ```
 
 1. **The login is configured.** With the peer, or later: a login added to `FileTransferUsers` has
    a key pair made for it at once, and its state is `Unconfirmed`.
-2. **The CSMS learns the key.** It reads `FileTransferPublicKey[<login>]`, or is sent it: the
-   station sends a `SignSSHKey` (below) by itself when a login is added, and on a
-   `TriggerMessage`.
+2. **The CSMS learns the key.** It reads `FileTransferPublicKeys`, or is sent it: the station
+   sends a `SignSSHKey` (below) on a `TriggerMessage`, and by itself when a login is added.
 3. **The CSMS enters the key at the file server**, where that login lives: in its own store, by
    `InstallSSHKey` at a Local Controller, in the `authorized_keys` of an OpenSSH server, or by
    having it certified (section 9.5). How it reaches a file server of somebody else is not OCPP's.
 4. **The CSMS confirms it** with `SSHKeySigned`, naming the key, the peer and the login. The
-   station checks that this is the key it holds for that login, and from then on uses it:
-   `FileTransferKeyState` is `Confirmed`. An account on the station itself may confirm a key as
+   station checks that this is the key it holds for that login at that file server, and from
+   then on uses it: its entry in `FileTransferKeyStates` is `Confirmed`. Another key, another
+   login, a file server that is none, or only one of the two names, confirm nothing. An account on the station itself may confirm a key as
    well, on its web interface or its command line, where an installer entered it by hand.
 5. **Not used before.** Until then a request for that login is rejected (section 5.1, case 5):
-   the server would refuse the login anyway, and the CSMS reads why in `FileTransferKeyState`.
+   the server would refuse the login anyway, and the CSMS reads why in `FileTransferKeyStates`.
 
 The messages are those of OCPP over SSH, section 9.3, with two optional fields:
 
@@ -605,7 +644,8 @@ The messages are those of OCPP over SSH, section 9.3, with two optional fields:
 | `SignSSHKey`, `SSHKeySigned` | `login` | string[0..32] | 0..1 | With the purpose `SFTP`: the login the key is for. |
 
 `TriggerMessage` asks for a `SignSSHKey` with the `customTrigger` `SignSSHKey:SFTP:<peer>:<login>`;
-`SignSSHKey:SFTP` alone asks for one message per login of every file server. Over OCPP 1.6 and
+`SignSSHKey:SFTP` alone asks for one message per login of every file server. A trigger that names
+a login the station has at no file server is `Rejected`. Over OCPP 1.6 and
 2.0.1 the messages travel as `DataTransfer`, as that paper says, and the keys are read by
 `GetConfiguration` (section 8.3).
 
@@ -615,7 +655,8 @@ public half is entered.
 
 ### 9.3 Rotation
 
-As OCPP over SSH, section 10.3, per key: the new key is shown in `FileTransferPendingPublicKey` and
+As OCPP over SSH, section 10.3, per key: the new key is shown in `FileTransferPendingPublicKeys`,
+a list as `FileTransferPublicKeys` is, its state in `FileTransferKeyStates` is `<login>=Rotating`, and it is
 sent with `SignSSHKey`; after `SSHKeySigned` the station offers the new key first and the old one
 second. As a file transfer connects rarely, the old key is kept until the first transfer succeeded
 with the new one, or the CSMS withdraws it.
@@ -682,7 +723,7 @@ held as the `.filepart` of WinSCP is today.
 |---|---|---|
 | On the path between station and file server | answers the handshake, receives the logs, serves the firmware | shows a host key the station does not hold; the transfer ends before anything is sent |
 | Controls DNS for the server's name | the same, from anywhere | the same as above: the name was only a way to the pinned key |
-| Can send OCPP requests (a CSMS taken over, a Local Controller, a stolen operator account) | names their own server in `GetLog` and collects the logs of the fleet | is refused in the response, and reported, unless they can also sign as the security role (section 8.4) |
+| Can send OCPP requests (a CSMS taken over, a Local Controller, a stolen operator account) | names their own server in `GetLog` and collects the logs of the fleet | with the signature policy enforced: is refused in the response, and reported, unless they can also sign as a role with the right to the connections. With the policy off: can add a file server of their own, pinned to their own host key (section 8.4) |
 | Took over an approved file server | has what is uploaded from then on, and serves what they like | unchanged for uploads: the peer was believed. A firmware image is still held to its signature, by the logic above (section 7.3) |
 | Has the key of one login at one file server | signs in as that login, there | can write into that station's upload directory and read its firmware, and nothing else, if the server is as chapter 10 says |
 
@@ -716,33 +757,38 @@ held as the `.filepart` of WinSCP is today.
 
 ### 12.1 What is built
 
-On branches, not on the master branches yet:
+On the master branches of the reference implementations:
 
-| Repository | Where | What |
+| Repository | Commits | What |
 |---|---|---|
-| Hermod | `aa42d703`, [pull request #255](https://github.com/Vanaheimr/Hermod/pull/255) | uploads from a stream that never write over a file; downloads into a stream from an offset, with a limit checked before the first byte; a failed read is the end of a file no longer; an exception of its own for a host key that was refused |
-| WWCP_Node | `8f56b25`, branch `sftp/file-transfers` | the URL of chapter 3; what a peer may be used for as a file server (section 8.1); the judgement of sections 4.1 and 5.1; a key per file server and login, used once confirmed (sections 9.1, 9.2); uploads and downloads on a connection of their own or as a channel (sections 5.2, 5.3), and how each ends (section 5.4) |
-| WWCP_OCPP | `10ed9951`, branch `sftp/file-transfers` | `GetLog` and `UpdateFirmware` of OCPP 2.1, answered and told as chapters 5 to 7 say, with the retries and the cancellation of a request; the two seams to the logic above, a provider of the file to upload and a consumer of the file that was downloaded; the security events `FileTransferRefused` and `InvalidFileServerHostKey` |
+| Hermod | `aa42d703` ([pull request #255](https://github.com/Vanaheimr/Hermod/pull/255)) | uploads from a stream that never write over a file; downloads into a stream from an offset, with a limit checked before the first byte; a failed read is the end of a file no longer; an exception of its own for a host key that was refused |
+| WWCP_Node | `8f56b25`, `03948309` | the URL of chapter 3; a file server as an SSH peer of the configuration with a `fileTransfers` object (section 8.1); the judgement of sections 4.1 and 5.1; a key per file server and login, used once confirmed and deleted with its login (sections 9.1, 9.2); uploads and downloads on a connection of their own or as a channel (sections 5.2, 5.3), and how each ends (section 5.4) |
+| WWCP_OCPP | `10ed9951`, `7ec2079f` | `GetLog` and `UpdateFirmware` of OCPP 2.1, and `GetLog`, `GetDiagnostics`, `UpdateFirmware` and `SignedUpdateFirmware` of OCPP 1.6, answered and told as chapters 5 to 7 say, with the retries and the cancellation of a request; a provider of the file to upload and a consumer of the file that was downloaded; the security events `FileTransferRefused` and `InvalidFileServerHostKey` |
+| WWCP_OCPP | `df25a599` | the seven variables of section 8.1 at `SSHPeerController` and the keys of section 8.3, carried through every change of the peers |
+| WWCP_OCPP | `9bfa9d93` | `peer` and `login` in `SignSSHKey` and `SSHKeySigned`, as JSON and as CBOR (section 9.2) |
+| ChargingStation | `c51a4218` | the custom triggers `SignSSHKey:SFTP:<peer>:<login>` and `SignSSHKey:SFTP`; an `SSHKeySigned` that names a file server and a login confirms that key, and nothing else does |
 
-Tested: 11 tests in Hermod, 33 in WWCP_Node against a second node as the SFTP server, 8 in
-WWCP_OCPP; the suites around them are green.
+Tested in each of them, the transfers against a second node as the SFTP server and the enrolment
+at a charging station against a CSMS over SSH; the suites around the tests are green.
 
 ### 12.2 What is not built, or differs from this paper
 
 | | Today | This paper |
 |---|---|---|
-| File servers in the configuration | set by code only; the configured SSH peers of [OCPP over SSH](../OCPP-over-SSH/README.md), which they are to be entries of, are not on the master branches yet | a peer with what it may be used for (sections 4.1, 8.1) |
-| `SSHPeerController` | has none of the variables of sections 8.1 and 8.2; no configuration keys of OCPP 1.6 | sections 8.1 to 8.3 |
-| Signed writes | nothing writes a file server over OCPP | section 8.4 |
-| OCPP 1.6 | `GetLog`, `GetDiagnostics`, `UpdateFirmware` and `SignedUpdateFirmware` are not answered; the security events are sent | chapter 5 |
-| `PublishFirmware` | not answered | section 7.4 |
-| Enrolment over OCPP | a key is confirmed by code only; `SignSSHKey` and `SSHKeySigned` have no `peer` and `login`, and there is no `FileTransferKeyState` | section 9.2 |
-| Rotation | a login has one key, and no pending one | section 9.3 |
-| The one `SFTP` key | the station still makes and rotates it, and nothing signs in with it | not used (section 9.1) |
+| Who writes the peers over OCPP | a check built into the component, by the station's pin set signers (WWCP_OCPP `df25a599`, ChargingStation `af774257`), with the keys of OCPP 1.6 read only; being replaced by the signature policy | the signature policy of the station (section 8.4) |
+| The station sends a key by itself | only on a `TriggerMessage`; a CSMS reads it in `FileTransferPublicKeys` otherwise | when a login is added (section 9.2) |
+| The CSMS | does not enter a key at a file server, and does not send `SSHKeySigned` with a peer and a login | section 9.2 |
+| `SignSSHKey` over OCPP 1.6 and 2.0.1 | the messages exist for OCPP 2.1 only | as `DataTransfer` (section 9.2) |
+| Rotation | a login has one key, and no pending one; there is no `FileTransferPendingPublicKeys`, and no state `Rotating` | section 9.3 |
+| The one `SFTP` key | the station still makes and rotates it, and nothing signs in with it; `SignSSHKey:SFTP` rotates it while there is no file server | not used (section 9.1) |
+| Station-wide variables | the time-outs and the download limit are properties of the node and of the bridge, and no variables | section 8.2 |
 | `FileTransferProtocols` | the station nodes of WWCP_OCPP list `HTTPS` | lists `SFTP` (section 8.2) |
+| `PublishFirmware` | not answered | section 7.4 |
 | Host certificates | judged by the code that judges a time server's; not tested for a file server | section 5.2 |
 | No strict KEX, no common algorithm | the first is told apart; the second ends as unreachable, and is tried again | `InvalidSSHAlgorithms`, not tried again (section 5.4) |
-| The charging station and the Local Controller | neither provides a file nor takes one; a station answers `Accepted` and transfers nothing | chapters 6 and 7 |
+| A refusal of `GetDiagnostics` and `UpdateFirmware` in OCPP 1.6 | the notification follows the response after a quarter of a second, and not by a guarantee of the order | chapter 5 |
+| The charging station and the Local Controller | neither provides a file nor takes one: a request that passes every check is rejected for want of a file, and a download stays in its staging directory | chapters 6 and 7 |
+| The web interface and the command line | show neither file servers nor their keys; a key is confirmed over OCPP or by code | section 8.4, section 9.2 |
 | The file server of a node | SFTP areas for accounts (logs, logos); no upload and no firmware area. An upload under `<name>.filepart` is held and put in place over a file of that name; `<name>.part` is a file like any other | chapter 10 |
 | `InstallSSHKey` with the purpose `SFTP` | the Local Controller installs keys of the station's own purpose only | section 9.2 |
 | OpenSSH | no run against it yet | chapter 10 |
@@ -762,9 +808,12 @@ Decided on 2026-11-13:
 2. **Keys:** one key per file server and login, made by the station (chapter 9). The one key of
    the purpose `SFTP` is not used for file transfers; `SignSSHKey` and `SSHKeySigned` say which
    peer and login a key is for.
-3. **Signed writes:** a write over OCPP that makes or changes a file server is taken only when a
-   signer of pin sets signed it (section 8.4). Without that, "configured in advance" would mean
-   "configured one message earlier".
+3. **Who writes the peers over OCPP:** the station's signature policy says, for `SSHPeerController`
+   as for every other component, and for what makes a peer a file server as for the rest of it
+   (section 8.4). Enforced, a write needs the signature of a role with the right to the station's
+   connections; off, it is taken unsigned, as a station has to talk to a CSMS that signs nothing.
+   Two earlier answers of the same day - file servers written signed only, then every SSH peer
+   written signed only, by a check built into the component - are replaced by this one.
 4. **Connections:** a connection of its own, or - where the peer says `Shared` and the login is
    the one of the station's connection to it - a channel of that connection (sections 5.2, 5.3).
 5. **What a file is:** a diagnostics log, a security log and a firmware image are files to be
