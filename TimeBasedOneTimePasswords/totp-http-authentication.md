@@ -404,6 +404,13 @@ anyway:
    constant-time comparison, single-use enforcement per (login, slot,
    token) where replay matters, rate limiting of failed attempts, and
    randomly generated secrets of at least 128 bits.
+ * **Single-use enforcement is not required**, and for a reason: a request
+   that was sent and whose answer was lost, by a network error or a
+   connection that broke, is sent again with the same token. A verifier
+   that takes a token once would refuse it, and leave its sender waiting
+   for the next slot. Where that costs more than a replay within the
+   acceptance window can, as for somebody standing in front of a charging
+   station, a verifier does better without it.
  * Registration status, credentials grammar and caching interplay are
    protocol properties, not vulnerabilities — see section 9.
 
@@ -494,12 +501,21 @@ exercised through the scheme vectors.
 | TLS exporter material (channel binding derivation) | derivation: yes; on a connection: over HTTP/3 only. `SslStream`, the TLS of the clients and servers over HTTP/1.1 and HTTP/2, exposes no exporter; Hermod's own QUIC, their TLS over HTTP/3, does, and both sides of a WebSocket opened over HTTP/3 take it from there. A client whose `TOTPConfig` asks for binding and that is not told HTTP/3 and nothing else — one left the choice of the version included, since it may come to an `SslStream` — sends nothing and says why, rather than a token weaker than configured | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
 | Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`, `TOTPIsTheOneOf`), for a WebSocket opened by an Upgrade over HTTP/1.1 and by an extended CONNECT over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]) alike. Raw tokens over all three; bound tokens over HTTP/3, verified with the exporter material of the QUIC connection the request arrived on. Over HTTP/1.1 and HTTP/2 a bound token is rejected, as section 6.2 requires of a verifier without exporter material. A login whose configuration asks for binding takes no raw token; one that does not takes a bound token all the same where it can verify it | no — a client library (a worked example in its README) |
 | The challenge `WWW-Authenticate: TOTP` (section 5.3, SHOULD) | yes, in the WebSocket server: its `401` names `TOTP` where it has one-time passwords and `Basic` where it has passwords — both in one field value where it has both ([RFC 9110] section 11.6.1), `realm` included. A client of the reference implementation does not act on the challenge: it sends its credentials preemptively | — |
-| Single-use enforcement and rate limiting (section 5.3, where replay matters) | no | — |
+| Single-use enforcement (section 5.3, OPTIONAL) | no, on purpose: a request lost on its way would leave its sender waiting for the next slot (section 10) | — |
+| Rate limiting of failed attempts (section 5.3) | no: left to the operator of the server, with whatever else limits its requests | — |
 
-Before this document can leave draft, verification is still missing for the
-Basic binding, for the `TOTP` request header outside a WebSocket handshake,
-and for bound tokens over HTTP/1.1 and HTTP/2 (exporter material of an
-`SslStream`).
+What the reference implementation lacks is a state of that implementation,
+and no condition this document waits for:
+
+ * **Verification of the Basic binding** is to be built: it is what lets in
+   a client that cannot be changed, and so the way back to what is there.
+ * **The `TOTP` request header outside a WebSocket handshake** is not
+   verified, since the plain HTTP server has no use for it yet.
+ * **Bound tokens over HTTP/1.1 and HTTP/2** are neither sent nor verified,
+   since the `SslStream` of .NET hands out no exporter material. This is a
+   limit of that library and not of the binding: section 6.2 holds for
+   every TLS v1.3 connection, and TOTP.ts derives the material for any of
+   them.
 
 The Hermod column is as of Hermod `40b11207` (2026-11-13). That a WebSocket
 opened over HTTP/2 or HTTP/3 is authenticated as one opened over HTTP/1.1,
