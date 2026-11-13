@@ -543,17 +543,29 @@ sequenceDiagram
     participant LC as Local Controller
     participant CSMS as CSMS
 
-    LC->>CSMS: own connection: reports EVQICtrlr[TLSServer].KeyPins (current, next)
-    CSMS->>CSMS: records the pins of the site's Local Controller
+    LC->>CSMS: own connection, its login marked as a Local Controller's
     CS->>LC: TLS, TrustOnFirstUse = Key: pin learned, state Learned (probation)
     CS->>LC: BootNotification
-    LC->>CSMS: BootNotification (forwarded)
-    CSMS->>LC: SetVariables NetworkConfiguration[1].ServerKeyPins<br/>and ServerKeyPinsVersion, COSE-signed
-    LC->>CS: forwarded unchanged
-    CS->>CS: signer has evqi:security-admin? version higher?<br/>learned pin among the signed pins?
+    LC->>CSMS: BootNotification (forwarded: the station's name, the Local Controller as last hop)
+    CSMS->>CSMS: notes the station behind this Local Controller
+    CS->>LC: SecurityEventNotification KeyPinLearned
+    LC->>CSMS: forwarded
+    CSMS->>LC: GetVariables EVQICtrlr[TLSServer]: KeyPins (current, next)
+    LC-->>CSMS: the pins of its station port
+    CSMS->>LC: SetVariables TLSClientController[connection].ServerKeyPins<br/>and ServerKeyPinsVersion, signed, for the station
+    LC->>CS: forwarded unchanged, under a message id of its own
+    CS->>CS: signed by one of its pin set signers? version higher?<br/>learned pin among the signed pins?
     CS->>CS: state Confirmed, probation ends
     CS-->>LC: SetVariablesResponse (Accepted)
+    LC-->>CSMS: forwarded
 ```
+
+The diagram shows what is built (section 10.8). It differs from the proposal below in three places,
+listed in section 10.10: the variables are on `TLSClientController` instead of a
+`NetworkConfiguration` slot (section 7.2), the signature is a JWS signature with a nonce in place
+of the message id instead of COSE, and the station asks for one of its own pin set signers
+instead of the role `evqi:security-admin`. Where the learned pin is not among the signed pins the
+station answers `Accepted` all the same, takes the signed pins, and then drops the connection.
 
 The ways, in order of preference:
 
@@ -1076,8 +1088,8 @@ Hermod, 41 in ChargingStation, 31 in LocalController and WWCP_Core.
 With K4, on 2026-11-12: WWCP_Core 270, WWCP_OCPP 3228 (OCPP 2.1) and 699 (OCPP 1.6),
 ChargingStation 1004, LocalController 767, CSMS 772, EVChargingTestEnvironment 49, among them the
 two end-to-end tests of the work plan's "done when". The rules of section 5.7 are red on 16
-deliberate mutations of the CSMS and the adapter. One test of the station is not stable: see
-section 10.9, the last entry.
+deliberate mutations of the CSMS and the adapter. One test of the station is not stable with the Hermod
+pinned then: see section 10.9, the last entry.
 
 ### 10.9 What building it found
 
@@ -1126,10 +1138,14 @@ section 10.9, the last entry.
 - **A rollover leaves `Configured`.** `Confirmed` says that a signed pin set confirmed a pin the
   station had learned. Pins that only ever came signed, as after a rollover, are `Configured`.
 - **Answer, then drop.** A pin set that refuses the learned pin is answered over the connection
-  it refuses, which is dropped once the answer is out. Hermod's WebSocket client closes the socket
-  right after its close frame, and on Windows frames sent just before are then sometimes lost: the
-  CSMS does not always learn that its pin set was taken. Open in Hermod; the station's order is
-  right.
+  it refuses, which is dropped once the answer is out. Hermod's WebSocket client closed the socket
+  right after its close frame. On Windows a reset discards what the other side received and has
+  not read yet, so the answer, sent 0 to 2 ms before, was sometimes lost, and the CSMS did not
+  learn that its pin set was taken: on a busy machine in 11 of 12 runs of the station's tests.
+  The station's order was right. Since Hermod `3ec1d3ae` a WebSocket connection that closes with a
+  close frame closes its sending half and waits, for 2 s at most, for the other side to close
+  (RFC 6455, section 7.1.1). Not yet in the Hermod the repositories of section 10.8 pin; a
+  WebSocket over HTTP/2 or HTTP/3 can still lose its last frames that way.
 
 ### 10.10 What is not built, or differs from this paper
 
@@ -1137,7 +1153,7 @@ section 10.9, the last entry.
 |---|---|---|
 | Raw public keys | none yet; an endpoint with `rawPublicKeys = Require` is not dialled | chapter 6, K5 and K6 |
 | Signed pin sets over OCPP | OCPP 2.1 only, on `TLSClientController[<connection>]` instead of `NetworkConfiguration`; the OCPP 1.6 keys are let through the probation gate, but nothing hands them over | sections 5.7, 7.2, 7.3 |
-| The signature of a pin set | a JWS signature of the signed-messages paper by a pin set signer the station was given at commissioning; no role `evqi:security-admin` is asked of it | section 5.7, *Authority* |
+| The signature of a pin set | a JWS signature of the signed-messages paper, with a nonce in place of the message id, by a pin set signer the station was given at commissioning; no COSE, and no role `evqi:security-admin` is asked of the signer | section 5.7, *Authority* |
 | The Local Controller's own uplink | checked against roots only; no key pins, no pin set for it | section 1.5 (a non-goal) |
 | A Local Controller unmarked at the CSMS | what it forwards is dropped, and only the log says so | section 7.4 |
 | A station that moved | forgotten by hand (`keyPins forget`); not detected | section 5.7, rule 3 |

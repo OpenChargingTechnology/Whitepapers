@@ -362,6 +362,15 @@ sequenceDiagram
   that node (`AllowToActFor` in WWCP_Core), and refuses it with `not-permitted` otherwise. This is
   the rule of the WebSocket binding, where a path that differs from the credentials' login needs the
   same permission.
+- **Speaking for another node.** Whom a connection connects as is not whom its frames may name.
+  In an overlay network (`networkingMode`, section 3.3) every frame names its sender and its path
+  itself, and any login can dial that way. The CSMS of the reference implementation takes such a
+  frame only where the last hop of its path is the node the connection connected as, and where it
+  names another sender only from a login the operator marked as a Local Controller's; what it does
+  not take is dropped without an answer, which would go to the node the frame names
+  ([Key Pins and TLS 1.3 Raw Public Keys for Local Controllers](../EVQITransport/RawPublicKeys.md),
+  section 5.7). The rule is asked where the messages of both transports arrive, so it holds over
+  SSH as over a WebSocket.
 - **No identity in the clear.** Login and key are exchanged inside the encrypted SSH transport; a
   passive observer sees neither.
 
@@ -1016,6 +1025,11 @@ The profile of this paper:
 - **Hop, not author.** SSH authenticates the connection, as TLS does. A command a Local Controller
   relays is as trustworthy as the Local Controller; who authored it is a question for
   [Signed OCPP Messages](../SignedMessages/README.md), independent of the transport.
+- **A key proves a login, not a sender.** A station that signs in with its own key and then names
+  another station as the sender of its frames has proved nothing about that station. Without the
+  rule of section 4.1 a CSMS would enrol the SSH key of a `SignSSHKey` (section 9.3) as the named
+  station's, or make a login for a name nobody has: found in the reference implementation, and
+  closed there.
 
 ### 11.4 Denial of service
 
@@ -1125,6 +1139,7 @@ What decisions 2 to 15 asked for was built and pushed on 2026-11-10, Hermod's pa
 | `ntske/1@` for stations of a Local Controller or CSMS | not served; station logins get `ocpp@` only, and the Local Controller installs keys of OCPP only | sections 5.1, 7.1 |
 | `hostkeys-00@openssh.com` | the server announces its keys; the station ignores them | section 10.4 |
 | Acting for another node | in WWCP_Core, granted only in tests | section 4.1 |
+| Speaking for another node | the CSMS asks it of every request and send message of OCPP 2.1, JSON and binary; its tests there run over a WebSocket; OCPP 1.6 is not asked | section 4.1 |
 | OpenSSH as the server | no helper program | appendix B.2 |
 
 ---
@@ -1187,6 +1202,8 @@ The questions of version 0.1, all decided on 2026-11-10:
   compares an internal PKI, pinned self-signed certificates, raw public keys and OCPP over SSH
   (its chapter 4, option D) and proposes the rule for trust on first use that section 10.4 takes
   over. A host key pin and a TLS key pin are the same idea, and a station should handle both alike.
+  Its section 5.7 says whose word a CSMS takes for the sender a forwarded frame names (section
+  4.1 here).
 - [NTS Key Establishment over SSH](../NTS-over-SSH/README.md): the subsystem `ntske/1@open.charging.cloud`
   on the same listener (its section 8.3), signed in to with the station's NTS key, or opened as a
   second channel of the OCPP connection under its OCPP login (its section 7; section 7.2 here). Its
