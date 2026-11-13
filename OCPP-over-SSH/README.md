@@ -419,8 +419,9 @@ A station's login opens the OCPP subsystem and nothing else:
 
 - no shell, no `exec`, no SFTP, no pseudo-terminal;
 - no port forwarding, local or remote, no agent forwarding;
-- the subsystems permitted to it, and only those: today `ocpp@open.charging.cloud`; later also
-  e.g. `ntske/1@open.charging.cloud` where it may use the server's time service (section 7.1).
+- the subsystems permitted to it, and only those: `ocpp@open.charging.cloud`, and of
+  `ntske/1@open.charging.cloud` and `dns@open.charging.cloud` what its login group gives it and
+  the server serves (sections 5.2, 7.1).
 
 On a node of the reference implementation these restrictions are not configurable for station
 logins: a station login is always restricted, and the restrictions of its key line can only narrow
@@ -438,6 +439,13 @@ them further.
   as neither, and a warning says so.
 - **The station must be enabled**, and its login group must be enabled and allow SSH keys. A station
   is only let in while the server serves OCPP over SSH at all.
+- **Time and names are a grant of their own.** A login group says which of
+  `ntske/1@open.charging.cloud` and `dns@open.charging.cloud` its stations have over their SSH
+  connection besides OCPP (`sshChannels` of the group). A group that says nothing gives neither:
+  a key admitted for OCPP obtains no cookies and resolves no names by itself. A group can give
+  nothing else, neither the shell nor SFTP nor a subsystem of the accounts, and a station has what
+  its group gives only where the server serves it. A grant that is taken away ends the channels
+  open under it.
 - **Accounts do not get the subsystem** unless the subsystem grants it to a permission of theirs,
   as the station's commissioning listener does (chapter 8). On a Local Controller or CSMS no
   account gets it.
@@ -574,7 +582,8 @@ A node of the reference implementation runs one SSH server, and serves on it wha
 | `sftp` | accounts | every node |
 | `ocpp@open.charging.cloud` | stations; on a station: commissioning accounts (chapter 8) | Local Controller, CSMS, station |
 | `wwcp@open.charging.cloud` | neighbouring WWCP networking nodes | WWCP_Core has it; no node serves it yet |
-| `ntske/1@open.charging.cloud` | stations and nodes that use its time server | nodes with an NTS server ([NTS-over-SSH](../NTS-over-SSH/README.md), section 8.3); WWCP_Node can serve it, but the Local Controller and the CSMS do not yet, and grant their stations `ocpp@` only |
+| `ntske/1@open.charging.cloud` | stations and nodes that use its time server | nodes with an NTS server ([NTS-over-SSH](../NTS-over-SSH/README.md), section 8.3): WWCP_Node serves it of an NTS server it is handed. The Local Controller and the CSMS give it to the stations of a login group that says so (section 5.2), but host no NTS server of their own yet |
+| `dns@open.charging.cloud` | stations that have their names over it | no node serves it yet ([DNS-over-SSH](../DNS-over-SSH/README.md)); the Local Controller and the CSMS give it to the stations of a login group that says so (section 5.2) |
 
 ### 7.2 One connection to an SSH peer, and its channels
 
@@ -641,6 +650,9 @@ Rules for `SetVariablesRequest`:
   first use for it.
 - **A peer that changed is dialled anew.** A change of any of its variables closes its connection,
   and the next channel is opened on one made by what the variables say now.
+- **A change is made of the peers as they are.** The station reads its peers, changes them and
+  stores them as one step. A peer that another request, or the station's own configuration
+  interface, added or changed in between is neither lost nor written over.
 - **A time or name server refers to a peer by its address**, with `SSHConnection` `Shared`
   ([NTS over SSH](../NTS-over-SSH/README.md), section 7; [DNS over SSH](../DNS-over-SSH/README.md),
   section 7.1). Where the address is no peer, that server cannot be reached.
