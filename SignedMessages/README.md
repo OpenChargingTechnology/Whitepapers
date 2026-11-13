@@ -819,6 +819,10 @@ This paper uses the same roles for signed messages:
 | `RequestStartTransaction`, `RequestStopTransaction` | `session:run` | |
 | `UnlockConnector` | `unlock:run` | new resource of the station |
 | `ChangeAvailability` | `availability:edit` | |
+| `ReserveNow`, `CancelReservation` | `session:run` | an outlet held for somebody or let go: what `session` is about at the station. Decided 2026-11-13, as the next three rows |
+| `GetLocalListVersion` | `authorization:read` | new resource: the local authorization list and the authorization cache |
+| `SendLocalList`, `ClearCache` | `authorization:edit` | both change who may charge without the CSMS being asked |
+| `DataTransfer` | `node:run` | whatever a vendor made of it; the policy table can ask for more by `vendorId` and `messageId` |
 | `SetChargingProfile` with `TxProfile`, `TxDefaultProfile` or `PriorityCharging` | `session:run` | the operator's everyday load management |
 | `SetChargingProfile` with `ChargingStationMaxProfile` or `LocalGeneration` | `power:edit` | what the station may draw and deliver: the installer's |
 | `SetChargingProfile` with `ChargingStationExternalConstraints` | – | refused whatever the role: external constraints come from an energy management system or the grid operator, not from a CSMS (K01.FR.22, the same in OCPP 2.0.1 and in OCPP 2.1 Edition 2; a Local Controller counts as a CSMS here, use cases K24 and K25) |
@@ -843,6 +847,10 @@ This paper uses the same roles for signed messages:
 | `RemoteStartTransaction`, `RemoteStopTransaction` | `session:run` |
 | `UnlockConnector` | `unlock:run` |
 | `ChangeAvailability` | `availability:edit` |
+| `ReserveNow`, `CancelReservation` | `session:run` |
+| `GetLocalListVersion` | `authorization:read` |
+| `SendLocalList`, `ClearCache` | `authorization:edit` |
+| `DataTransfer` | `node:run` |
 | `SetChargingProfile`, `ClearChargingProfile` with `TxProfile` or `TxDefaultProfile` | `session:run` |
 | `SetChargingProfile`, `ClearChargingProfile` with `ChargePointMaxProfile` | `power:edit` |
 | `ClearChargingProfile` without a purpose | both |
@@ -1392,8 +1400,12 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
   - `GetMonitoringReport`, `ClearVariableMonitoring`, `SetMonitoringBase` and
     `SetMonitoringLevel` are decided as a whole, by a resource of their own: the report needs
     `monitoring:read`, the other three `monitoring:edit`. Built in the table of WWCP_OCPP
-    (1e98a113). **Open:** the station does not name `monitoring` among its resources yet, so
-    none of its roles holds it by name.
+    (1e98a113). The station names `monitoring` among its resources since ChargingStation
+    d4dcc65: its operator reads and edits it, the installer with him, the support does not.
+- **Reservations, the local list, the cache and `DataTransfer` have their rights** in both
+  tables, OCPP 2.1 and 1.6 (WWCP_OCPP a451bc43). Until then any known signer
+  was enough for them while the policy is enforced.
+  - **Open:** the station does not name `authorization` among its resources yet.
 - **The first step of the chain is built** (WWCP_Core fd594584, WWCP_OCPP 3443b7d4, OCPP 2.1 and
   1.6): the connection role and the peer's rights profile.
   - The incoming adapter asks its node what a connection may carry (`RightsOfConnection`): the
