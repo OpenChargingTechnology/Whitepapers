@@ -27,7 +27,10 @@ same. This paper closes the gap without a new message:
   the connection.
 
 This holds for `GetLog` in all its log types, for `GetDiagnostics` of OCPP 1.6, for
-`UpdateFirmware` and `SignedUpdateFirmware`, and for `PublishFirmware` at a Local Controller.
+`UpdateFirmware` and `SignedUpdateFirmware`, and for `PublishFirmware` at a Local Controller. To
+this paper a diagnostics log, a security log and a firmware image are files to be moved, and
+nothing more: what is in them, how they are made and what is done with them is OCPP's and the
+vendor's.
 
 *Status*: a draft for discussion, written before the implementation. Chapter 12 says what the
 reference implementations have of it today, and chapter 13 lists the questions that are open.
@@ -39,8 +42,8 @@ reference implementations have of it today, and chapter 13 lists the questions t
 3. [The URL](#3-the-url)
 4. [File servers are SSH peers](#4-file-servers-are-ssh-peers)
 5. [From the request to the transfer](#5-from-the-request-to-the-transfer)
-6. [Logs and diagnostics](#6-logs-and-diagnostics)
-7. [Firmware](#7-firmware)
+6. [Uploads](#6-uploads)
+7. [Downloads](#7-downloads)
 8. [Configuration and the OCPP Device Model](#8-configuration-and-the-ocpp-device-model)
 9. [The station's key](#9-the-stations-key)
 10. [The file server](#10-the-file-server)
@@ -104,8 +107,8 @@ And the two directions have different victims:
 - A new file transfer protocol, or a change of the OCPP messages. The requests stay as they are.
 - Carrying the files inside the OCPP connection. That is what `BinaryDataTransfer` and the bulk
   channels of [EVQI Transport](../EVQITransport/README.md) are for.
-- What a log contains, and how firmware is installed. Chapters 6 and 7 say only what the transport
-  needs of them.
+- What a log contains, how it is collected and packed, how a firmware image is verified and how
+  it is installed. A log and an image are files here (section 2.1, principle 7).
 - HTTPS and FTPS. They have their certificates, and
   [TLS Client/Server Configuration](../TLSConfiguration/README.md).
 
@@ -128,6 +131,10 @@ And the two directions have different victims:
 5. **Keys, not passwords.** The station signs in with a key it made itself and never gave away.
 6. **One model for all nodes.** A Local Controller downloads a published firmware image by the
    same rules, and a CSMS that fetches a file from another server would too.
+7. **A file is a file.** The transport is handed a file and a place to put it, or a place and
+   somewhere to put the file. A `DiagnosticsLog`, a `SecurityLog` and a firmware image differ in
+   who makes or uses them, which is OCPP's logic and the vendor's, and in nothing the transport
+   sees. So a file server is allowed uploads, downloads or both, and not log types.
 
 ### 2.2 Decisions and rejected alternatives
 
@@ -138,7 +145,8 @@ And the two directions have different victims:
 | Connection | of its own, closed after the transfer | a channel of the station's connection to that peer: its login is confined to OCPP, and a large file would share the flow control of the OCPP channel (question 4) |
 | Credential | the station's `SFTP` key | the station's own key: a key withdrawn from one purpose would take the other with it; a password from the URL (question 5) |
 | A missing peer | `Rejected` in the response | accepted and failed later: the CSMS would learn it by a time-out |
-| Scope of a file server | per peer: which transfers, which logins, which paths | every peer for everything: a time server would become a place to send logs to |
+| Scope of a file server | per peer: which directions, which logins, which paths | every peer for everything: a time server would become a place to send logs to |
+| What is transferred | a file, whatever it is | a grant per log type, an archive format, a signature check: OCPP's logic and the vendor's, not the transport's |
 
 ---
 
@@ -185,7 +193,7 @@ the station's own configuration:
 | | Question | Answered by |
 |---|---|---|
 | 1 | Is there a peer with this host and port? | `Address`, `Port` |
-| 2 | May this peer be used for this kind of transfer? | `FileTransfers` |
+| 2 | May this peer be used in this direction? | `FileTransfers` |
 | 3 | May the station sign in there under this login? | `FileTransferUsers`, `UserName` |
 | 4 | May a file go to, or come from, this path? | `UploadPaths`, `DownloadPaths` |
 
@@ -242,7 +250,7 @@ The station answers `Rejected` when
 
 1. the URL is no valid `sftp://` URL as chapter 3 reads it, or carries a password;
 2. no peer has that host and port;
-3. the peer does not allow this kind of transfer, this login or this path;
+3. the peer does not allow this direction, this login or this path;
 4. the peer's host key is not pinned (section 4.2), or a `;fingerprint=` of the URL contradicts it;
 5. the station has no `SFTP` key yet, or the key is not confirmed as enrolled (chapter 9).
 
@@ -306,50 +314,46 @@ values; there every failed upload is `UploadFailed`.
 
 ---
 
-## 6. Logs and diagnostics
+## 6. Uploads
 
 ### 6.1 What is covered
 
 `GetLog` with every `logType` (`DiagnosticsLog`, `SecurityLog`, and `DataCollectorLog` of OCPP
-2.1), and `GetDiagnostics` of OCPP 1.6. They are one kind of transfer, `LogUpload`
-(question 7): what a station writes about itself, sent away.
+2.1), and `GetDiagnostics` of OCPP 1.6. To the transport they are one thing: a file of the
+station, sent away.
 
-### 6.2 The upload
+### 6.2 What the transport is given, and what it does
 
-- **One request, one file.** OCPP reports one file name per request. Where the request covers
-  several files - the logs of several days between `oldestTimestamp` and `latestTimestamp` - the
-  station packs them into one archive.
-- **The station names the file**, e.g. `cs001_SecurityLog_42_20261113T091500Z.tar.gz`: its
-  identity, the log type, the `requestId` and the time. The name goes into the response, and a
-  server can file it without opening it.
+The logic above it - OCPP's and the vendor's - decides what the file is: which log, of which time
+window, one file or an archive of several, signed or not. It hands the transport **a file and its
+name**, and the name is what the response of the request reports. The transport does the rest:
+
 - **Written under another name, then renamed.** The station writes `<name>.part` and renames it
   when the last byte is acknowledged, with `posix-rename@openssh.com` where the server has it. A
   consumer on the server never reads half a file.
 - **Never over a file that is there.** The file is opened with `SSH_FXF_CREAT | SSH_FXF_EXCL`.
   The station does not list, read, delete or overwrite anything on the server, and a server should
-  not let it (chapter 10).
+  not let it (chapter 10). A name that is taken is a failure of the upload, so a name should carry
+  what makes it unique: the station's identity, the `requestId`, the time.
 - **A retry starts anew.** An upload is not resumed: the station cannot read what arrived, and
   must not have to.
-- **`LogStatusNotification`** `Uploading` before the connection is made, `Uploaded` after the
-  rename.
-
-### 6.3 What does not change
-
-The time window, the log types and what a log contains are OCPP's and the station's. A security
-log that is signed stays signed; SFTP protects the way, not the file.
+- **Progress and outcome are told to the logic above**, which reports them:
+  `LogStatusNotification` `Uploading` before the connection is made, `Uploaded` after the
+  rename, and the failures by the table of section 5.3.
 
 ---
 
-## 7. Firmware
+## 7. Downloads
 
-### 7.1 The download
+### 7.1 What is covered
 
-- **The host key authenticates the server, the signature authenticates the firmware.** A pinned
-  file server is no reason to skip the check of `signingCertificate` and `signature`, and a valid
-  signature is no reason to download from a server that is not believed: an old, validly signed
-  image with a known weakness is a downgrade.
+`UpdateFirmware` of OCPP 1.6 and 2.x, `SignedUpdateFirmware` of OCPP 1.6, and `PublishFirmware`
+at a Local Controller. To the transport they are one thing: a file of a server, fetched.
+
+### 7.2 What the transport does, and what it hands over
+
 - **Into a place of its own**, with the size limited before the first byte: the station asks for
-  the attributes of the file, and refuses what is larger than it can hold
+  the attributes of the file, and refuses what is larger than it may hold
   (`FileTransferMaxDownloadSize`, section 8.2).
 - **Resumed after an interruption.** SFTP reads at an offset. A retry continues where the last
   attempt stopped when size and modification time of the remote file are what they were, and
@@ -359,29 +363,34 @@ log that is signed stays signed; SFTP protects the way, not the file.
 - **`retrieveDateTime`** is when the connection is made. The check of section 5.1 happens when the
   request arrives *and* again then: a peer that is no file server any more at that time is not
   dialled.
+- **Handed over complete, or not at all.** The logic above gets the file once its last byte is
+  there, and reports `Downloaded`. What follows is that logic's: the check of
+  `signingCertificate` and `signature`, the installation, the further status notifications.
 
-### 7.2 Unsigned firmware
+### 7.3 What the transport does not replace
 
-`UpdateFirmware` of OCPP 1.6 has no signature. Over SFTP it is at least bound to a server the
-station believed and to a login that server knows, which is more than `http://` and `ftp://` give.
-Whether a station takes unsigned firmware at all is not a question of the transport.
+The host key authenticates the server, not the file. A believed server may hold an old image with
+a known weakness, or a wrong one, and a server that was taken over serves what it likes. Whether an
+image is genuine and whether it may be installed is decided after the download, by the signature
+and the version, in OCPP's logic and the vendor's. For the unsigned `UpdateFirmware` of OCPP 1.6
+the transport gives what it can - a server the station believed, a login that server knows - and
+that is more than `http://` and `ftp://` give, and less than a signature.
 
-### 7.3 A Local Controller
+### 7.4 A Local Controller
 
 `PublishFirmware` asks a Local Controller to fetch an image and to offer it to its stations. Both
 halves fit this paper:
 
 - **The Local Controller downloads** as a station does: the file server is one of its SSH peers,
-  with `FirmwareDownload` allowed.
+  with `Download` allowed.
 - **The Local Controller publishes** under `sftp://` on its own SSH server, in a read-only area
   (chapter 10), and names that URL in `PublishFirmwareStatusNotification`. Its stations dial it
   over SSH already, or hold its host key for that; the CSMS then sends them `UpdateFirmware` with
   the Local Controller's URL. A station behind a Local Controller needs no route to the Internet
   to be updated, and no certificate to believe its Local Controller.
 
-In the other direction a Local Controller can be the file server its stations upload their logs
-to, and pass them on. That is storage and forwarding on the Local Controller, and not specified
-here.
+In the other direction a Local Controller can be the file server its stations upload to, and pass
+the files on. That is storage and forwarding on the Local Controller, and not specified here.
 
 ---
 
@@ -394,9 +403,9 @@ get five variables more:
 
 | Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
 |---|---|---|---|---|---|---|
-| FileTransfers | optional | rw | MemberList | "" | `LogUpload`, `FirmwareDownload` | What this peer may be used for as a file server. Empty: it is none. |
+| FileTransfers | optional | rw | MemberList | "" | `Upload`, `Download` | The directions this peer may be used in as a file server, whatever the file is. Empty: it is none. |
 | FileTransferUsers | optional | rw | string | "" | comma separated, ≤ 8, each ≤ 32 characters | The logins a request may name. Empty: only `UserName`, or the station's own identity where that is empty too. |
-| UploadPaths | optional | rw | string | "" | comma separated, ≤ 8, each ≤ 255 characters | Directories an upload may go to, each with everything below it. Empty: none, even where `FileTransfers` has `LogUpload`. |
+| UploadPaths | optional | rw | string | "" | comma separated, ≤ 8, each ≤ 255 characters | Directories an upload may go to, each with everything below it. Empty: none, even where `FileTransfers` has `Upload`. An operator who wants security logs apart from diagnostics names two directories, and the CSMS sends each request to its own. |
 | DownloadPaths | optional | rw | string | "" | comma separated, ≤ 8, each ≤ 255 characters | Directories a download may come from, each with everything below it. Empty: none. |
 | FileTransferPublicKey | optional | ro | string | "" | - | The public key the station signs in with for file transfers at this peer, as a line of `authorized_keys`: `SSHClientController.ClientPublicKey[SFTP]`. |
 
@@ -414,7 +423,7 @@ A peer of a station that speaks OCPP over a WebSocket and SSH for nothing but it
 | `SSHPeerController[files].Address` | `logs.example.org` |
 | `SSHPeerController[files].Port` | `2222` |
 | `SSHPeerController[files].HostKeyPins` | `SHA256:hOEj1ea61PSArpO3/qj2Drlp024D2eiJ7DJQNNLl+hU` |
-| `SSHPeerController[files].FileTransfers` | `LogUpload,FirmwareDownload` |
+| `SSHPeerController[files].FileTransfers` | `Upload,Download` |
 | `SSHPeerController[files].FileTransferUsers` | `cs001` |
 | `SSHPeerController[files].UploadPaths` | `/upload/{id}/` |
 | `SSHPeerController[files].DownloadPaths` | `/firmware/` |
@@ -508,7 +517,7 @@ Any SFTP server will do. What it should be, for this paper to hold what it promi
 | Uploads | A directory per station that takes new files and nothing else: no listing, no reading, no overwriting, no deleting, no renaming but of the station's own `.part` file. A quota. |
 | Downloads | Read-only, and only the images that station may have. |
 | Host key | Stable, and announced to the stations (as a pin) *before* it changes: two pins for the time of a change. Or a host certificate of a CA the stations hold. |
-| What arrives | Is untrusted input: a file name and an archive from a device in the field. |
+| What arrives | Is untrusted input: a file name and a file from a device in the field. |
 
 A sketch for OpenSSH, untested:
 
@@ -545,7 +554,7 @@ held as the `.filepart` of WinSCP is today.
 | On the path between station and file server | answers the handshake, receives the logs, serves the firmware | shows a host key the station does not hold; the transfer ends before anything is sent |
 | Controls DNS for the server's name | the same, from anywhere | the same as above: the name was only a way to the pinned key |
 | Can send OCPP requests (a CSMS taken over, a Local Controller, a stolen operator account) | names their own server in `GetLog` and collects the logs of the fleet | is refused in the response, and reported, unless they can also sign as the security role (section 8.4) |
-| Took over an approved file server | has what is uploaded from then on, and serves what they like | unchanged for uploads: the peer was believed. Firmware is still held to its signature (section 7.1) |
+| Took over an approved file server | has what is uploaded from then on, and serves what they like | unchanged for uploads: the peer was believed. A firmware image is still held to its signature, by the logic above (section 7.3) |
 | Has the station's `SFTP` key | signs in as that station | can write into that station's upload directory and read its firmware, and nothing else, if the server is as chapter 10 says |
 
 ### 11.2 What it is not against
@@ -562,7 +571,7 @@ held as the `.filepart` of WinSCP is today.
 - **The comparison of the host is textual** (chapter 3). A station that resolves the name and
   compares addresses lets DNS decide which peer a request means.
 - **The check happens twice for a transfer that is scheduled**: when the request arrives and when
-  the connection is made (section 7.1).
+  the connection is made (section 7.2).
 - **The response says little** (section 5.1). The reason codes do not tell the sender of a request
   which peers a station has.
 - **No fallback.** A station that cannot reach its file server over SFTP does not try the same
@@ -612,16 +621,16 @@ Nothing of this paper is built yet. What the reference implementations have of i
    `AllowPassword`, for servers of others that take no keys.
 6. **`OnPinMismatch` `Record` on a test bench.** *Proposed*: no exception; a test bench pins its
    key like everybody else.
-7. **One grant for all logs?** `LogUpload` covers `DiagnosticsLog`, `SecurityLog`,
-   `DataCollectorLog` and `GetDiagnostics`. An operator may want the security log at another
-   server than the diagnostics. *Proposed*: one grant now; `UploadPaths` already separates them
-   on one server.
-8. **The archive.** One `.tar.gz` per request (section 6.2), or the files one by one with the
-   first name reported? *Proposed*: one archive.
-9. **A Local Controller as file server for its stations' logs** (section 7.3): now, or after the
-   firmware half? *Proposed*: after.
-10. **Standardization.** The reason codes, the security events and the variables are proposals for
-    OCPP, together with OCPP over SSH.
+7. **A Local Controller as file server for its stations' uploads** (section 7.4): now, or after
+   the download half? *Proposed*: after.
+8. **Standardization.** The reason codes, the security events and the variables are proposals for
+   OCPP, together with OCPP over SSH.
+
+Decided on 2026-11-13: a diagnostics log, a security log and a firmware image are files to be
+transferred, and everything else about them is OCPP's logic and the vendor's (section 2.1,
+principle 7). With that, two questions of the first draft are gone: there is no grant per log
+type, as a file server is allowed directions (section 8.1), and the transport packs no archive
+(section 6.2).
 
 ---
 
