@@ -1106,7 +1106,8 @@ Acceptance rules:
   it (Q4).
 - **Private keys.** They are never part of the object. A station refuses an object that contains
   `d` or `private`.
-- **Algorithms.** Keys are accepted as JWK (`EC` P-256, P-384, P-521, brainpool; `OKP` Ed25519)
+- **Algorithms.** Keys are accepted as JWK (`EC` P-256, P-384, P-521, brainpool; `OKP` Ed25519;
+  the first three are built, see phase 4)
   or COSE_Key. The thumbprint `kid` is checked against the key.
 
 The station stores the object **as received**. It can show it, export it and prove later who
@@ -1191,7 +1192,12 @@ Each message is signed as section 4 describes, and the policy entry for it requi
 - `InvalidKey`;
 - `KeyLimitReached`;
 - `WouldLockOut` (removing the last owner key);
-- `InvalidPolicy` (e.g. two equally specific entries, section 5.2).
+- `InvalidPolicy` (e.g. two equally specific entries, section 5.2);
+- `InvalidRoleAssignment` (the object is no role assignment: no role, no version, permissions
+  that are none).
+
+OCPP 2.1 says the reason as the `reasonCode` of the `statusInfo` of the response. OCPP 1.6 has
+no `statusInfo`: there the response itself has `reasonCode` and `additionalInfo`.
 
 **Role certificates** use the certificate messages that exist already:
 
@@ -1471,6 +1477,85 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 6. Charging tariffs (E2EChargingTariffs) are signed in the form of section 4.4 too (Q21).
 7. Key pin sets (EVQI Transport, K4) move from a message signature without the time check to a
    signed data object (section 4.4).
+
+*Status:* items 1 to 6 are built (2026-11-13) in WWCP_Core 627372c2, 4c0087a6 and 9cf03087,
+WWCP_OCPP d2550b5f, c355219e and 8cc6b5cd, and ChargingStation 4920230, all on master and pushed.
+Item 7 is not built.
+
+- **Signed data objects** (`SignedDataObject`, WWCP_Core) are the embedded JWS of section 4.4 on
+  the object itself.
+  - The protected header has `alg`, `kid`, `typ`, `iat` and, where the signer says so, `exp`.
+    `typ` is `ocpp-signer-role` for a role assignment and `ocpp-signature-policy` for a policy
+    table; for a charging tariff and what else signs itself it is the JSON-LD context of the
+    object.
+  - Verifying gives the keys whose signatures hold. One signature that does not hold refuses
+    the object as a whole. A signature does not age by itself: what is stored is verified
+    later, so only `exp` and a signing time in the future are held against the clock.
+  - An object has to be read as it was written. A JSON parser that makes dates of the texts
+    that look like one writes them back otherwise, and the signatures hold no longer
+    (`SignedDataObject.ParseAsReceived`).
+- **Role assignments** (`SignerRoleAssignment`, `SignerRoleTable`, WWCP_Core) follow section 6.2.
+  - What writes a role comes through the table, whether a message, a file or a page brought
+    it. An assignment is signed by the owners, as many as the quorum says. Its version counts
+    upwards, also over a delete and a reset of the table. It says no more than the node says
+    of the role (Q4), and nothing of what the owner may do. No change leaves a node that has an
+    owner without one.
+  - The first owner is made at the node. Over the network it comes only where the node is told
+    so, and while there is none: then the first assignment for the owner's role that a key of
+    its own signed is taken, in a request that needs nobody's signature, since nobody could
+    have signed it yet.
+  - Keys are those of the curves the JWS code knows: P-256, P-384 and P-521. Brainpool,
+    Ed25519 and COSE_Key of section 6.2 are not built.
+  - Role certificates (`MessageSigningRootCertificate`, `CertificateGroup`) are not built: a
+    station supports role assignments, which is what section 6.2 asks of it at least.
+- **The messages of section 6.4** are in WWCP_OCPP, for OCPP 2.1 and 1.6, with JSON and CBOR.
+  The six they replace are gone.
+  - A role assignment and a policy table travel as received. Over a CBOR connection they are
+    the CBOR of their JSON, and are read back as the same JSON: their signatures hold on
+    either side.
+  - `AddSignerRole`, `UpdateSignerRole`, `DeleteSignerRole` and `SetSignaturePolicy` need
+    `signatures:edit`, `GetSignerRoles` and `GetSignaturePolicy` `signatures:read`.
+  - **The policy protects itself** (section 5.2). Until now an entry of the policy table that
+    matched a request decided alone, also the default entry `*`: an entry that asked for less
+    could have let anybody write the roles. A request whose action needs `signatures:edit`,
+    and an entry of the device model whose component is `signatures`, needs the permission
+    whatever an entry says.
+  - A policy table replaces the one before it, entry for entry, as a whole or not at all. What
+    a node made of entries itself stays.
+- **`RoleTableChanged`** is sent for every change of the roles or the policy, also for one made
+  at the node. Its `techInfo` says what was changed, of which role, and to which version.
+- **The station** keeps one table of signer roles for both of its OCPP nodes, beside its
+  configuration file (`signatures/signer-roles.json`), with the policy table and the settings
+  of the policy.
+  - The owner is `systemadmin`. What a role may do is the station's role model, for a signed
+    request as for an account.
+  - `MessageSignatureController` answers `Mode`, `AcceptFormat0`, `Algorithms`, `MaxClockSkew`,
+    `MaxSignatureAge`, `Roles`, `PolicyVersion` and `AllowFirstOwnerByCSMS`, and writes the
+    first four of those that are settings. `Enabled`, `Formats`, `SignResponses`,
+    `SignOwnMessages`, `ReplayCacheSize` and `OwnKeyId` are not answered: the station has no
+    signing key of its own yet (section 6.5).
+  - `SignerRoleController[<role>]` answers `Description`, `Permissions`, `KeyIds`, `Version`
+    and `LastUsed`, read-only. `Roles` is read-only too: the roles are those of the station's
+    role model, and a role is not defined over OCPP.
+  - OCPP 1.6 has the keys `signatures.mode`, `signatures.acceptFormat0`,
+    `signatures.algorithms`, `signatures.maxClockSkew`, `signatures.maxSignatureAge`,
+    `signatures.roles`, `signatures.policyVersion` and `signatures.allowFirstOwnerByCSMS`, and
+    for each role `signatures.roles.<role>.permissions`, `.keyIds`, `.version` and
+    `.lastUsed`.
+  - Q4 is a setting of the station, written at the station alone, and not a policy entry:
+    whether a role assignment may say what a role may do beyond what the station says of it.
+    So is the quorum of owners.
+  - The page "Signer roles", its JSON API and the command `signerroles` (section 6.6) write
+    through the same table. Forgetting every key is asked twice.
+- **Charging tariffs** (Q21), and every other object that signs itself through
+  `ACustomSignableData`, are signed in the form of section 4.4. A signature of format 0 on a
+  data object is no longer counted. The signing time is in whole seconds.
+- **Open:**
+  - Item 7. A pin set is still a signed `SetVariables` request. As a data object it needs a
+    place to travel in, on the station and on the CSMS alike, which
+    [Key Pins and TLS 1.3 Raw Public Keys](../EVQITransport/RawPublicKeys.md) has to say first.
+  - The audit log of section 5.4.
+  - The Local Controller and the CSMS do not send the messages by a command of their own yet.
 
 ### Phase 5: standard and EVQI encodings
 
