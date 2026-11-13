@@ -806,6 +806,8 @@ This paper uses the same roles for signed messages:
 | `GetVariables`, `GetBaseReport`, `GetReport` | `<resource of the component>:read` | per entry. `DNSClientController` → `dns`, `NTPClientController` → `nts`, unknown → `configuration`. A report leaves out what its signers may not read |
 | `SetVariableMonitoring` | `<resource of the component>:edit` | per entry: a monitor changes what the station does with its variable. Decided 2026-11-12 for now; to be refined |
 | `SetVariables` | `<resource of the component>:edit` | per entry |
+| `GetMonitoringReport` | `monitoring:read` | new resource. Decided 2026-11-13: the monitoring of the station as a whole is a right of its own |
+| `ClearVariableMonitoring`, `SetMonitoringBase`, `SetMonitoringLevel` | `monitoring:edit` | as a whole, not per entry |
 | `InstallCertificate`, `DeleteCertificate`, `CertificateSigned` | `certificates:edit` | |
 | `GetLog` | `log:read` | |
 | `Reset` `OnIdle` (2.1, also with `evseId`), `Soft` (1.6) | `reset:run` | new resource. A 1.6 station waits with a `Soft` reset until nothing is charging, as with `OnIdle`, instead of ending running transactions as the 1.6 text says |
@@ -1388,7 +1390,10 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
     `NotAuthorized`; the other monitors of the request are set. In 4f687cf8 the right to read
     was enough; since WWCP_OCPP 50e80f77 a monitor needs the right to edit.
   - `GetMonitoringReport`, `ClearVariableMonitoring`, `SetMonitoringBase` and
-    `SetMonitoringLevel` are decided as a whole.
+    `SetMonitoringLevel` are decided as a whole, by a resource of their own: the report needs
+    `monitoring:read`, the other three `monitoring:edit`. Built in the table of WWCP_OCPP
+    (1e98a113). **Open:** the station does not name `monitoring` among its resources yet, so
+    none of its roles holds it by name.
 - **The first step of the chain is built** (WWCP_Core fd594584, WWCP_OCPP 3443b7d4, OCPP 2.1 and
   1.6): the connection role and the peer's rights profile.
   - The incoming adapter asks its node what a connection may carry (`RightsOfConnection`): the
