@@ -1,7 +1,7 @@
 # SFTP for Logfile Uploads and Firmware Downloads
 
 **Version 0.2, Draft**, 2026-11-13
-[CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementations (planned, chapter 12): [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, SFTP client and server), [OpenChargingCloud/WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) (SSH peers, SFTP areas), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), [OpenChargingCloud/ChargingStation](https://github.com/OpenChargingCloud/ChargingStation), [OpenChargingCloud/LocalController](https://github.com/OpenChargingCloud/LocalController), [OpenChargingCloud/CSMS](https://github.com/OpenChargingCloud/CSMS)
+[CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementations (in part, chapter 12): [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, SFTP client and server), [OpenChargingCloud/WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) (SSH peers, SFTP areas), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP), [OpenChargingCloud/ChargingStation](https://github.com/OpenChargingCloud/ChargingStation), [OpenChargingCloud/LocalController](https://github.com/OpenChargingCloud/LocalController), [OpenChargingCloud/CSMS](https://github.com/OpenChargingCloud/CSMS)
 
 OCPP lets a CSMS ask a charging station to upload its logs and diagnostics to a URL, and to download
 its firmware from one. The URL names the protocol, and SFTP is one of them. What OCPP does not say
@@ -714,19 +714,38 @@ held as the `.filepart` of WinSCP is today.
 
 ## 12. Implementation status
 
-Nothing of this paper is built yet. What the reference implementations have of its parts:
+### 12.1 What is built
 
-| | Today |
-|---|---|
-| SFTP client | Hermod has one: upload, download, streams with offsets, `posix-rename@openssh.com`, `limits@openssh.com`. |
-| SSH peers | WWCP_Node keeps the peers of a node and one shared connection to each; the station adds the hosts of its `ssh://` connections. A peer has no file transfer variables. |
-| `SSHPeerController` | [OCPP over SSH](../OCPP-over-SSH/README.md), section 12.3, names it as built for OCPP 2.1, with the configuration keys of OCPP 1.6. It was not on the master branches of WWCP_OCPP and ChargingStation when this draft was written. |
-| The keys | The station makes and rotates one key of the purpose `SFTP`, shown as `ClientPublicKey[SFTP]`; nothing signs in with it. There are no keys per file server and login, and `SignSSHKey` has no `peer` and `login`. |
-| A shared connection | WWCP_Node hands out the node's connection to a peer for one more channel of a subsystem; nothing asks it for `sftp`. |
-| `GetLog`, `GetDiagnostics`, `UpdateFirmware` | The messages exist in WWCP_OCPP for 1.6 and 2.x. The station nodes answer `Accepted` and transfer nothing. |
-| `FileTransferProtocols` | The station nodes of WWCP_OCPP list `HTTPS`. |
-| SFTP server | A node serves SFTP areas for its accounts (logs, logos); a station's login gets OCPP only, and there is no upload or firmware area. |
-| `InstallSSHKey` with the purpose `SFTP` | The Local Controller installs keys of the station's own purpose only. |
+On branches, not on the master branches yet:
+
+| Repository | Where | What |
+|---|---|---|
+| Hermod | `aa42d703`, [pull request #255](https://github.com/Vanaheimr/Hermod/pull/255) | uploads from a stream that never write over a file; downloads into a stream from an offset, with a limit checked before the first byte; a failed read is the end of a file no longer; an exception of its own for a host key that was refused |
+| WWCP_Node | `8f56b25`, branch `sftp/file-transfers` | the URL of chapter 3; what a peer may be used for as a file server (section 8.1); the judgement of sections 4.1 and 5.1; a key per file server and login, used once confirmed (sections 9.1, 9.2); uploads and downloads on a connection of their own or as a channel (sections 5.2, 5.3), and how each ends (section 5.4) |
+| WWCP_OCPP | `10ed9951`, branch `sftp/file-transfers` | `GetLog` and `UpdateFirmware` of OCPP 2.1, answered and told as chapters 5 to 7 say, with the retries and the cancellation of a request; the two seams to the logic above, a provider of the file to upload and a consumer of the file that was downloaded; the security events `FileTransferRefused` and `InvalidFileServerHostKey` |
+
+Tested: 11 tests in Hermod, 33 in WWCP_Node against a second node as the SFTP server, 8 in
+WWCP_OCPP; the suites around them are green.
+
+### 12.2 What is not built, or differs from this paper
+
+| | Today | This paper |
+|---|---|---|
+| File servers in the configuration | set by code only; the configured SSH peers of [OCPP over SSH](../OCPP-over-SSH/README.md), which they are to be entries of, are not on the master branches yet | a peer with what it may be used for (sections 4.1, 8.1) |
+| `SSHPeerController` | has none of the variables of sections 8.1 and 8.2; no configuration keys of OCPP 1.6 | sections 8.1 to 8.3 |
+| Signed writes | nothing writes a file server over OCPP | section 8.4 |
+| OCPP 1.6 | `GetLog`, `GetDiagnostics`, `UpdateFirmware` and `SignedUpdateFirmware` are not answered; the security events are sent | chapter 5 |
+| `PublishFirmware` | not answered | section 7.4 |
+| Enrolment over OCPP | a key is confirmed by code only; `SignSSHKey` and `SSHKeySigned` have no `peer` and `login`, and there is no `FileTransferKeyState` | section 9.2 |
+| Rotation | a login has one key, and no pending one | section 9.3 |
+| The one `SFTP` key | the station still makes and rotates it, and nothing signs in with it | not used (section 9.1) |
+| `FileTransferProtocols` | the station nodes of WWCP_OCPP list `HTTPS` | lists `SFTP` (section 8.2) |
+| Host certificates | judged by the code that judges a time server's; not tested for a file server | section 5.2 |
+| No strict KEX, no common algorithm | the first is told apart; the second ends as unreachable, and is tried again | `InvalidSSHAlgorithms`, not tried again (section 5.4) |
+| The charging station and the Local Controller | neither provides a file nor takes one; a station answers `Accepted` and transfers nothing | chapters 6 and 7 |
+| The file server of a node | SFTP areas for accounts (logs, logos); no upload and no firmware area. An upload under `<name>.filepart` is held and put in place over a file of that name; `<name>.part` is a file like any other | chapter 10 |
+| `InstallSSHKey` with the purpose `SFTP` | the Local Controller installs keys of the station's own purpose only | section 9.2 |
+| OpenSSH | no run against it yet | chapter 10 |
 
 ---
 
