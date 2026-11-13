@@ -103,6 +103,9 @@ response, and of every OCPP 2.1 SEND message:
    - `UpdateUserRole` and `DeleteUserRole` carry nothing at all.
    - A signature policy loses its rules on the wire.
    - The station accepts all of them and stores nothing.
+   - Since WWCP_Core d082f10a and WWCP_OCPP bc018f17 (2026-11-13) the first and the third
+     no longer hold: a role is sent with its id and its keys, a policy with its rules, and
+     both with public keys alone (section 1.3.7). The other two stand.
 
 **What is proposed.**
 
@@ -337,6 +340,25 @@ their JSON-LD context:
 | `UpdateUserRole`, `DeleteUserRole` | only `signatures` and `customData`: no role, no id | `Accepted`, nothing stored |
 | `SecureDataTransfer` | AES-CTR encrypted data with key id, nonce and counter | decrypts and answers (section 2.6) |
 
+*Since WWCP_Core d082f10a and WWCP_OCPP bc018f17 (2026-11-13)* two rows of this table read
+differently, in JSON and in the CBOR form of the messages alike:
+
+- **`AddUserRole`** carries the role under the key `userRole`: its `id`, its `description` and
+  its `keyPairs`. The receiver's parser reads what the sender's serializer writes.
+- **`AddSignaturePolicy`** carries the `signingRules` and the `verificationRules` of the
+  policy. A rule says the message it is for (`context`), its priority, its action and its key
+  pair. The default actions and the default key pairs of a policy are still not sent.
+- **A key pair on the wire is its public key**, with its algorithm, serialization and encoding
+  where they are not the defaults. No serializer of a rule, a role or a policy writes a private
+  key, so none is in what a node says about its own policy either.
+  - The parser still takes a private key that somebody sends. Section 6.2 has such an object
+    refused; that belongs to the messages of section 6.4, which are not built.
+  - Until then no key pair was read at all: the parser asked for the private key and handed
+    public and private key to the constructor the wrong way round.
+- `UpdateSignaturePolicy`, `UpdateUserRole` and `DeleteUserRole` carry what they carried, and
+  the station still answers `Accepted` and stores nothing. What section 2.4 says about a
+  working `AddUserRole` therefore holds as it stands: the message is under no role check.
+
 *Station handlers:*
 [`TestChargingStationNode`](https://github.com/OpenChargingCloud/WWCP_OCPP/blob/a06dc241/WWCP_OCPPv2.1_ChargingStation/TestChargingStationNode.cs#L1545-L1620).
 
@@ -384,7 +406,7 @@ Found by reading the code at the commits named in section 1.3; none of them is r
 | F2 | high | "Valid" means "valid for the key in `keyId`", which the sender chooses. `VerificationRule.KeyPair` and `DefaultVerificationKeyPair` are never used, so any self-made key yields `ValidSignature`. Trust exists only where a handler asks for a role. | [L1308](https://github.com/OpenChargingCloud/WWCP_Core/blob/4920c0b9/WWCP_CoreData/DataStructures/SignaturePolicy.cs#L1308) |
 | F3 | high | The verification actions `Drop` and `Reject` set a status and return `true`; nothing reads that status, so the message is processed. | [L1287–1295](https://github.com/OpenChargingCloud/WWCP_Core/blob/4920c0b9/WWCP_CoreData/DataStructures/SignaturePolicy.cs#L1287-L1295) |
 | F4 | high | Not covered by a signature: message ID, destination, source (overlay network path), time, nonce. Requests can be replayed later and to other stations that trust the same key; a signed response can answer another request of the same action. | section 2.1 |
-| F5 | high | Roles cannot be provisioned: `AddUserRole` does not round-trip, `UpdateUserRole`/`DeleteUserRole` carry nothing, a policy loses its rules on the wire, and the station stores none of it. | section 1.3.7 |
+| F5 | high | Roles cannot be provisioned: `AddUserRole` does not round-trip, `UpdateUserRole`/`DeleteUserRole` carry nothing, a policy loses its rules on the wire, and the station stores none of it. Since WWCP_Core d082f10a and WWCP_OCPP bc018f17 `AddUserRole` does round-trip and a policy keeps its rules, with public keys alone; the rest stands. | section 1.3.7 |
 | F6 | medium | Signer name, description, timestamp, algorithm and encoding are outside the signature. The timestamp can be changed freely; `algorithm` chooses the curve the verifier uses. | [L772–795](https://github.com/OpenChargingCloud/WWCP_Core/blob/4920c0b9/WWCP_CoreData/DataStructures/SignaturePolicy.cs#L772-L795) |
 | F7 | medium | What is verified is the re-serialization of the parsed model, not the bytes received. Fields the parser does not know are not covered; another implementation cannot reproduce the bytes; a change of a serializer in the library (a new optional field with a default, another number or date format) invalidates old signatures. | section 2.5 |
 | F8 | medium | The embedded `signatures` field violates every OCPP 2.1 JSON schema (`additionalProperties: false` in all 181), so a strictly validating standard peer refuses signed messages. | section 2.5 |
@@ -488,7 +510,8 @@ Three separate questions are mixed up in today's code:
 
 Today roles can only be set in code, by adding to `ANetworkingNode.UserRoles`.
 
-- **No transport.** The management messages exist but cannot carry a role (F5).
+- **No transport.** The management messages exist but cannot carry a role (F5). `AddUserRole`
+  can since WWCP_OCPP bc018f17 (section 1.3.7); nothing takes it in.
 - **No persistence.** The station stores nothing.
 - **No device model view.** No component shows the roles.
 - **No root of trust.** Nothing says who may change the roles at all.
