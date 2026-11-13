@@ -1,6 +1,6 @@
 # DNS over SSH
 
-**Version 0.1, Draft**, 2026-11-10
+**Version 0.2, Draft**, 2026-11-13
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · building blocks in: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, DNS client and server), [OpenChargingCloud/WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node) (shared SSH listener, DNS configuration), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (OCPP Device Model)
 
 DNS over TLS ([RFC 7858](https://datatracker.ietf.org/doc/html/rfc7858)) puts the byte stream of DNS
@@ -39,11 +39,13 @@ This paper is part of the transport work of [EVQI](../EVQITransport/README.md): 
 discovers endpoints through HTTPS, SVCB and SRV records, which are only as trustworthy as the
 channel they are fetched over (its section 5.2, step 6).
 
-*Status*: this is a draft for discussion, version 0.1. Nothing of it is built in the reference
-implementations yet; chapter 10 says which pieces exist and what is missing. The protocol itself was
-tried end to end with unmodified software only, OpenSSH 10.0, `socat` and BIND 9.20 (appendix B).
-The subsystem name, the variables, the security events and the key purpose are proposals. Chapter
-12 lists the questions that version 0.2 should decide.
+*Status*: this is a draft for discussion, version 0.2. It decides eight of the eleven questions of
+version 0.1 (chapter 12). Built so far is the client side in Hermod: a DNS client that asks over the
+subsystem, alone or as one of the servers of a client that asks several, on an SSH connection of its
+own or on one the station keeps anyway; and the subsystem on Hermod's DNS server for it to talk to
+(chapter 10). The protocol itself was tried end to end with unmodified software as well, OpenSSH
+10.0, `socat` and BIND 9.20 (appendix B). The variables, the security events and the key purpose
+are proposals still, and so is everything a Local Controller or a CSMS would do as a server.
 
 ## Contents
 
@@ -58,7 +60,7 @@ The subsystem name, the variables, the security events and the key purpose are p
 9. [Alternatives](#9-alternatives)
 10. [Implementation status and work plan](#10-implementation-status-and-work-plan)
 11. [Test criteria](#11-test-criteria)
-12. [Open questions](#12-open-questions)
+12. [Decisions and open questions](#12-decisions-and-open-questions)
 13. [Relation to other white papers](#13-relation-to-other-white-papers)
 - [References](#references)
 - [Appendix A: Test vectors](#appendix-a-test-vectors)
@@ -344,9 +346,9 @@ costs one round trip per query, the same as over TLS.
   then only where the station validates DNSSEC itself or reaches a validating resolver over a secure
   transport ([RFC 4255, section 2.4](https://datatracker.ietf.org/doc/html/rfc4255#section-2.4)).
 - **A host key nothing vouches for** is not believed, and the resolver is not used. There is no
-  fallback to another transport of the same server, or to UDP. Whether `OnPinMismatch` and trust on
-  first use of [Secure Name Resolution](../SecureDNS/README.md) apply to host keys is open
-  (questions 3 and 4 of chapter 12).
+  fallback to another transport of the same server, or to UDP. `OnPinMismatch` of
+  [Secure Name Resolution](../SecureDNS/README.md) applies to host keys as it does to certificate
+  pins, and nothing is learned on first use (section 7.1; decisions 3 and 4 of chapter 12).
 
 ### 4.2 How the client proves it
 
@@ -407,7 +409,9 @@ node of the reference implementation holds station logins to them whatever their
 DNS is granted to a station explicitly, like OCPP and NTS-KE: a key admitted for OCPP does not resolve
 names by itself, and a key admitted for DNS does not reach OCPP. On a Local Controller the stations
 of its network typically get all three, `ocpp@`, `ntske/1@` and `dns@`, so that one SSH connection
-carries everything they need (section 6.2).
+carries everything they need (section 6.2). On a Local Controller and a CSMS of the reference
+implementation the grant is the login group's ([OCPP over SSH](../OCPP-over-SSH/README.md),
+section 5.2), and is made before the subsystem is served.
 
 ### 5.3 Access rules
 
@@ -605,9 +609,16 @@ The existing variables of `DNSServerController` keep their meaning, with these e
 - `Problem` is `true` while `SSHStatus` is anything but `Accepted`.
 - `KnownSince` is the time since when the server is believed with its current host key, which is the
   change detection of [Secure Name Resolution](../SecureDNS/README.md) section 2.3 for host keys.
-- `OnPinMismatch` and `TrustOnFirstUse` are open questions (chapter 12, questions 3 and 4). Until
-  they are decided, an `SSH` server takes `OnPinMismatch` `Refuse` and `TrustOnFirstUse` `None`
-  only.
+- `OnPinMismatch` applies to `SSHHostKeyPins` and `SSHHostCAs` as it does to certificate pins, and
+  as [NTS over SSH](../NTS-over-SSH/README.md) section 7 has it for time servers: `Refuse` by
+  default, `Record` and `Accept` for test benches and migrations. For an `SSH` server the pin is
+  the only check there is, so `Record` and `Accept` let in whatever server answers at that address
+  (section 8.1), and a station says so with `InvalidNameServerHostKey` whenever a host key was
+  used that nothing vouches for.
+- `TrustOnFirstUse` stays `None` for an `SSH` server, as for a time server over SSH: nothing is
+  learned on first use.
+- With `SSHConnection` `Shared` neither is the name server's: the host key is the one the SSH peer
+  is held to, by what that peer is held to (section 6.3).
 - `EncryptedOnly` of `DNSClientController` counts `SSH` as encrypted.
 
 ### 7.2 Rules for `SetVariablesRequest`
@@ -624,8 +635,8 @@ For `SSH` they are joined by:
 - **SSH variables belong to SSH servers.** `SSHUserName`, `SSHHostKeyPins`, `SSHHostCAs` and
   `SSHConnection` for a server whose `Transport` is not `SSH` are `Rejected` with `reasonCode`
   `InvalidValue`; so is a change of `Transport` away from `SSH` while one of them is set.
-- **On a shared connection** (`SSHConnection` `Shared`), `Port`, `SSHUserName`, `SSHHostKeyPins`
-  and `SSHHostCAs` do not apply and are `Rejected`; `Address` must be an SSH peer of the station -
+- **On a shared connection** (`SSHConnection` `Shared`), `Port`, `SSHUserName`, `SSHHostKeyPins`,
+  `SSHHostCAs` and `OnPinMismatch` do not apply and are `Rejected`; `Address` must be an SSH peer of the station -
   the host of one of its network connection profiles with an `ssh://` URL, or the `Address` of an
   instance of `SSHPeerController` - or the change is `Rejected` with `reasonCode` `InvalidValue`. In a request,
   `SSHConnection` is applied after `Transport` and before the other variables, as in [NTS over SSH](../NTS-over-SSH/README.md) section 7.
@@ -653,7 +664,10 @@ paper adds the purpose `DNS`:
   unchanged; the `hostKeys` of an `InstallSSHKey` response are the pins for the Local Controller's
   name server as well.
 
-Whether DNS needs a key of its own is question 2 of chapter 12.
+DNS has a key of its own, as time has one (decision 2 of chapter 12): it is withdrawn at a name
+server without the station's own key being touched, and a name server that is not the station's
+CSMS or Local Controller never holds the key that opens OCPP. A name server with `SSHConnection`
+`Shared` needs none: it is a channel of a connection the station signed in to with its own key.
 
 ### 7.4 Security events
 
@@ -732,10 +746,15 @@ The section `dns` of the configuration file of the reference implementation, as 
 
 ### 8.1 Authentication
 
-- **Host key verification is mandatory**, against a pin, an SSH CA, or the pins of the OCPP
-  connection the channel runs on. A server whose host key nothing vouches for is not used, and the
-  station falls back neither to another transport of that server nor to UDP. This is the strict
-  profile of RFC 8310, and the only profile of DNS over SSH.
+- **Host key verification is mandatory**, against a pin, an SSH CA, or what the SSH peer is held
+  to whose connection the channel runs on. A server whose host key nothing vouches for is not used,
+  and the station falls back neither to another transport of that server nor to UDP. This is the
+  strict profile of RFC 8310, and the only profile of DNS over SSH in operation.
+- **`OnPinMismatch` `Record` and `Accept` give that up**, for a test bench or a migration (section
+  7.1). Over TLS they still leave a certificate that names the server and chains to a root; over
+  SSH they leave nothing, and whoever answers at the address decides where the station connects
+  next. A station in operation has `Refuse`. A planned change of a host key needs no tolerance: a
+  pin set holds the old key and the new one.
 - **No password** is sent to a name server (section 4.2).
 - **Station keys are made on the station** and never leave it, as in
   [OCPP over SSH](../OCPP-over-SSH/README.md) section 11.1.
@@ -848,40 +867,56 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
 
 | Repository | What |
 |---|---|
-| Hermod, `Hermod/DNS/Server/DNSServer.cs` | `HandleFramedDNSStreamAsync(Stream, …)`, the one handler of the length-prefixed stream that serves both TCP and DNS over TLS; private today |
+| Hermod, `Hermod/DNS/Server/DNSServer.cs` | `HandleFramedDNSStreamAsync(Stream, …)`, the one handler of the length-prefixed stream that serves both TCP and DNS over TLS, open to other transports as `ServeFramedStreamAsync` |
 | Hermod, `Hermod/DNS/Client/DNSStreamPipeline.cs` | pipelined queries and answers out of order on one stream, used by the clients of TCP and DNS over TLS |
 | Hermod, `Hermod/DNS/Server/DNSMessagePipeline.cs` | the zone, TSIG, SIG(0) and padding shared by every transport of the server |
 | Hermod, `Hermod/SSH` | subsystems on the server (`SshSubsystemFactory`, `SshSubsystemContext` with the session and the channel), `SshClient.OpenSubsystemAsync`, a channel as a `Stream` (`SshMuxChannel.AsStream()`) |
 | WWCP_Node | the shared SSH listener with subsystems per kind of login, access rules and limits ([OCPP over SSH](../OCPP-over-SSH/README.md), section 12.1); the `dns` configuration with pins ([Secure Name Resolution](../SecureDNS/README.md)) |
 | Hermod (`SshSharedConnection`), WWCP_Node (`SSHPeer`), ChargingStation, Norn | one SSH connection of the station to an SSH peer, made by whoever needs it first, with OCPP and the key exchange of NTS as channels of it (`SSHConnection` `Shared` of [NTS over SSH](../NTS-over-SSH/README.md), section 7) |
 
-### 10.2 What is missing
+### 10.2 What is built
 
-- **Hermod: the server side.** A public entry point for a framed stream on `DNSServer`, which a
-  subsystem handler calls with the channel's stream, the transport name `SSH` and the login.
-- **Hermod: the client.** `DNSTransport.SSH` and a client on `DNSStreamPipeline`, on an SSH
-  connection of its own or on one it is handed.
-- **Hermod: a resolver.** Hermod's DNS server answers authoritatively only
-  (`AuthoritativeDNSRequestHandler`). A Local Controller needs a forwarding, caching
-  `IDNSRequestHandler` that asks upstream through `DNSClient` (section 6.4).
+- **Hermod: the client.** `DNSSSHClient` asks one server over the subsystem, on `DNSStreamPipeline`
+  as the clients of TCP and DNS over TLS do: pipelined queries on one channel, answers matched by ID
+  and question, one more try on a new channel, queries padded to 128 octets. On an SSH connection of
+  its own, or on one it is handed and never closes (`SshSharedConnection`). A refused subsystem, a
+  host key that is not believed and a key that is not taken are told apart.
+- **Hermod: one server among the others.** `DNSTransport.SSH` and `DNSServerConfig.OverSSH(…)`: a
+  server over SSH is one of the servers of a `DNSClient`, beside those over UDP, TCP, TLS and
+  HTTPS.
+- **Hermod: the server side.** `DNSServer.ServeSSHSubsystemAsync` serves the subsystem on a channel
+  of somebody's SSH server, through the handler of the framed stream that serves TCP and TLS, with
+  the exit statuses of section 3.5. A request says who asked: `DNSPacket.ClientIdentity`, the login.
+
+### 10.3 What is missing
+
+- **WWCP_Node and WWCP_OCPP**: the transport `SSH` and the variables of chapter 7; `SSHConnection`;
+  the key purpose `DNS`; the security events.
+- **Conformance tests** of the client against the test criteria of chapter 11.
+- **Interoperability** of Hermod's client and server with OpenSSH, `socat` and BIND (appendix B) as
+  tests that run.
+
+Not part of this work, and a task of its own:
+
+- **A resolver on the Local Controller and the CSMS.** Hermod's DNS server answers authoritatively
+  only (`AuthoritativeDNSRequestHandler`). A node that is the name server of its station network
+  (section 6.4) needs a forwarding, caching `IDNSRequestHandler` that asks upstream through
+  `DNSClient`, a DNS proxy, and `dns@open.charging.cloud` on its shared listener, given to its
+  stations by their login group ([OCPP over SSH](../OCPP-over-SSH/README.md), section 5.2). Until
+  then a station has its names over SSH from a server that offers the subsystem itself, such as a
+  resolver behind OpenSSH (section 6.5), and `SSHConnection` `Shared` to a Local Controller or a
+  CSMS of the reference implementation finds no subsystem there.
 - **Views per identity** in the request handlers (section 4.3).
-- **WWCP_Node and WWCP_OCPP**: the subsystem on the shared listener, granted per station; the
-  transport `SSH` and the variables of chapter 7; the key purpose `DNS`; the security events.
 
-### 10.3 Work plan
+### 10.4 Work plan
 
-1. Hermod: the server side, with the test criteria of chapter 11 that concern the server, against
-   OpenSSH's `ssh -s` as an independent client.
-2. Hermod: the client, against OpenSSH, `socat` and BIND as an independent server (appendix B).
-3. Hermod: the forwarding, caching request handler.
-4. WWCP_Node: `dns@open.charging.cloud` on the shared listener of the Local Controller and the CSMS,
-   with the zone of the station network and the forwarder.
-5. WWCP_Node and WWCP_OCPP: `Transport` `SSH`, the variables, `SSHConnection`, the key
-   purpose and the security events, end to end in the
+1. *(done)* Hermod: the client, and the server side for it to talk to.
+2. WWCP_Node and WWCP_OCPP: `Transport` `SSH`, the variables, `SSHConnection`, the key purpose and
+   the security events, end to end in the
    [EVChargingTestEnvironment](https://github.com/OpenChargingCloud/EVChargingTestEnvironment).
-6. [DNSConformanceTests](https://github.com/Vanaheimr/DNSConformanceTests): the test criteria of
-   chapter 11 as conformance tests of Hermod.
-7. Views per identity.
+3. [DNSConformanceTests](https://github.com/Vanaheimr/DNSConformanceTests): the test criteria of
+   chapter 11 that concern the client as conformance tests of Hermod, and OpenSSH, `socat` and BIND
+   as an independent server.
 
 ---
 
@@ -915,36 +950,46 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
 
 ---
 
-## 12. Open questions
+## 12. Decisions and open questions
 
-1. **The subsystem name.** `dns@open.charging.cloud`, registered as `dns` once a second implementation
-   exists (section 3.1)? Or a name that says it is stub to recursive?
-2. **A key for DNS.** A fourth purpose `DNS` of `SSHClientController` (section 7.3), or does a station
-   use its NTS key, or its OCPP key, for name servers as well? A key per purpose lets one be withdrawn
-   without the others; one key fewer is one enrolment fewer. The decision touches decision 9 of
-   [OCPP over SSH](../OCPP-over-SSH/README.md).
-3. **`OnPinMismatch` for host keys.** For a TLS name server, `Record` and `Accept` let in a server
-   whose certificate still names it and still chains to a trusted root. For an SSH name server the pin
-   is the only check, so `Record` and `Accept` let in *any* server on the path, and its answers decide
-   where the station connects. OCPP over SSH allows them for test benches and migrations (its decision
-   15). Should name servers allow them at all? The proposal: `Refuse` only. A planned change of a host
-   key needs no tolerance, as a pin set holds both keys.
-4. **Trust on first use for host keys.** A value `HostKey` of `TrustOnFirstUse`, on probation as in
-   [OCPP over SSH](../OCPP-over-SSH/README.md) section 10.4? A name server on probation would answer
-   the very names the station needs to reach the CSMS that is to confirm it. The proposal: not for
-   name servers; on a shared connection nothing but OCPP goes over it while its host key is on
-   probation, so no name is asked there until a signed pin set confirms the key.
-5. **The default login.** The station's identity (section 7.1), or a fixed name like `dns`, as
-   [NTS over SSH](../NTS-over-SSH/README.md) has `ntske`? The identity serves views and logs; a fixed
-   name suits a resolver behind OpenSSH with one account (appendix B.2).
-6. **Which SSH peer.** `SSHConnection` `Shared` names its peer by `Address`. Should it instead follow
-   whichever SSH peer OCPP is connected to, so that a station that moves to its next profile keeps a
-   name server?
-7. **`SetNetworkProfile`.** A new network connection profile can remove the `ssh://` connection a name
-   server runs on. Should such a profile be checked as a change of the DNS configuration is (section
-   7.2)?
-8. **Views per identity.** Part of this paper, with a variable that tells a station which view it is
-   in, or a matter of the resolver's operator?
+Version 0.1 asked eleven questions. Version 0.2 decides eight of them:
+
+1. **The subsystem name** is `dns@open.charging.cloud`, and `dns` once it is registered (section
+   3.1). It carries DNS as TCP carries it, between whoever asks and whoever answers, and says
+   nothing of stub or recursive.
+2. **A key for DNS.** A purpose `DNS` of `SSHClientController`, for name servers with an SSH
+   connection of their own (section 7.3), as `NTS` is the key for time servers with one. A name
+   server on a shared connection has no key: the connection is the station's, signed in to with
+   the station's key.
+3. **`OnPinMismatch` applies to host keys**, as it does for time servers over SSH: `Refuse` by
+   default, `Record` and `Accept` for test benches and migrations (sections 7.1, 8.1). Version 0.1
+   proposed `Refuse` only, because for an SSH server the pin is the only check. One rule for names
+   and time is worth more than a second one for names alone, and what `Record` and `Accept` cost
+   is said where they are set.
+4. **No trust on first use** for the host key of a name server, as for a time server over SSH:
+   `TrustOnFirstUse` stays `None`. A name server on probation would answer the very names the
+   station needs to reach the CSMS that is to confirm it. And nothing but OCPP goes over a shared
+   connection whose host key is on probation, so no name is asked there before a signed pin set
+   confirms the key.
+5. **The default login** is the station's identity (section 7.1), which views, limits and logs per
+   station need. A resolver behind OpenSSH with one account takes `SSHUserName` (appendix B.2).
+6. **Which SSH peer.** `SSHConnection` `Shared` names its peer by `Address`. It does not follow
+   whichever host OCPP is connected to: the SSH peers are the station's, not OCPP's
+   ([OCPP over SSH](../OCPP-over-SSH/README.md), sections 7.2 and 7.3), and a name server has
+   nothing to do with OCPP. A station that shall keep a name server whatever its network
+   connection profile says has the peer in `SSHPeerController`.
+7. **`SetNetworkProfile`** is not checked for DNS. A profile that removes an `ssh://` connection
+   removes an SSH peer only where the profile was the one thing that made the host a peer; the
+   name server is then out of reach (`SSHStatus` `NoSSHPeer`) like any server that is, and the
+   others are asked. The rule that a CSMS must not cut itself off (section 7.2) stays a rule for
+   changes of the DNS configuration.
+8. **Views per identity** are part of this paper as something a server can do (section 4.3); the
+   reference implementation tells a request handler who asked, and builds no views yet (chapter
+   10). There is no variable that tells a station which view it is in: a station asks, and the
+   operator of the resolver knows.
+
+Three stay open:
+
 9. **Padding.** Recommended, as in RFC 8467, or required over SSH?
 10. **DNS Push Notifications** for the HTTPS and SRV records of EVQI (section 6.6): a section here, or
     a paper of its own?
