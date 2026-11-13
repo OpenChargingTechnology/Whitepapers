@@ -1153,7 +1153,7 @@ What decisions 2 to 15 asked for was built and pushed on 2026-11-10, Hermod's pa
 | `ntske/1@` for stations of a Local Controller or CSMS | not served; station logins get `ocpp@` only, and the Local Controller installs keys of OCPP only | sections 5.1, 7.1 |
 | `hostkeys-00@openssh.com` | the server announces its keys; the station ignores them | section 10.4 |
 | Acting for another node | in WWCP_Core, granted only in tests | section 4.1 |
-| Speaking for another node | the CSMS asks it of every request and send message of OCPP 2.1, JSON and binary; its tests there run over a WebSocket; OCPP 1.6 is not asked | section 4.1 |
+| Speaking for another node | the CSMS asks it of every request and send message of OCPP 2.1, JSON and binary; its tests there run over a WebSocket. The adapter of OCPP 1.6 asks the same since WWCP_OCPP `d6bdac48`; no node sets a rule there yet | section 4.1 |
 | OpenSSH as the server | no helper program | appendix B.2 |
 
 ---

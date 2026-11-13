@@ -178,7 +178,8 @@ option for exactly this hop.
 ### 1.5 Non-goals
 
 - The Local Controller's **uplink** to the CSMS. The CSMS has a public name or the operator's
-  PKI; nothing changes there.
+  PKI; nothing changes there. (Built all the same, after K4, with the parts K2 and K4 had made:
+  section 10.8, *The Local Controller's own line*.)
 - **Browsers.** No browser supports raw public keys or key pins over TLS. A browser reaches a
   server without PKI at best through WebTransport's `serverCertificateHashes`, a hash of the whole
   certificate, valid for at most 14 days. The Local Controller's web interface is a topic of its own.
@@ -1091,6 +1092,24 @@ two end-to-end tests of the work plan's "done when". The rules of section 5.7 ar
 deliberate mutations of the CSMS and the adapter. One test of the station is not stable with the Hermod
 pinned then: see section 10.9, the last entry.
 
+**The Local Controller's own line**, on 2026-11-13. What a station does with the key of its Local
+Controller, the Local Controller does with the key of its CSMS, one level up:
+
+| Repository | Commit | What |
+|---|---|---|
+| WWCP_OCPP | `7a743d31`, `0509901a` | the key pin rules of the station taken out of it, into `WWCP_OCPP_Node/KeyPins`, for every node that dials: learning on first use, probation and its gate, the signed pin set, `TLSClientController`. A write that ends a probation holds the endpoint while it is made, so that no connection is, in between, neither on probation nor refused |
+| ChargingStation | `724bae19` | the station on that core; the same order on its SSH path |
+| LocalController | `d1931aeb` | the line to the CSMS key-pinned: `TLSClientController[csms]` with the variables of section 7.2, pin set signers of its own (`csmsKeys`, the page, the API), kept in `csms-keypins.json`. On probation it carries out nothing the CSMS asks but a signed pin set and `GetVariables`/`GetReport` of `TLSClientController`, and sends nothing on to a station. Its events are those of section 7.5, in its own name, with the endpoint `csms` |
+| CSMS | `8d26be6` | a `KeyPinLearned` of a login marked as a Local Controller's, over its own line: where the pin is the pin of the key this CSMS presents itself, a signed pin set at once; where it is not - TLS ends at a proxy before the CSMS, or somebody answered in its place - or where the CSMS presents no key itself, nothing is sent, the pin is shown beside the CSMS's own, and the operator names the pins (`keyPins uplink <controller> <pin>[,<pin>...]`, or the API) |
+| LocalControllerCLI | `4a48ca4` | LocalController `d1931aeb` and WWCP_OCPP `0509901a` pinned; with these pins LocalControllerTests 785, WWCP_Node_Tests 1452 and the tests of OCPP 2.1 3279, all green |
+| WWCP_OCPP | `d6bdac48` | the sender gate of section 5.7 in the adapter of OCPP 1.6 as well |
+
+Tests: CSMS 792, among them 8 new, red on three deliberate mutations; OCPP 1.6 896, the two of the
+sender gate red with the check switched off. Two end-to-end tests - a real Local Controller that
+learns the pin of a real CSMS and is confirmed at once, and one that is handed pins without the one
+it learned and refuses its server - are green against these commits; they are not in
+EVChargingTestEnvironment yet, whose suite is not green with every library at its master.
+
 ### 10.9 What building it found
 
 - **`SslStream` takes a client certificate that chains to nothing.** The client sends it, and it
@@ -1154,10 +1173,10 @@ pinned then: see section 10.9, the last entry.
 | Raw public keys | none yet; an endpoint with `rawPublicKeys = Require` is not dialled | chapter 6, K5 and K6 |
 | Signed pin sets over OCPP | OCPP 2.1 only, on `TLSClientController[<connection>]` instead of `NetworkConfiguration`; the OCPP 1.6 keys are let through the probation gate, but nothing hands them over | sections 5.7, 7.2, 7.3 |
 | The signature of a pin set | a JWS signature of the signed-messages paper, with a nonce in place of the message id, by a pin set signer the station was given at commissioning; no COSE, and no role `evqi:security-admin` is asked of the signer | section 5.7, *Authority* |
-| The Local Controller's own uplink | checked against roots only; no key pins, no pin set for it | section 1.5 (a non-goal) |
+| The Local Controller's own uplink | key-pinned as a station's connection is, and confirmed by the CSMS where the pin learned is the CSMS's own (section 10.8); behind a TLS proxy the operator names the pins by hand; no rollover of the CSMS's key is driven for it | section 1.5 (a non-goal) |
 | A Local Controller unmarked at the CSMS | what it forwards is dropped, and only the log says so | section 7.4 |
 | A station that moved | forgotten by hand (`keyPins forget`); not detected | section 5.7, rule 3 |
-| OCPP 1.6 at the CSMS | no sender gate; the rules of section 5.7 hold for OCPP 2.1 | section 5.7 |
+| OCPP 1.6 at the CSMS | the adapter of OCPP 1.6 has the sender gate, and nobody sets it: the CSMS builds no OCPP 1.6 node of its own, and a central system built from WWCP_OCPP has to bring the rules of section 5.7 itself | section 5.7 |
 | Probation | the gate refuses every request but a pin set; BootNotification, queued security events and the offline queue are sent, as on the SSH path | only BootNotification (section 5.6) |
 | `clientKeyId` | the endpoint's existing `certificateId` names the station's TLS client key | section 7.1 |
 | Events at the Local Controller | refusals are logged; no security events | section 7.5 |
@@ -1189,6 +1208,10 @@ give a usable result with option B; K5 and K6 add RFC 7250 without changing what
 **Status, 2026-11-12:** K1 to K4 are built (section 10.8), with the negative tests of 10.7 that
 stage 1 can have, each red on its mutation. K4 is built for OCPP 2.1; what it leaves out is in
 section 10.10. K5 to K8 are open.
+
+**Status, 2026-11-13:** the Local Controller's own line to the CSMS is key-pinned as well, and the
+adapter of OCPP 1.6 has the sender gate (section 10.8). Raw public keys themselves - K5 and K6 - are
+not begun: every key pin so far is the pin of a key in a certificate.
 
 ---
 
