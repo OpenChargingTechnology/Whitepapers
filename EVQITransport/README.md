@@ -2451,8 +2451,8 @@ takes what is sent in a station's name only from that station or from a login ma
 Controller's ([section 5.7](RawPublicKeys.md#57-distribution)). K5 to K8 are open.
 
 Status, 2026-11-13: K5 and K6 are built in Hermod (`5e8f64e8`, `d4c1eac8`): raw public keys over
-HTTP/3 and, with BouncyCastle, over HTTP/1.1, HTTP/2 and WebSockets. K7 is built and not published
-yet. K8 is the [specification](KeyPinsSpecification.md). The nodes above Hermod do not present raw
+HTTP/3 and, with BouncyCastle, over HTTP/1.1, HTTP/2 and WebSockets. K7 is built as well (Hermod
+`30dd670c`, WWCP_OCPP `dd939b01`, LocalController `8e16c36`). K8 is the [specification](KeyPinsSpecification.md). The nodes above Hermod do not present raw
 keys yet ([section 10.10](RawPublicKeys.md#1010-what-is-not-built-or-differs-from-this-paper)).
 
 ### Phase F: load and abuse tests

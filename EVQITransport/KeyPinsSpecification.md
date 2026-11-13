@@ -614,7 +614,7 @@ WebSockets; a connection without raw public keys stays on .NET's `SslStream`.
 | 4.6 | A CertificateVerify that does not verify ends with `handshake_failure` over QUIC and `decrypt_error` over TCP |
 | 4.7 | The server answers `access_denied` only where its policy takes raw public keys and what came was a key; otherwise `bad_certificate` |
 | 4.8 | Built and tested over QUIC. Over TCP there is no resumption and no 0-RTT with raw public keys |
-| 6.2 | `RawPublicKeys = Require` was refused (`NotSupported`) by every node until work package K7; with it an endpoint that requires raw public keys is dialled and the value is taken. K7 is built and not published yet |
+| 6.2 | `RawPublicKeys = Require` was refused (`NotSupported`) by every node until work package K7; with it (WWCP_OCPP `dd939b01`) an endpoint that requires raw public keys is dialled and the value is taken |
 | 6.3 | Pin set signers on P-384 and P-521 are accepted when written down and cannot verify: P-256 only |
 | 7.2 | `RawPublicKeys` of `EVQICtrlr[TLSServer]` is always `Off`: the Local Controller's station port does not present its key raw yet, and takes no raw station keys. A write of `ActiveKeyPin` asks for no right of its own beyond the rule of section 9, 4 |
 | 8 | `InvalidCsmsCertificate` can be reported again for the same pin after a new dial |

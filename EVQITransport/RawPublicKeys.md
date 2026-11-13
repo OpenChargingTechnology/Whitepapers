@@ -1127,7 +1127,7 @@ EVChargingTestEnvironment yet, whose suite is not green with every library at it
 | K5 | Hermod | `4f58520a` | a QUIC client believes only a server that authenticated itself (section 10.9) |
 | K5 | Hermod | `5e8f64e8` | RFC 7250 in Hermod's TLS 1.3 under QUIC and HTTP/3, as client and as server: the two extensions, a Certificate message with a bare SubjectPublicKeyInfo, the key pin checked without a certificate, a ticket bound to its key pin; raw keys on P-256, P-384, Ed25519 and ML-DSA-65 |
 | K6 | Hermod | `d4c1eac8` | raw public keys over TCP - HTTP/1.1, HTTP/2 and WebSockets - with BouncyCastle 2.7.0 as a second TLS stack beside `SslStream`, chosen per connection (section 10.5); TLS 1.3 alone; the node's own raw key on P-256 or P-384 |
-| K7 | Hermod, WWCP_OCPP, LocalController | built, not published yet | an endpoint with `RawPublicKeys = Require` is dialled, and `Require` is taken by a signed `SetVariables`; a Local Controller that learns the key of its CSMS raw, over a WebSocket and BouncyCastle at both ends, and is confirmed by a signed pin set |
+| K7 | Hermod, WWCP_OCPP, LocalController | `30dd670c`, `dd939b01`, `8e16c36` | an endpoint with `RawPublicKeys = Require` is dialled, and `Require` is taken by a signed `SetVariables`; a Local Controller that learns the key of its CSMS raw, over a WebSocket and BouncyCastle at both ends, and is confirmed by a signed pin set |
 | K8 | Whitepapers | this version | [the specification](KeyPinsSpecification.md) |
 
 Tests, as the session that built them reports: K5 38 handshake tests, red on 20 deliberate
@@ -1206,7 +1206,7 @@ mutations, and 3 against `openssl s_client -quic` (OpenSSL 3.5.9); K6 12 and 20 
 
 | | Today | This paper |
 |---|---|---|
-| Raw public keys | in Hermod over HTTP/3 and over TCP (section 10.8). Above it: a node that dials offers them as its endpoint says, once K7 is published; the Local Controller's station port and the CSMS present no raw key yet and take no raw station keys; no raw client key at a WebSocket server over HTTP/3; no resumption over TCP | chapter 6 |
+| Raw public keys | in Hermod over HTTP/3 and over TCP (section 10.8). Above it: a node that dials offers them as its endpoint says; the Local Controller's station port and the CSMS present no raw key yet and take no raw station keys; no raw client key at a WebSocket server over HTTP/3; no resumption over TCP | chapter 6 |
 | Signed pin sets over OCPP | OCPP 2.1 only, on `TLSClientController[<connection>]` instead of `NetworkConfiguration`; the OCPP 1.6 keys are let through the probation gate, but nothing hands them over | sections 5.7, 7.2, 7.3 |
 | The signature of a pin set | a JWS signature of the signed-messages paper, with a nonce in place of the message id, by a pin set signer the station was given at commissioning; no COSE, and no role `evqi:security-admin` is asked of the signer | section 5.7, *Authority* |
 | The Local Controller's own uplink | key-pinned as a station's connection is, and confirmed by the CSMS where the pin learned is the CSMS's own (section 10.8); behind a TLS proxy the operator names the pins by hand; no rollover of the CSMS's key is driven for it | section 1.5 (a non-goal) |
@@ -1221,7 +1221,7 @@ mutations, and 3 against `openssl s_client -quic` (OpenSSL 3.5.9); K6 12 and 20 
 | Basic and TOTP for a station with key pins | still decided by its group | open question 6 |
 | Key age | the creation date is kept and shown; no warning | section 5.5, open question 9 |
 | An existing CA key as the server key | not taken over; a server key is always generated | section 5.3 |
-| End to end | station, Local Controller and CSMS over key pins in certificates. With raw public keys: a Local Controller against a server of the tests (K7, not published yet); no station, no CSMS of its own, not in EVChargingTestEnvironment | section 10.7, K7 |
+| End to end | station, Local Controller and CSMS over key pins in certificates. With raw public keys: a Local Controller against a server of the tests (K7); no station, no CSMS of its own, not in EVChargingTestEnvironment | section 10.7, K7 |
 
 ---
 
@@ -1247,9 +1247,10 @@ section 10.10. K5 to K8 are open.
 
 **Status, 2026-11-13:** the Local Controller's own line to the CSMS is key-pinned as well, and the
 adapter of OCPP 1.6 has the sender gate (section 10.8). K5 and K6 are built and published in Hermod;
-K7 is built and waits to be published; K8 is [the specification](KeyPinsSpecification.md), version
+K7 is built and published as well (Hermod `30dd670c`, WWCP_OCPP `dd939b01`, LocalController
+`8e16c36`); K8 is [the specification](KeyPinsSpecification.md), version
 0.1. What remains before a Local Controller in the field speaks raw public keys: the nodes pin the
-Hermod of K6, the Local Controller's station port and the CSMS get the switch to present their key
+libraries of K7, the Local Controller's station port and the CSMS get the switch to present their key
 raw, and stations by raw key are admitted (section 10.10).
 
 ---
