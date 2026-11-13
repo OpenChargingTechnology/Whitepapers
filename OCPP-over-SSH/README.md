@@ -576,18 +576,31 @@ A node of the reference implementation runs one SSH server, and serves on it wha
 | `wwcp@open.charging.cloud` | neighbouring WWCP networking nodes | WWCP_Core has it; no node serves it yet |
 | `ntske/1@open.charging.cloud` | stations and nodes that use its time server | nodes with an NTS server ([NTS-over-SSH](../NTS-over-SSH/README.md), section 8.3); WWCP_Node can serve it, but the Local Controller and the CSMS do not yet, and grant their stations `ocpp@` only |
 
-### 7.2 More channels on the station's connection
+### 7.2 One connection to an SSH peer, and its channels
 
-The station's OCPP connection is an SSH connection with room for more channels, all authenticated
-by the same login, without another key exchange:
+A station keeps one SSH connection to a host it reaches over SSH, its *SSH peer*, and what goes to
+that host is a channel of it, all authenticated by the same login, without another key exchange.
+The connection is the station's, not OCPP's: OCPP is one of its channels, none of them comes first,
+and whichever needs the connection first has it made. A station that starts cold may have its names
+and the time over it before a single OCPP message went over it.
 
-- **NTS-KE.** [NTS-over-SSH](../NTS-over-SSH/README.md) lets a station open `ntske/1@` as a second
-  channel of its OCPP connection (`SSHUseOCPPConnection`), so that it needs no key, pin or account
-  of its own for time. Built: the SSH client of OCPP hands out its connection while the messages
-  go over it, and the key exchange closes its own channel only (that paper's section 7).
+In the reference implementation the host of every `ssh://` network connection profile is an SSH
+peer of the station, signed in to with the station's key under the login of the profile, and
+believed by what `SSHClientController` holds it to. While a peer's host key is on probation
+(section 10.4), nothing but OCPP goes over its connection. A reconnect of OCPP after the server
+ended it is a new channel of the same connection; where the host is to be believed anew, e.g. when
+a probation ran out, the station closes the SSH connection itself.
+
+- **OCPP.** `ocpp@`, as this paper describes it.
+- **NTS-KE.** [NTS-over-SSH](../NTS-over-SSH/README.md) lets a station open `ntske/1@` as a
+  channel of the same connection (`SSHConnection` `Shared`), so that it needs no key, pin or account
+  of its own for time. Built: the node owns the connection, the key exchange has it made where
+  nothing else did, and closes its own channel only (that paper's section 7).
+- **DNS.** [DNS over SSH](../DNS-over-SSH/README.md) does the same for names with `dns@`; not built
+  yet.
 - **SFTP for logs and firmware.** `GetLog` and `UpdateFirmware` name a URL the station uploads to or
   downloads from, today HTTP(S) or FTP(S) with credentials in the URL. An `sftp://` location on the
-  same server, opened as a channel of the OCPP connection, would need no credentials at all; a
+  same server, opened as a channel of the connection to that SSH peer, would need no credentials at all; a
   section of its own in a later version of this paper.
 - **EVQI channels.** [EVQI Transport](../EVQITransport/README.md) runs further OCPP channels
   (bulk, privileged, …) as further WebSocket connections or HTTP/2 and HTTP/3 streams. Over SSH
@@ -704,8 +717,8 @@ The station makes a key pair itself, at the first need of its purpose or the fir
 `ClientPublicKey`, whichever comes first, and keeps it. The private key never leaves it.
 
 `NTPClientController.SSHClientPublicKey` of [NTS-over-SSH](../NTS-over-SSH/README.md) section 7
-reads the same key as `ClientPublicKey[NTS]`, or the OCPP key where the NTS client uses the OCPP
-connection (`SSHUseOCPPConnection`).
+reads the same key as `ClientPublicKey[NTS]`, or the key of the shared connection where the NTS
+client is a channel of the station's connection to an SSH peer (`SSHConnection` `Shared`).
 
 In `SetNetworkProfile` the values of the slot travel in the profile's `customData`, so that a
 profile and its pins arrive in one request:
@@ -1129,7 +1142,8 @@ What decisions 2 to 15 asked for was built and pushed on 2026-11-10, Hermod's pa
 | `SetNetworkProfile` | the test nodes answer `Accepted` and apply nothing; no `customData` is read | section 9.2 |
 | `HostCAs`, host certificates | not checked by the station; no variable | section 10.4 |
 | Client certificates | an `SSHKeySigned` certificate is kept and shown, not used to sign in | section 10.5 |
-| Probation | the gate refuses every request but a pin set, and a time server makes no key exchange over the connection (NTS-over-SSH, section 8.3); the other messages the station sends of its own accord are not held back | section 10.4 |
+| SSH peers | a host is a peer only through an `ssh://` network connection profile; its pins are those of that profile's `SSHClientController` instance; a host that is a peer of one profile already is dialled alone for a second one | a component of their own, for peers without OCPP as well (section 7.2) |
+| Probation | the gate refuses every request but a pin set, and nothing but OCPP goes over the connection to a host held to no pinned key (section 7.2; NTS-over-SSH, section 8.3); the other messages the station sends of its own accord are not held back | section 10.4 |
 | Signers of pin sets | the station's own list, on its Connections page; no role certificates | a signer with `evqi:security-admin` (Key Pins and Raw Public Keys, section 5.7) |
 | NTS key | shown as `ClientPublicKey[NTS]`; it is the node's and is not rotated over OCPP | section 10.3 |
 | SFTP key | made and rotated; nothing signs in with it yet | section 7.2 |
@@ -1206,7 +1220,7 @@ The questions of version 0.1, all decided on 2026-11-10:
   4.1 here).
 - [NTS Key Establishment over SSH](../NTS-over-SSH/README.md): the subsystem `ntske/1@open.charging.cloud`
   on the same listener (its section 8.3), signed in to with the station's NTS key, or opened as a
-  second channel of the OCPP connection under its OCPP login (its section 7; section 7.2 here). Its
+  channel of the station's connection to that SSH peer under its login (its section 7; section 7.2 here). Its
   `SSHHostKeyPins`, `OnPinMismatch` and `SSHClientPublicKey` mean what `HostKeyPins`,
   `OnPinMismatch` and `ClientPublicKey[NTS]` of `SSHClientController` mean here (decision 15). Its
   ToDo list asked for this paper.

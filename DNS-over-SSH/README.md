@@ -28,8 +28,9 @@ close to DNS over TLS as it can:
   names at once (section 1.3).
 - **The client has an identity**: its SSH login, proven by its key. A resolver can answer per
   station or per group of stations, limit and log per identity, and not per source address.
-- **A channel of the OCPP connection.** A station that speaks OCPP over SSH to its Local Controller
-  resolves names over the same SSH connection, without another key exchange, key, pin or login.
+- **One SSH connection for all of it.** A station keeps one SSH connection to its Local Controller,
+  and names, time and OCPP are channels of it: one key exchange, one key, one pin, one login. The
+  connection is the station's, not OCPP's, and whichever of them needs it first has it made.
 - **A mapping onto the configuration** of [Secure Name Resolution](../SecureDNS/README.md): a
   transport `SSH` of `DNSServerController`, its variables, and the key purpose `DNS` of
   [OCPP over SSH](../OCPP-over-SSH/README.md).
@@ -135,7 +136,7 @@ validates them itself needs a correct clock, whatever the transport (section 8.3
 
 | Scenario | Who resolves through whom |
 |---|---|
-| **Station network behind a Local Controller** | the stations through their Local Controller, as a channel of their OCPP connection over SSH (section 6.3); the Local Controller resolves upwards itself (section 6.4) |
+| **Station network behind a Local Controller** | the stations through their Local Controller, as a channel of the one SSH connection they keep to it (section 6.3); the Local Controller resolves upwards itself (section 6.4) |
 | **CSMS behind a private APN** or a VPN | the stations through a resolver of the CPO with an SSH listener (section 6.1), or through the CSMS (section 6.2) |
 | **Local Controller to its CPO** | the Local Controller's own resolver through a resolver of the CPO, over DNS over SSH or DNS over TLS |
 | **Laboratories, test benches** | any node through any other, without a PKI |
@@ -312,7 +313,7 @@ byte[]  message   one DNS message
 |---|---|
 | DNS over TLS 1.3, new connection | about 3: TCP, TLS, the query |
 | DNS over SSH, new connection | about 7 to 9: TCP, version and key exchange, user authentication, channel, subsystem, the query |
-| DNS over SSH, a new channel of an open connection, e.g. the OCPP connection | about 3: channel, subsystem, the query |
+| DNS over SSH, a new channel of an open connection, e.g. the station's shared connection to its Local Controller | about 3: channel, subsystem, the query |
 | Either, on an open channel or connection | 1 |
 
 The handshake is paid once per connection, the subsystem once per channel. A station keeps both
@@ -330,7 +331,7 @@ costs one round trip per query, the same as over TLS.
 | Pinned host key | `SSHHostKeyPins` of the server (section 7.1) | no | no | few resolvers; stations without a real-time clock; resolvers dialled by IP address |
 | SSH host certificate | `SSHHostCAs`; one CA key, signed with `ssh-keygen -s -h` | only with a limited validity; `-V always:forever` is possible | yes: the name or address dialled must be a principal of the certificate | many resolvers; rotation without touching the stations |
 | SSHFP record ([RFC 4255](https://datatracker.ietf.org/doc/html/rfc4255)) | DNSSEC | yes | yes | **not for the resolver itself** (below) |
-| The host key of the OCPP connection | the pins of `SSHClientController` ([OCPP over SSH](../OCPP-over-SSH/README.md), section 9.2) | as there | as there | a channel of the OCPP connection (section 6.3) |
+| The host key of the shared connection | the pins the SSH peer is held to: those of `SSHClientController` ([OCPP over SSH](../OCPP-over-SSH/README.md), section 9.2) | as there | as there | a channel of the station's connection to an SSH peer (section 6.3) |
 
 - **Pins are a set, in SHA-256.** A resolver that is about to change its host key is pinned with both
   keys for the time of the change, as [OCPP over SSH](../OCPP-over-SSH/README.md) section 10.4 says.
@@ -352,8 +353,8 @@ costs one round trip per query, the same as over TLS.
 - **Public key**, the normal case: the station's own Ed25519 key for the purpose `DNS` (section 7.3),
   under its own identity as the login. The server finds the key among those it holds for that login,
   and only there.
-- **The OCPP connection.** On a channel of the station's OCPP connection, the station is who it
-  signed in as for OCPP. Nothing else is proven.
+- **The shared connection.** On a channel of the station's connection to an SSH peer, the station
+  is who it signed in as on that connection. Nothing else is proven.
 - **`none`** ([RFC 4252, section 5.2](https://datatracker.ietf.org/doc/html/rfc4252#section-5.2))
   for a public resolver that wants no identity, as anonymous DNS over TLS. A station's resolver
   should not offer it.
@@ -478,42 +479,48 @@ SSH listener of a Local Controller (one port, one host key)
   logins of all stations. Where this is not acceptable, the node relays the stream over a local
   socket to a separate resolver, as `socat` does in appendix B, and passes the login along.
 
-### 6.3 A channel of the OCPP connection
+### 6.3 A channel of the station's connection to an SSH peer
 
-A station whose OCPP connection runs over SSH opens `dns@` as a further channel of that connection,
-as [NTS over SSH](../NTS-over-SSH/README.md) section 7 does with `SSHUseOCPPConnection`:
+A station keeps one SSH connection to an *SSH peer*, e.g. its Local Controller
+([OCPP over SSH](../OCPP-over-SSH/README.md), section 7.2), and whatever goes to that host over SSH
+is a channel of it. A name server with `SSHConnection` `Shared` opens `dns@` as one of them, as
+[NTS over SSH](../NTS-over-SSH/README.md) section 7 does for time, and OCPP for its messages. The
+connection is the station's: none of the three owns it, and whichever needs it first has it made.
 
 ```mermaid
 sequenceDiagram
     participant CS as Charging station
     participant LC as Local Controller
     CS->>LC: SSH: key exchange, host key matches the pin
-    CS->>LC: user authentication: login "cs001", OCPP key
-    CS->>LC: channel 0: subsystem ocpp@open.charging.cloud
-    Note over CS,LC: OCPP runs for days or weeks
-    CS->>LC: channel 1: subsystem dns@open.charging.cloud
+    CS->>LC: user authentication: login "cs001", the station's key
+    CS->>LC: channel 0: subsystem dns@open.charging.cloud
     CS->>LC: 00 80 · query A nts1.cpo.example
     LC-->>CS: 01 d4 · answer A 192.0.2.123
-    Note over CS,LC: channel 1 stays open for further queries
-    CS->>LC: channel 2: subsystem ntske/1@open.charging.cloud
+    Note over CS,LC: channel 0 stays open for further queries
+    CS->>LC: channel 1: subsystem ntske/1@open.charging.cloud
+    CS->>LC: channel 2: subsystem ocpp@open.charging.cloud
+    Note over CS,LC: OCPP runs for days or weeks
 ```
 
-- **Nothing of its own.** No key, pin, login or port: the station uses those of its OCPP connection,
-  and the resolver knows it by its OCPP login.
+- **Nothing of its own.** No key, pin, login or port: the name server uses those of the connection
+  to its SSH peer, and the resolver knows the station by the login of that connection.
+- **No order among the channels.** A station that starts cold needs names and the time before it
+  can check a certificate, and may need a name before it can reach its CSMS. So the diagram has the
+  names first: the query has the connection made, and OCPP is the third channel of it.
 - **About 3 round trips** for the first query, 1 for every further one (section 3.7).
-- **Which connection.** The name server's `Address` names the host of one of the station's `ssh://`
-  network connection profiles, and the channel is opened on that profile's connection while it is
-  connected (section 7.1). A station with several back ends
+- **Which connection.** The name server's `Address` names an SSH peer of the station, and the
+  channel is opened on the connection to that peer (section 7.1). In the reference implementation
+  the hosts of the station's `ssh://` network connection profiles are its SSH peers. A station with several back ends
   ([EVQI Transport](../EVQITransport/README.md), chapter 11) may have a resolver on each.
-- **Not for the name of that connection.** A station that resolves through its OCPP connection
-  cannot resolve the name it dials that connection at through it: the connection would have to exist
-  before it could be dialled. Its OCPP URL therefore names an IP address, as station networks usually
-  do (`ssh://10.10.0.1`), or a name that another configured server resolves. Section 7.2 makes this
-  a rule for the CSMS.
-- **Fate sharing.** While the OCPP connection is down, so is name resolution through it. The station
-  keeps answers in its cache for their time to live, may serve stale answers
-  ([RFC 8767](https://datatracker.ietf.org/doc/html/rfc8767)), and reconnects by IP address. A second
-  name server that does not depend on the OCPP connection is recommended where the station resolves
+- **Not for the name of that connection.** A station that resolves through its connection to an SSH
+  peer cannot resolve the name it dials that peer at through it: the connection would have to exist
+  before it could be dialled. The peer is therefore named by an IP address, as station networks
+  usually do (`ssh://10.10.0.1`), or by a name that another configured server resolves. Section 7.2
+  makes this a rule for the CSMS.
+- **Fate sharing.** While the connection to the peer is down, so is everything on it, name
+  resolution included. The station keeps answers in its cache for their time to live, may serve
+  stale answers ([RFC 8767](https://datatracker.ietf.org/doc/html/rfc8767)), and reconnects by IP
+  address. A second name server that does not depend on that connection is recommended where the station resolves
   names for anything that has to work without its Local Controller; it should be as strong as the
   first, as the weakest configured server decides the security of all of them
   ([Secure Name Resolution](../SecureDNS/README.md), section 2.4).
@@ -582,10 +589,10 @@ following variables, named like those of the NTP Client Controller in
 | SSHUserName | optional | rw | string | "" | ≤ 32 characters | The login of the SSH user authentication. Empty: the station's own identity (`SecurityCtrlr.Identity`). |
 | SSHHostKeyPins | optional | rw | string | "" | comma separated, ≤ 16 | SHA-256 fingerprints of the host keys the server may show, in the notation `SHA256:<base64>` of `ssh-keygen -l`. An MD5 fingerprint is `Rejected` with `reasonCode` `InvalidValue`. |
 | SSHHostCAs | optional | rw | string | "" | comma separated, ≤ 4 | SHA-256 fingerprints of SSH CA keys that may sign the server's host certificate, for its `Address` as a principal. |
-| SSHUseOCPPConnection | optional | rw | boolean | false | - | Open the subsystem as a channel of the SSH connection of OCPP to the host `Address` names (section 6.3). |
-| SSHClientPublicKey | optional | ro | string | "" | - | The public key the station authenticates with, as a line of `authorized_keys`: `SSHClientController.ClientPublicKey[DNS]`, or the OCPP key with `SSHUseOCPPConnection`. |
+| SSHConnection | optional | rw | OptionList | `Dedicated` | `Dedicated`, `Shared` | `Dedicated`: an SSH connection of the name server's own. `Shared`: the subsystem is one more channel of the SSH connection the station keeps to the SSH peer `Address` names (section 6.3). |
+| SSHClientPublicKey | optional | ro | string | "" | - | The public key the station authenticates with, as a line of `authorized_keys`: `SSHClientController.ClientPublicKey[DNS]`, or with `SSHConnection` `Shared` the key of the connection to that SSH peer. |
 | SSHHostKeyFingerprint | optional | ro | string | "" | - | The SHA-256 fingerprint of the host key the server showed at its last handshake. |
-| SSHStatus | optional | ro | OptionList | "" | `Accepted`, `PinMismatch`, `Untrusted`, `WeakAlgorithms`, `AuthenticationFailed`, `SubsystemRefused`, `NoOCPPConnection` | The outcome of the last attempt: believed and served; a host key that neither a pin nor a CA vouches for; a host certificate that is invalid or not for `Address`; no strict KEX or only algorithms the station must not use (section 8.2); the station's key not taken; the subsystem refused; no `ssh://` connection to `Address` with `SSHUseOCPPConnection`. Empty before the first attempt. |
+| SSHStatus | optional | ro | OptionList | "" | `Accepted`, `PinMismatch`, `Untrusted`, `WeakAlgorithms`, `AuthenticationFailed`, `SubsystemRefused`, `NoSSHPeer` | The outcome of the last attempt: believed and served; a host key that neither a pin nor a CA vouches for; a host certificate that is invalid or not for `Address`; no strict KEX or only algorithms the station must not use (section 8.2); the station's key not taken; the subsystem refused; `Address` is no SSH peer of the station with `SSHConnection` `Shared`. Empty before the first attempt. |
 
 The existing variables of `DNSServerController` keep their meaning, with these exceptions for `SSH`:
 
@@ -609,19 +616,19 @@ change is checked entry by entry against the configuration as it is after the en
 For `SSH` they are joined by:
 
 - **A server must be believable.** An `SSH` server with neither `SSHHostKeyPins`, nor `SSHHostCAs`,
-  nor `SSHUseOCPPConnection` is `Rejected` with `reasonCode` `InvalidSSHHostKeyConfig`, the reason
+  nor `SSHConnection` `Shared` is `Rejected` with `reasonCode` `InvalidSSHHostKeyConfig`, the reason
   code of [OCPP over SSH](../OCPP-over-SSH/README.md) section 9.2: a name server without a way to
   authenticate it is never stored.
 - **SSH variables belong to SSH servers.** `SSHUserName`, `SSHHostKeyPins`, `SSHHostCAs` and
-  `SSHUseOCPPConnection` for a server whose `Transport` is not `SSH` are `Rejected` with `reasonCode`
+  `SSHConnection` for a server whose `Transport` is not `SSH` are `Rejected` with `reasonCode`
   `InvalidValue`; so is a change of `Transport` away from `SSH` while one of them is set.
-- **On the OCPP connection** (`SSHUseOCPPConnection` `true`), `Port`, `SSHUserName`, `SSHHostKeyPins`
-  and `SSHHostCAs` do not apply and are `Rejected`; `Address` must be the host of one of the
-  station's network connection profiles with an `ssh://` URL, or the change is `Rejected` with
-  `reasonCode` `InvalidValue`. In a request, `SSHUseOCPPConnection` is applied after `Transport` and
-  before the other variables, as in [NTS over SSH](../NTS-over-SSH/README.md) section 7.
+- **On a shared connection** (`SSHConnection` `Shared`), `Port`, `SSHUserName`, `SSHHostKeyPins`
+  and `SSHHostCAs` do not apply and are `Rejected`; `Address` must be an SSH peer of the station -
+  in the reference implementation the host of one of its network connection profiles with an
+  `ssh://` URL - or the change is `Rejected` with `reasonCode` `InvalidValue`. In a request,
+  `SSHConnection` is applied after `Transport` and before the other variables, as in [NTS over SSH](../NTS-over-SSH/README.md) section 7.
 - **A CSMS must not cut itself off**, and the check of section 3.1.3 of Secure Name Resolution is
-  extended: a server with `SSHUseOCPPConnection` does not count for resolving the host name of the
+  extended: a server with `SSHConnection` `Shared` does not count for resolving the host name of the
   connection it runs over. A change after which the name of a CSMS connection would only resolve
   through that connection itself is `Rejected` with `reasonCode` `CSMSUnreachable`, although the
   name resolves now: it would not after the next reconnect.
@@ -634,7 +641,7 @@ For `SSH` they are joined by:
 paper adds the purpose `DNS`:
 
 - **`SSHClientController.ClientPublicKey[DNS]`** is the key a station authenticates with at every
-  `SSH` name server that does not use the OCPP connection. `DNSServerController.SSHClientPublicKey`
+  `SSH` name server with a connection of its own. `DNSServerController.SSHClientPublicKey`
   reads it.
 - **`SSHKeyPurposeEnumType`** of the messages `SignSSHKey`, `SSHKeySigned`, `InstallSSHKey` and
   `GetInstalledSSHKeys` gets the value `DNS`. At a Local Controller, `InstallSSHKey` with `DNS`
@@ -668,7 +675,7 @@ same extensions:
 |---|---|---|---|---|---|---|
 | dns.transports | optional | rw | CSL String | "UDP" | "SSH, TLS" | Takes `SSH` as well. |
 | dns.sshUserNames | optional | rw | CSL String | "" | ", cs001" | See `SSHUserName`; an empty entry is the station's identity. |
-| dns.sshUseOCPPConnection | optional | rw | CSL String | "false" | "true, false" | See `SSHUseOCPPConnection`. |
+| dns.sshConnection | optional | rw | CSL String | "Dedicated" | "Shared, Dedicated" | See `SSHConnection`. |
 | dns.sshHostKeyPins.*n* | optional | rw | CSL String | "" | "SHA256:N09Y…fsUI" | The host key pins of the *n*-th server. A `SHA256:` fingerprint has 50 characters, so 9 fit into the 500 characters of a value. |
 | dns.sshHostCAs.*n* | optional | rw | CSL String | "" | - | The SSH CAs of the *n*-th server. |
 | dns.sshHostKeyFingerprints | optional | r | CSL String | "" | - | See `SSHHostKeyFingerprint`, per server. |
@@ -691,7 +698,7 @@ with its current and its next host key. Only encrypted servers are asked.
     { "component": { "name": "DNSClientController" },                      "variable": { "name": "Servers"              }, "attributeValue": "lc,cpo-1" },
     { "component": { "name": "DNSServerController", "instance": "lc" },    "variable": { "name": "Address"              }, "attributeValue": "10.10.0.1" },
     { "component": { "name": "DNSServerController", "instance": "lc" },    "variable": { "name": "Transport"            }, "attributeValue": "SSH" },
-    { "component": { "name": "DNSServerController", "instance": "lc" },    "variable": { "name": "SSHUseOCPPConnection" }, "attributeValue": "true" },
+    { "component": { "name": "DNSServerController", "instance": "lc" },    "variable": { "name": "SSHConnection" }, "attributeValue": "Shared" },
     { "component": { "name": "DNSServerController", "instance": "cpo-1" }, "variable": { "name": "Address"              }, "attributeValue": "192.0.2.53" },
     { "component": { "name": "DNSServerController", "instance": "cpo-1" }, "variable": { "name": "Transport"            }, "attributeValue": "SSH" },
     { "component": { "name": "DNSServerController", "instance": "cpo-1" }, "variable": { "name": "SSHHostKeyPins"       }, "attributeValue": "SHA256:N09YbIseXi6qHT4L2l3MQ1bXfYFg8SSZmtmYTdOfsUI,SHA256:5xAUFY6gLcuSnCQmJPjuXZdQVcRWcgT72ayb8firQQ4" },
@@ -708,7 +715,7 @@ The section `dns` of the configuration file of the reference implementation, as 
 ```json
 "dns": {
   "servers": [
-    { "id": "lc",    "address": "10.10.0.1",  "transport": "SSH", "sshUseOCPPConnection": true },
+    { "id": "lc",    "address": "10.10.0.1",  "transport": "SSH", "ssh": { "connection": "shared" } },
     { "id": "cpo-1", "address": "192.0.2.53", "transport": "SSH",
       "sshHostKeys": [ "SHA256:N09YbIseXi6qHT4L2l3MQ1bXfYFg8SSZmtmYTdOfsUI",
                        "SHA256:5xAUFY6gLcuSnCQmJPjuXZdQVcRWcgT72ayb8firQQ4" ] }
@@ -785,7 +792,7 @@ authenticates the data itself:
 
 ### 8.5 Availability and denial of service
 
-- **Fate sharing.** On the OCPP connection, DNS fails with OCPP (section 6.3). One TCP connection
+- **Fate sharing.** On a shared connection, DNS fails with everything else on it (section 6.3). One TCP connection
   also means one head-of-line: a lost segment holds up DNS and OCPP alike, which DNS over QUIC would
   avoid. The SSH channels do not hold each other up: each has a window of its own, so a long OCPP
   message does not wait in front of a DNS answer at the SSH layer.
@@ -844,7 +851,7 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
 | Hermod, `Hermod/DNS/Server/DNSMessagePipeline.cs` | the zone, TSIG, SIG(0) and padding shared by every transport of the server |
 | Hermod, `Hermod/SSH` | subsystems on the server (`SshSubsystemFactory`, `SshSubsystemContext` with the session and the channel), `SshClient.OpenSubsystemAsync`, a channel as a `Stream` (`SshMuxChannel.AsStream()`) |
 | WWCP_Node | the shared SSH listener with subsystems per kind of login, access rules and limits ([OCPP over SSH](../OCPP-over-SSH/README.md), section 12.1); the `dns` configuration with pins ([Secure Name Resolution](../SecureDNS/README.md)) |
-| Hermod (`SshMessageClient`), WWCP_OCPP, Norn | a further channel on the SSH connection of OCPP, which the SSH client of OCPP hands out while its messages go over it (`SSHUseOCPPConnection` of [NTS over SSH](../NTS-over-SSH/README.md), section 7) |
+| Hermod (`SshSharedConnection`), WWCP_Node (`SSHPeer`), ChargingStation, Norn | one SSH connection of the station to an SSH peer, made by whoever needs it first, with OCPP and the key exchange of NTS as channels of it (`SSHConnection` `Shared` of [NTS over SSH](../NTS-over-SSH/README.md), section 7) |
 
 ### 10.2 What is missing
 
@@ -867,7 +874,7 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
 3. Hermod: the forwarding, caching request handler.
 4. WWCP_Node: `dns@open.charging.cloud` on the shared listener of the Local Controller and the CSMS,
    with the zone of the station network and the forwarder.
-5. WWCP_Node and WWCP_OCPP: `Transport` `SSH`, the variables, `SSHUseOCPPConnection`, the key
+5. WWCP_Node and WWCP_OCPP: `Transport` `SSH`, the variables, `SSHConnection`, the key
    purpose and the security events, end to end in the
    [EVChargingTestEnvironment](https://github.com/OpenChargingCloud/EVChargingTestEnvironment).
 6. [DNSConformanceTests](https://github.com/Vanaheimr/DNSConformanceTests): the test criteria of
@@ -891,14 +898,14 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
 | T9  | The server does not know the station's key. | `SSHStatus` `AuthenticationFailed`, `NameServerAuthenticationFailed`; no password sent. |
 | T10 | A station's DNS login asks for a shell, `exec`, SFTP, `direct-tcpip` and `tcpip-forward`. | All refused. |
 | T11 | A station admitted for OCPP only opens `dns@`. | `SSH_MSG_CHANNEL_FAILURE`; `SSHStatus` `SubsystemRefused`. |
-| T12 | `SSHUseOCPPConnection`: a query while OCPP runs over SSH. | One SSH authentication for both (the server's log); the OCPP connection goes on after the DNS channel ends. |
-| T13 | `SSHUseOCPPConnection` while OCPP runs over `wss://`. | The server is not asked; `SSHStatus` `NoOCPPConnection`. |
-| T14 | `Transport` `SSH` with no pins, no CAs and no `SSHUseOCPPConnection`, with `ACID`. | Every entry of that server `Rejected`, `InvalidSSHHostKeyConfig`; nothing changed. |
+| T12 | `SSHConnection` `Shared`: a query before OCPP is connected, then OCPP over the same peer. | The query has the connection made; one SSH authentication for both (the server's log); the connection and OCPP go on after the DNS channel ends. |
+| T13 | `SSHConnection` `Shared` to an `Address` that is no SSH peer, e.g. while OCPP runs over `wss://`. | The server is not asked; `SSHStatus` `NoSSHPeer`. |
+| T14 | `Transport` `SSH` with no pins, no CAs and `SSHConnection` `Dedicated`, with `ACID`. | Every entry of that server `Rejected`, `InvalidSSHHostKeyConfig`; nothing changed. |
 | T15 | `CertificatePins` for an `SSH` server; `SSHHostKeyPins` for a `TLS` server. | `Rejected`, `InvalidValue`. |
-| T16 | `SSHUseOCPPConnection` with an `Address` that is the host of no `ssh://` profile. | `Rejected`, `InvalidValue`. |
-| T17 | The CSMS is dialled at `ssh://lc.example:22`, and the only name server is `SSHUseOCPPConnection` to `lc.example`. | `Rejected`, `CSMSUnreachable`, although `lc.example` resolves now. |
+| T16 | `SSHConnection` `Shared` with an `Address` that is no SSH peer of the station. | `Rejected`, `InvalidValue`. |
+| T17 | The CSMS is dialled at `ssh://lc.example:22`, and the only name server is `SSHConnection` `Shared` to `lc.example`. | `Rejected`, `CSMSUnreachable`, although `lc.example` resolves now. |
 | T18 | A cold start with the clock at 1970, name servers over SSH with pinned host keys. | Names resolve before the time is synchronized. |
-| T19 | The server closes an idle DNS channel on the OCPP connection. | `exit-status` 0, EOF, CLOSE of that channel; OCPP goes on; the next query opens a new channel. |
+| T19 | The server closes an idle DNS channel on a shared connection. | `exit-status` 0, EOF, CLOSE of that channel; the connection and OCPP go on; the next query opens a new channel. |
 | T20 | Two stations ask for the same name at a server with a view per login. | Each gets the answer of its view. |
 | T21 | The pins of a server change while its channel is open. | The connection is closed; the next query makes a new handshake judged by the new pins. |
 | T22 | Queries with EDNS padding. | Queries padded to a multiple of 128 octets, answers to a multiple of 468. |
@@ -923,12 +930,13 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
 4. **Trust on first use for host keys.** A value `HostKey` of `TrustOnFirstUse`, on probation as in
    [OCPP over SSH](../OCPP-over-SSH/README.md) section 10.4? A name server on probation would answer
    the very names the station needs to reach the CSMS that is to confirm it. The proposal: not for
-   name servers; a channel of the OCPP connection inherits the probation of that connection.
+   name servers; on a shared connection nothing but OCPP goes over it while its host key is on
+   probation, so no name is asked there until a signed pin set confirms the key.
 5. **The default login.** The station's identity (section 7.1), or a fixed name like `dns`, as
    [NTS over SSH](../NTS-over-SSH/README.md) has `ntske`? The identity serves views and logs; a fixed
    name suits a resolver behind OpenSSH with one account (appendix B.2).
-6. **Which OCPP connection.** `SSHUseOCPPConnection` names a host by `Address`. Should it instead follow
-   whichever `ssh://` profile is connected, so that a station that moves to its next profile keeps a
+6. **Which SSH peer.** `SSHConnection` `Shared` names its peer by `Address`. Should it instead follow
+   whichever SSH peer OCPP is connected to, so that a station that moves to its next profile keeps a
    name server?
 7. **`SetNetworkProfile`.** A new network connection profile can remove the `ssh://` connection a name
    server runs on. Should such a profile be checked as a change of the DNS configuration is (section
@@ -955,7 +963,7 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
   access rules, limits, `SSHClientController` and its key purposes, the messages for station keys, the
   algorithm profile. A DNS channel is one more channel of its connection (its section 7.2).
 - [NTS Key Establishment over SSH](../NTS-over-SSH/README.md): the same pattern for time:
-  `SSHUseOCPPConnection`, `SSHHostKeyPins` and `SSHHostCAs` mean here what they mean there. Together
+  `SSHConnection`, `SSHHostKeyPins` and `SSHHostCAs` mean here what they mean there. Together
   the three papers anchor names, time and the CSMS in pins, without a clock (section 1.3).
 - [EVQI Transport](../EVQITransport/README.md): its section 5 discovers endpoints through HTTPS, SVCB
   and SRV records, fetched "DoT/DoH to a trusted resolver" (its section 5.2, step 6); DNS over SSH is a
