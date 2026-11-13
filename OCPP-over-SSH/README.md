@@ -584,9 +584,11 @@ The connection is the station's, not OCPP's: OCPP is one of its channels, none o
 and whichever needs the connection first has it made. A station that starts cold may have its names
 and the time over it before a single OCPP message went over it.
 
-In the reference implementation the host of every `ssh://` network connection profile is an SSH
-peer of the station, signed in to with the station's key under the login of the profile, and
-believed by what `SSHClientController` holds it to. While a peer's host key is on probation
+A host becomes an SSH peer in one of two ways. The host of an `ssh://` network connection profile
+is one, signed in to with the station's key under the login of the profile, and believed by what
+`SSHClientController` holds it to. And a host named in `SSHPeerController` (section 7.3) is one
+without anything of OCPP: a station that speaks OCPP over a WebSocket has its time and its names
+over the connection to such a peer all the same. While a peer's host key is on probation
 (section 10.4), nothing but OCPP goes over its connection. A reconnect of OCPP after the server
 ended it is a new channel of the same connection; where the host is to be believed anew, e.g. when
 a probation ran out, the station closes the SSH connection itself.
@@ -605,6 +607,42 @@ a probation ran out, the station closes the SSH connection itself.
 - **EVQI channels.** [EVQI Transport](../EVQITransport/README.md) runs further OCPP channels
   (bulk, privileged, …) as further WebSocket connections or HTTP/2 and HTTP/3 streams. Over SSH
   they would be further channels of the same subsystem; the HELLO would carry the channel's class.
+
+### 7.3 The component `SSHPeerController`
+
+The SSH peers a station has without an `ssh://` profile are instances of the component
+`SSHPeerController`, one per peer, named by whoever configures it (`"lc"`, `"time"`, …):
+
+| Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
+|---|---|---|---|---|---|---|
+| Address | required | rw | string | - | ≤ 253 characters | The host name or address of the peer, as the servers that share its connection name it. One peer per address: a station keeps one connection to a host. |
+| Port | optional | rw | integer | 22 | 1 … 65535 | Its SSH port. |
+| UserName | optional | rw | string | "" | ≤ 32 characters | The login of the SSH user authentication. Empty: the station's own identity. |
+| HostKeyPins | optional | rw | string | "" | comma separated, ≤ 16 | SHA-256 fingerprints of the host keys the peer may show, as `SHA256:<base64>` of `ssh-keygen -l`. |
+| HostCAs | optional | rw | string | "" | comma separated, ≤ 4 | SHA-256 fingerprints of SSH CA keys that may sign the peer's host certificate. |
+| OnPinMismatch | optional | rw | OptionList | `Refuse` | `Refuse`, `Record`, `Accept` | What a host key that neither a pin nor a CA vouches for leads to (decision 15). |
+| HostKeyFingerprint | optional | ro | string | "" | - | The SHA-256 fingerprint of the host key the peer showed at the last handshake. |
+| Connected | optional | ro | boolean | false | - | Whether the connection lasts now. It is made when something first needs it, so `false` is no fault. |
+| Problem | optional | ro | boolean | false | - | `true` while the host key the peer showed last was refused. |
+
+And in the instance without a name:
+
+| Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
+|---|---|---|---|---|---|---|
+| Peers | optional | rw | string | "" | comma separated, ≤ 16 | The names of the peers. A name it adds becomes a peer with the variables the same request sets for it; one it leaves out is a peer no longer, and its connection is closed for everything on it. |
+| ClientPublicKey | optional | ro | string | "" | - | The public key the station signs in with at these peers, as a line of `authorized_keys`: `SSHClientController.ClientPublicKey[Station]`. |
+
+Rules for `SetVariablesRequest`:
+
+- **A peer is added as one.** Its name in `Peers`, its `Address`, and `HostKeyPins` or `HostCAs`
+  arrive in one request with the data consistency model `ACID` or `BASE`. A peer with neither a pin
+  nor a CA is `Rejected`: a peer nobody could believe is never stored, and there is no trust on
+  first use for it.
+- **A peer that changed is dialled anew.** A change of any of its variables closes its connection,
+  and the next channel is opened on one made by what the variables say now.
+- **A time or name server refers to a peer by its address**, with `SSHConnection` `Shared`
+  ([NTS over SSH](../NTS-over-SSH/README.md), section 7; [DNS over SSH](../DNS-over-SSH/README.md),
+  section 7.1). Where the address is no peer, that server cannot be reached.
 
 ---
 
@@ -697,8 +735,10 @@ mismatch leads to - is taken only from a SetVariables request that a signer of p
 believes signed (section 10.4); otherwise each entry is `Rejected` with the reason code
 `Unsigned`.
 
-Station-wide, with one variable instance per purpose (`OCPP`, `NTS`, `SFTP`), as the station has
-one key per purpose (decision 9):
+Station-wide, with one variable instance per purpose (`Station`, `NTS`, `SFTP`), as the station
+has one key per purpose (decision 9). `Station` is the station's own key: the one it signs in with
+on its connection to an SSH peer, which OCPP is one channel of (section 7.2). It was called `OCPP`
+when that connection was taken for OCPP's, and `OCPP` is still read as `Station`:
 
 | Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
 |---|---|---|---|---|---|---|
@@ -761,7 +801,7 @@ the request or response object as `data`.
 
 | Field | Type | Card. | Description |
 |---|---|---|---|
-| `purpose` | `SSHKeyPurposeEnumType`: `OCPP`, `NTS`, `SFTP` | 1..1 | Which of the station's keys. |
+| `purpose` | `SSHKeyPurposeEnumType`: `Station`, `NTS`, `SFTP`; `OCPP` is read as `Station` | 1..1 | Which of the station's keys. |
 | `publicKey` | string[0..1000] | 1..1 | The new public key, as a line of `authorized_keys`. |
 
 Response: `status` `Accepted` or `Rejected`, and `statusInfo`. `Accepted` means the CSMS will
@@ -784,7 +824,7 @@ current key of that purpose.
 | Field | Type | Card. | Description |
 |---|---|---|---|
 | `networkingNodeId` | identifier string[0..48] | 1..1 | The station's login (section 4.1). |
-| `purpose` | `SSHKeyPurposeEnumType` | 1..1 | What the key admits: `OCPP` the subsystem `ocpp@open.charging.cloud`, `NTS` `ntske/1@open.charging.cloud`, `SFTP` the station's SFTP locations. |
+| `purpose` | `SSHKeyPurposeEnumType` | 1..1 | What the key admits: `Station` the station's login, and with it `ocpp@open.charging.cloud` and whatever else its connection is granted; `NTS` `ntske/1@open.charging.cloud` on a connection of its own; `SFTP` the station's SFTP locations. |
 | `publicKey` | string[0..1500] | 1..1 | The key, as a line of `authorized_keys`, with OpenSSH options such as `from="…"` and `expiry-time="…"`. |
 
 Response: `status` `Accepted` or `Rejected`, `statusInfo`, and `hostKeys`: the SHA-256 fingerprints
@@ -845,7 +885,8 @@ whitepaper's `SecurityEventNotification`.
 
 ### 10.1 The station's keys
 
-- **Made on the station.** One Ed25519 key pair per purpose, OCPP, NTS-KE and SFTP (decision 9),
+- **Made on the station.** One Ed25519 key pair per purpose, the station's own (`Station`), NTS-KE
+  and SFTP (decision 9),
   made by the station itself (section 9.2) and kept where only the station's own process may read
   it. A key is never exported, never sent to a CSMS, and never made by anybody else for the
   station. The server's authorization per subsystem (chapter 5) keeps a key to its purpose as well;
@@ -1142,7 +1183,7 @@ What decisions 2 to 15 asked for was built and pushed on 2026-11-10, Hermod's pa
 | `SetNetworkProfile` | the test nodes answer `Accepted` and apply nothing; no `customData` is read | section 9.2 |
 | `HostCAs`, host certificates | not checked by the station; no variable | section 10.4 |
 | Client certificates | an `SSHKeySigned` certificate is kept and shown, not used to sign in | section 10.5 |
-| SSH peers | a host is a peer only through an `ssh://` network connection profile; its pins are those of that profile's `SSHClientController` instance; a host that is a peer of one profile already is dialled alone for a second one | a component of their own, for peers without OCPP as well (section 7.2) |
+| SSH peers | `SSHPeerController` is built for OCPP 2.1, with peers in the node's configuration file as well; there are no configuration keys of OCPP 1.6 for it. The peer of an `ssh://` profile keeps its pins in that profile's `SSHClientController` instance, and is no instance of `SSHPeerController`. A host that is a peer already is dialled alone for an `ssh://` profile to it, so OCPP does not share a peer of `SSHPeerController` yet | one kind of peer, which an `ssh://` profile refers to (sections 7.2, 7.3) |
 | Probation | the gate refuses every request but a pin set, and nothing but OCPP goes over the connection to a host held to no pinned key (section 7.2; NTS-over-SSH, section 8.3); the other messages the station sends of its own accord are not held back | section 10.4 |
 | Signers of pin sets | the station's own list, on its Connections page; no role certificates | a signer with `evqi:security-admin` (Key Pins and Raw Public Keys, section 5.7) |
 | NTS key | shown as `ClientPublicKey[NTS]`; it is the node's and is not rotated over OCPP | section 10.3 |
@@ -1184,8 +1225,10 @@ The questions of version 0.1, all decided on 2026-11-10:
 8. **Key rotation:** a message pair after `SignCertificate`: the station sends `SignSSHKey`, the
    CSMS enrolls the key and answers `SSHKeySigned`. It starts with `TriggerMessage` or by the key's
    age (sections 9.3, 10.3).
-9. **Station keys:** one per purpose, OCPP, NTS-KE and SFTP, as the station has them today
-   (section 10.1).
+9. **Station keys:** one per purpose, as the station has them today (section 10.1): its own,
+   `Station`, for the connection to an SSH peer and every channel of it, and one each for NTS-KE
+   and SFTP where they have a connection of their own. The first was called `OCPP` until the
+   connection was understood to be the station's.
 10. **Strict KEX:** required, by the station and by the server (section 11.2).
 11. **Liveness:** both sides send PINGs and evaluate the PONGs; 3 left unanswered end the
     connection (section 6.1).

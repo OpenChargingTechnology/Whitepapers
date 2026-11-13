@@ -509,8 +509,10 @@ sequenceDiagram
   names first: the query has the connection made, and OCPP is the third channel of it.
 - **About 3 round trips** for the first query, 1 for every further one (section 3.7).
 - **Which connection.** The name server's `Address` names an SSH peer of the station, and the
-  channel is opened on the connection to that peer (section 7.1). In the reference implementation
-  the hosts of the station's `ssh://` network connection profiles are its SSH peers. A station with several back ends
+  channel is opened on the connection to that peer (section 7.1). The hosts of the station's
+  `ssh://` network connection profiles are its SSH peers, and so are the peers of
+  `SSHPeerController` ([OCPP over SSH](../OCPP-over-SSH/README.md), section 7.3), which need no
+  OCPP at all. A station with several back ends
   ([EVQI Transport](../EVQITransport/README.md), chapter 11) may have a resolver on each.
 - **Not for the name of that connection.** A station that resolves through its connection to an SSH
   peer cannot resolve the name it dials that peer at through it: the connection would have to exist
@@ -624,8 +626,8 @@ For `SSH` they are joined by:
   `InvalidValue`; so is a change of `Transport` away from `SSH` while one of them is set.
 - **On a shared connection** (`SSHConnection` `Shared`), `Port`, `SSHUserName`, `SSHHostKeyPins`
   and `SSHHostCAs` do not apply and are `Rejected`; `Address` must be an SSH peer of the station -
-  in the reference implementation the host of one of its network connection profiles with an
-  `ssh://` URL - or the change is `Rejected` with `reasonCode` `InvalidValue`. In a request,
+  the host of one of its network connection profiles with an `ssh://` URL, or the `Address` of an
+  instance of `SSHPeerController` - or the change is `Rejected` with `reasonCode` `InvalidValue`. In a request,
   `SSHConnection` is applied after `Transport` and before the other variables, as in [NTS over SSH](../NTS-over-SSH/README.md) section 7.
 - **A CSMS must not cut itself off**, and the check of section 3.1.3 of Secure Name Resolution is
   extended: a server with `SSHConnection` `Shared` does not count for resolving the host name of the
@@ -635,7 +637,7 @@ For `SSH` they are joined by:
 
 ### 7.3 Keys: the purpose `DNS` of `SSHClientController`
 
-[OCPP over SSH](../OCPP-over-SSH/README.md) gives the station one SSH key per purpose, `OCPP`,
+[OCPP over SSH](../OCPP-over-SSH/README.md) gives the station one SSH key per purpose, `Station`,
 `NTS` and `SFTP` (its decision 9), as instances of the variables `ClientPublicKey`,
 `ClientPendingPublicKey`, `ClientCertificate` and `ClientKeyMaxAge` of `SSHClientController`. This
 paper adds the purpose `DNS`:
