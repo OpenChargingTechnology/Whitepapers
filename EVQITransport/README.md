@@ -21,7 +21,7 @@ connection under an identity that is still connected.
 
 The companion document [Key Pins and TLS 1.3 Raw Public Keys for Local Controllers](RawPublicKeys.md)
 covers the hop from a station to a Local Controller, for which no public certificate exists
-(section 6.9).
+(section 6.9); its [specification](KeyPinsSpecification.md) says what a node has to do.
 
 ---
 
@@ -2449,6 +2449,11 @@ LocalController `b3bd90d`, WWCP_Core `cae5410f`, WWCP_OCPP `18d45f41`, CSMS `bda
 a CSMS confirms a learned pin with a signed pin set and rolls a Local Controller's key over, and
 takes what is sent in a station's name only from that station or from a login marked as a Local
 Controller's ([section 5.7](RawPublicKeys.md#57-distribution)). K5 to K8 are open.
+
+Status, 2026-11-13: K5 and K6 are built in Hermod (`5e8f64e8`, `d4c1eac8`): raw public keys over
+HTTP/3 and, with BouncyCastle, over HTTP/1.1, HTTP/2 and WebSockets. K7 is built and not published
+yet. K8 is the [specification](KeyPinsSpecification.md). The nodes above Hermod do not present raw
+keys yet ([section 10.10](RawPublicKeys.md#1010-what-is-not-built-or-differs-from-this-paper)).
 
 ### Phase F: load and abuse tests
 
