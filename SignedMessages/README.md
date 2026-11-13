@@ -110,11 +110,12 @@ response, and of every OCPP 2.1 SEND message:
    version, message type, action, message ID, source, destination, signing time and expiry,
    optionally a nonce, the key id and algorithm, and for a response the hash of the signed request
    (chapter 4).
-   - The same field set serves three encodings:
+   - The same field set serves two encodings:
      - the embedded `signatures` array, as a detached General JWS over the RFC 8785
        canonicalization of the payload;
-     - the OCPP 2.1 `<Action>-Signed` wrapper;
      - COSE on EVQI's CBOR channels.
+   - The OCPP 2.1 `<Action>-Signed` wrapper is not among them: it is not built, and a standard
+     peer is sent no signature (Q9).
 2. **A policy table instead of hand-written checks** (chapter 5).
    - Each action, and each component and variable of the device model, says which signer roles
      it requires and how many of them (a quorum).
@@ -175,7 +176,9 @@ What this leaves open:
 - **Verification is optional.** A receiver is never required to refuse anything.
 - **No authorization model.** Nothing says who may sign what.
 - **No raw keys.** Keys are identified only through certificates.
-- **No implementation in WWCP_OCPP yet.** There is no `-Signed` action at a06dc241.
+- **No implementation in WWCP_OCPP, and none planned.** There is no `-Signed` action, and
+  there will be none (Q9, decided anew on 2026-11-13): a message whose action ends in `-Signed`
+  is an action the node does not know, and is answered as one.
 
 ### 1.3 The End-to-End Security Extensions in WWCP_OCPP
 
@@ -557,7 +560,7 @@ AES-GCM in detail:
 | R5 | One role model for every way into a node: web interface, SSH console, OCPP. |
 | R6 | Roles and keys can be provisioned remotely and locally, are stored persistently, and can be read back. Changes to them are themselves signed by a role entitled to make them and are protected against replay and rollback. |
 | R7 | A station cannot be locked out by its own role table: removing the last owner key is refused, and a local recovery path exists. |
-| R8 | Interoperable encodings: the OCPP 2.1 `<Action>-Signed` JWS for standard peers, COSE for EVQI CBOR channels; one semantic header for all. |
+| R8 | Interoperable encodings: the embedded JWS for JSON, COSE for EVQI CBOR channels; one semantic header for both. A standard peer, which knows neither, is sent no signature (Q9). |
 | R9 | Signatures are verifiable after the fact by third parties (U4): the signed object can be stored as received. |
 | R10 | Backward compatibility: a station without configured roles behaves like a standard station; old-format signatures can be accepted during a migration window, by explicit configuration. |
 | R11 | Countersignatures by intermediaries (Local Controller, a CSMS forwarding to third parties) without invalidating the original signature. |
@@ -620,23 +623,23 @@ Trustworthy time is a precondition, see
 [Secure Time Synchronization](../SecureTimeSync/README.md). A station whose clock is not
 synchronized accepts only messages whose `OCPPNonce` it has asked for, or none (Q8).
 
-### 4.2 Three encodings, one header
+### 4.2 Two encodings, one header
 
-1. **OCPP 2.1 `<Action>-Signed`** (standard peers, JSON).
-   - The Flattened JWS of Part 4 §7, with the header of section 4.1.
-   - `OCPPMessageTypedId` is also set, to the message ID, for peers that read the 2.1 field.
-   - The JWS carries the payload bytes, so no canonicalization is needed. A Local Controller
-     forwards the JWS unchanged.
-2. **Embedded `signatures`** (WWCP peers, JSON; also signed data objects, section 4.4).
+The OCPP 2.1 `<Action>-Signed` wrapper of section 1.2 is not an encoding of this document. It
+was the first of three until 2026-11-13 (Q9). Section 1.2 says what it leaves open. Towards a
+standard peer a node signs nothing.
+
+1. **Embedded `signatures`** (WWCP peers, JSON; also signed data objects, section 4.4).
    - The `signatures` array becomes the `signatures` member of a *General JWS JSON Serialization*
      (RFC 7515 §7.2.1) with a **detached payload** (RFC 7515 Appendix F).
    - Each element is `{ "protected": …, "header": …, "signature": … }`.
    - The detached payload is the RFC 8785 (JCS) canonicalization of the payload **as received**,
      without `signatures`.
    - Unknown fields are covered, and any implementation can reproduce the bytes.
-   - Towards a peer that validates the 2.1 schemas, the array travels inside `customData`
-     (`"vendorId": "org.openchargingcloud.signatures"`), which the schemas allow.
-3. **COSE** (CBOR connections: EVQI channels, and OCPP 2.1 as CBOR over the subprotocol
+   - Towards a peer that validates the 2.1 schemas, the array would have to travel inside
+     `customData` (`"vendorId": "org.openchargingcloud.signatures"`), which the schemas allow.
+     This is not built, and such a peer is sent no signature (Q9).
+2. **COSE** (CBOR connections: EVQI channels, and OCPP 2.1 as CBOR over the subprotocol
    `ocpp2.1cbor`).
    - A `COSE_Sign1` (RFC 9052, tag 18) with a **detached payload**. `alg` is the COSE
      algorithm under label 1, `kid` under label 4 and `crit` under label 2; every other field
@@ -662,7 +665,7 @@ synchronized accepts only messages whose `OCPPNonce` it has asked for, or none (
      signers in one structure, and countersignatures (RFC 9338) of a forwarding node, are
      not built.
 
-The verifier builds the same decision input from all three: header fields, key, payload and
+The verifier builds the same decision input from both: header fields, key, payload and
 validity. Policy and roles (chapter 5) see no difference.
 
 The current format (`keyId`, `value`, …) becomes *format 0*:
@@ -1095,7 +1098,7 @@ papers:
 |---|---|---|---|---|
 | `Enabled` | rw | boolean | true | Whether signatures are produced and verified at all. |
 | `Mode` | rw | OptionList `Off`, `Observe`, `Enforce` | `Off` | `Off`: signatures ignored (today's behaviour). `Observe`: verified, policy evaluated, violations only reported (`onViolation: Record` for every entry). `Enforce`: the policy applies. Switching away from `Enforce` requires `signatures:edit`. |
-| `Formats` | rw | MemberList `JWS-Signed`, `Embedded`, `COSE` | per connection | Which encodings the station sends; it accepts all it supports. Where nothing is said, the embedded JWS alone (Q25). |
+| `Formats` | rw | MemberList `Embedded`, `COSE` | per connection | Which encodings the station sends; it accepts all it supports. Where nothing is said, the embedded JWS alone (Q25). |
 | `AcceptFormat0` | rw | boolean | false | Accept the current format (section 4.2) as `Unverified`. |
 | `Algorithms` | ro | MemberList | – | The algorithms this station verifies. |
 | `SignResponses` | rw | boolean | true | Sign every response to a signed request (OCPP 2.1 §7.2 requires it). |
@@ -1296,7 +1299,7 @@ What the implementation does:
 - **Not yet.**
   - Signed data objects (charging tariffs, section 4.4) keep format 0 until phase 4 (Q21).
   - The `customData` envelope towards peers that validate the 2.1 schemas is not built. Q9 sends
-    `-Signed` to them instead (phase 5).
+    them no signature.
 - **Tests.**
   - RFC 8785 and JWS are checked against the RFCs' examples and against V8 and OpenSSL, through
     97 numbers and three signatures made by Node.js.
@@ -1445,7 +1448,8 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 
 ### Phase 5: standard and EVQI encodings
 
-1. OCPP 2.1 `<Action>-Signed` is added to WWCP_OCPP, both directions.
+1. ~~OCPP 2.1 `<Action>-Signed` is added to WWCP_OCPP, both directions.~~ Not built: a standard
+   peer is sent no signature (Q9, decided anew on 2026-11-13).
 2. COSE is added on EVQI CBOR channels, with Styx COSE. Built for OCPP 2.1 with its CBOR form
    (subprotocol `ocpp2.1cbor`): WWCP_Core 011c651d and WWCP_OCPP f88c44d8, and for OCPP 1.6
    (subprotocol `ocpp1.6cbor`): WWCP_OCPP 8536eb42 - in the form of
@@ -1502,7 +1506,7 @@ of the connection.
 | Q6 | `SetVariables` with mixed entries: per entry `Rejected`, or the whole request? | Per entry with `NotAuthorized`, unless the request asks for `ACID`. |
 | Q7 | Format 0: how long is it accepted? | Behind `AcceptFormat0`, off by default from phase 2; removed one release after phase 5. |
 | Q8 | A station without synchronized time: refuse all signed commands, or accept with station-issued nonces? | Accept only messages carrying an `OCPPNonce` the station handed out (a new `GetSigningNonce` exchange), otherwise refuse; time sync is a precondition of `Enforce`. |
-| Q9 | Embedded `signatures` towards standard peers: inside `customData`, or only `-Signed`? | `-Signed` towards standard peers, `customData` only where a peer is known to need the embedded form. |
+| Q9 | Embedded `signatures` towards standard peers: inside `customData`, or only `-Signed`? | Neither: a standard peer is sent no signature, and `<Action>-Signed` is not built in either direction (decided anew on 2026-11-13). The first answer was `-Signed` towards standard peers and `customData` only where a peer is known to need the embedded form. That a connection can be told to carry no signature at all is not built: a node signs where a signing rule says so. |
 | Q10 | Keep the message names `AddUserRole`/`UpdateUserRole`/`DeleteUserRole`, or rename (the node's web roles are also called user roles)? | Rename them to `AddSignerRole`/`UpdateSignerRole`/`DeleteSignerRole`, with a new `GetSignerRoles` (section 6.4 gives the reasons). The first proposal, keeping the names because they are on the wire already, did not hold: nothing on the wire can carry a role today (F5). The three signature policy messages are replaced by `SetSignaturePolicy`/`GetSignaturePolicy`. |
 | Q11 | Component names `MessageSignatureController`, `SignerRoleController`, certificate types `MessageSigningRootCertificate`, `MessageSigningCertificate`, 1.6 prefix `signatures.`? | As proposed. |
 | Q12 | Resource names `station`, `charging`, `firmware`, `metrology`, `network`, `signatures` in the node's permission model? | Agreed on 2026-11-12 with the sessions working on the Local Controller and the charging station, and decided by Achim (section 5.3). New in the node's list: `node`, `reset` (when idle), `reset-immediate`, `state`, `firmware` and `signatures`; new in the station's: `unlock`. For the rest the station's own resources are used: `connections`, `session` and `power` by purpose, `calibration`, `availability`. A 1.6 `Soft` reset is treated as `OnIdle` and needs `reset`, the station waiting until nothing is charging; `Hard` needs `reset-immediate`. `TriggerMessage` is checked per requested message. A new node role `support` for telephone support holds `state:read`, `state:run`, `reset:run` and `unlock:run`, nothing else. The owner is `systemadmin`, the only holder of `signatures:edit`. `cpo` gets the new rights on the station and the Local Controller. Every role with `*:read` reads `signatures`. Whether a station is metrologically relevant it derives itself, from its calibration certificates and signing meters. |
