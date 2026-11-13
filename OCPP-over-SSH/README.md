@@ -656,6 +656,14 @@ Rules for `SetVariablesRequest`:
 - **A time or name server refers to a peer by its address**, with `SSHConnection` `Shared`
   ([NTS over SSH](../NTS-over-SSH/README.md), section 7; [DNS over SSH](../DNS-over-SSH/README.md),
   section 7.1). Where the address is no peer, that server cannot be reached.
+- **Who may write the peers** is the station's signature policy to say, as for every other
+  component ([Signed Messages](../SignedMessages/README.md)): `SSHPeerController` belongs to the
+  resource of the station's connections. While the policy is off, a CSMS that signs nothing sets
+  the peers as it sets everything else, which is how a station talks to a CSMS that knows no
+  signatures. Once the policy is enforced, a peer is written by a request whose signer may edit
+  the connections, and by no other. The peers are not a pin set: nothing about them is held to a
+  signer whatever the mode of the policy, and what a peer may be used for - file transfers
+  ([SFTP file transfers](../SFTP-FileTransfers/README.md)) - is written the same way.
 
 ---
 
@@ -912,6 +920,10 @@ stored. So a peer is added by its `url` alone, which then says what it is held t
 Without them a `url` that names a new peer is `Rejected`. A peer that is there takes a `url`
 without pins and keeps its pins; with them, they are its pins from then on. The keys of a peer
 exist while the peer does.
+
+Who may write them is the signature policy's to say, key by key, as in section 7.3: the keys of
+the peers are the connections' to it. While the policy is off, a Central System that signs
+nothing writes them.
 
 ---
 
