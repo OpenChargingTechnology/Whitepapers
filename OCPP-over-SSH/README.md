@@ -879,6 +879,27 @@ Central System's connection; `SSHClient.ClientPublicKey.<purpose>`,
 messages of section 9.3 travel as `DataTransfer`, and the security events by the security
 whitepaper's `SecurityEventNotification`.
 
+The SSH peers of section 7.3 have keys of their own:
+
+| Key | req/opt | Accessibility | Data Type | Example | Description |
+|---|---|---|---|---|---|
+| sshPeers | optional | rw | CSL String | "lc, time" | The names of the peers. A name it leaves out is a peer no longer. A name it adds is `Rejected`: a name alone is no peer. |
+| sshPeers.clientPublicKey | optional | ro | String | "ssh-ed25519 AAAA… cs001" | See `ClientPublicKey` of `SSHPeerController`. |
+| sshPeer.*name*.url | optional | rw | String | "ssh://cs001@10.10.0.7:2222" | `Address`, `Port` and `UserName` of the peer as one URL: without the user where it is the station's own, without the port where it is 22. |
+| sshPeer.*name*.hostKeyPins | optional | rw | CSL String | "SHA256:N09Y…fsUI" | See `HostKeyPins`. |
+| sshPeer.*name*.hostCAs | optional | rw | CSL String | "" | See `HostCAs`. |
+| sshPeer.*name*.onPinMismatch | optional | rw | String | "Refuse" | See `OnPinMismatch`. |
+| sshPeer.*name*.hostKeyFingerprint | optional | ro | String | "" | See `HostKeyFingerprint`. |
+| sshPeer.*name*.connected | optional | ro | String | "false" | See `Connected`. |
+| sshPeer.*name*.problem | optional | ro | String | "false" | See `Problem`. |
+
+*ChangeConfiguration.req* changes one key at a time, and a peer nobody could believe is never
+stored. So a peer is added by its `url` alone, which then says what it is held to as well, after a
+`#`: `ssh://cs001@10.10.0.7:2222#SHA256:N09Y…fsUI`, one or more host key pins, comma separated.
+Without them a `url` that names a new peer is `Rejected`. A peer that is there takes a `url`
+without pins and keeps its pins; with them, they are its pins from then on. The keys of a peer
+exist while the peer does.
+
 ---
 
 ## 10. Key management
@@ -1183,7 +1204,7 @@ What decisions 2 to 15 asked for was built and pushed on 2026-11-10, Hermod's pa
 | `SetNetworkProfile` | the test nodes answer `Accepted` and apply nothing; no `customData` is read | section 9.2 |
 | `HostCAs`, host certificates | not checked by the station; no variable | section 10.4 |
 | Client certificates | an `SSHKeySigned` certificate is kept and shown, not used to sign in | section 10.5 |
-| SSH peers | `SSHPeerController` is built for OCPP 2.1, with peers in the node's configuration file as well; there are no configuration keys of OCPP 1.6 for it. The peer of an `ssh://` profile keeps its pins in that profile's `SSHClientController` instance, and is no instance of `SSHPeerController`. A host that is a peer already is dialled alone for an `ssh://` profile to it, so OCPP does not share a peer of `SSHPeerController` yet | one kind of peer, which an `ssh://` profile refers to (sections 7.2, 7.3) |
+| SSH peers | `SSHPeerController` is built for OCPP 2.1, with the configuration keys of OCPP 1.6 (section 9.5) and peers in the node's configuration file as well. The peer of an `ssh://` profile keeps its pins in that profile's `SSHClientController` instance, and is no instance of `SSHPeerController`. A host that is a peer already is dialled alone for an `ssh://` profile to it, so OCPP does not share a peer of `SSHPeerController` yet | one kind of peer, which an `ssh://` profile refers to (sections 7.2, 7.3) |
 | Probation | the gate refuses every request but a pin set, and nothing but OCPP goes over the connection to a host held to no pinned key (section 7.2; NTS-over-SSH, section 8.3); the other messages the station sends of its own accord are not held back | section 10.4 |
 | Signers of pin sets | the station's own list, on its Connections page; no role certificates | a signer with `evqi:security-admin` (Key Pins and Raw Public Keys, section 5.7) |
 | NTS key | shown as `ClientPublicKey[NTS]`; it is the node's and is not rotated over OCPP | section 10.3 |
