@@ -493,15 +493,15 @@ exercised through the scheme vectors.
 | `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | wire: yes — raw, and bound (type `1`) by a WebSocket client without a login that opens its WebSocket over HTTP/3. Verification (section 6.3): yes, in the WebSocket server, where the server says who a connection is known as (`TOTPLoginOfAConnection`, unset by default — unset, the header lets nobody in) and the request carries no `Authorization`: raw over every version of HTTP, bound over HTTP/3, as for the scheme. The `Cache-Control` of section 6.4 is not set: the answers to a WebSocket handshake are not cacheable. Not verified by the plain HTTP server | no |
 | TLS exporter material (channel binding derivation) | derivation: yes; on a connection: over HTTP/3 only. `SslStream`, the TLS of the clients and servers over HTTP/1.1 and HTTP/2, exposes no exporter; Hermod's own QUIC, their TLS over HTTP/3, does, and both sides of a WebSocket opened over HTTP/3 take it from there. A client whose `TOTPConfig` asks for binding and that is not told HTTP/3 and nothing else — one left the choice of the version included, since it may come to an `SslStream` — sends nothing and says why, rather than a token weaker than configured | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
 | Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`, `TOTPIsTheOneOf`), for a WebSocket opened by an Upgrade over HTTP/1.1 and by an extended CONNECT over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]) alike. Raw tokens over all three; bound tokens over HTTP/3, verified with the exporter material of the QUIC connection the request arrived on. Over HTTP/1.1 and HTTP/2 a bound token is rejected, as section 6.2 requires of a verifier without exporter material. A login whose configuration asks for binding takes no raw token; one that does not takes a bound token all the same where it can verify it | no — a client library (a worked example in its README) |
-| The challenge `WWW-Authenticate: TOTP` (section 5.3, SHOULD) | no (the WebSocket server challenges `Basic` only) | — |
+| The challenge `WWW-Authenticate: TOTP` (section 5.3, SHOULD) | yes, in the WebSocket server: its `401` names `TOTP` where it has one-time passwords and `Basic` where it has passwords — both in one field value where it has both ([RFC 9110] section 11.6.1), `realm` included. A client of the reference implementation does not act on the challenge: it sends its credentials preemptively | — |
 | Single-use enforcement and rate limiting (section 5.3, where replay matters) | no | — |
 
 Before this document can leave draft, verification is still missing for the
 Basic binding, for the `TOTP` request header outside a WebSocket handshake,
-for bound tokens over HTTP/1.1 and HTTP/2 (exporter material of an
-`SslStream`), and the challenge.
+and for bound tokens over HTTP/1.1 and HTTP/2 (exporter material of an
+`SslStream`).
 
-The Hermod column is as of Hermod `633ed0f4` (2026-11-13). That a WebSocket
+The Hermod column is as of Hermod `40b11207` (2026-11-13). That a WebSocket
 opened over HTTP/2 or HTTP/3 is authenticated as one opened over HTTP/1.1,
 and that a bound token is sent and verified over HTTP/3, is held by tests of
 the stack built on it as well (WWCP_Core `bb22ff9a`, WWCP_OCPP `9afd4153`,
@@ -511,4 +511,5 @@ of the three; over HTTP/3 it is let in with a token bound to its connection,
 by a CSMS that asks for the binding and by one that does not; and a CSMS
 that asks for the binding takes no raw token over any of them. For the
 `TOTP` request header, the login a connection is known as is there the
-networking node its path names (WWCP_Core `b7a1bb61`).
+networking node its path names (WWCP_Core `b7a1bb61`), and its `401` carries
+the challenge as well (WWCP_Core `5574d041`).
