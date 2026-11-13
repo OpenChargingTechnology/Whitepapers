@@ -1445,7 +1445,8 @@ Item 5 is checked (2026-11-12) against OCPP 2.1 Edition 2, part 2 (2025-12-03):
 
 1. OCPP 2.1 `<Action>-Signed` is added to WWCP_OCPP, both directions.
 2. COSE is added on EVQI CBOR channels, with Styx COSE. Built for OCPP 2.1 with its CBOR form
-   (subprotocol `ocpp2.1cbor`): WWCP_Core 011c651d and WWCP_OCPP f88c44d8, in the form of
+   (subprotocol `ocpp2.1cbor`): WWCP_Core 011c651d and WWCP_OCPP f88c44d8, and for OCPP 1.6
+   (subprotocol `ocpp1.6cbor`): WWCP_OCPP 8536eb42 - in the form of
    section 4.2 and with the decisions Q22 to Q26. What a node writes is
    `SignaturePolicy.Formats` (`JWS`, `COSE` or both), and a connection may say otherwise for
    the messages that leave over it (`Formats` of section 6.3.1, Q27): WWCP_Core 0dbd2a66, WWCP_OCPP
