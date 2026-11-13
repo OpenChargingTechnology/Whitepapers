@@ -347,7 +347,10 @@ differently, in JSON and in the CBOR form of the messages alike:
   its `keyPairs`. The receiver's parser reads what the sender's serializer writes.
 - **`AddSignaturePolicy`** carries the `signingRules` and the `verificationRules` of the
   policy. A rule says the message it is for (`context`), its priority, its action and its key
-  pair. The default actions and the default key pairs of a policy are still not sent.
+  pair. Since WWCP_Core 9c9f32c5 and WWCP_OCPP 9c153121 the policy also says what it does
+  with a message no rule is for: its default signing and verification action, where they
+  are not `ForwardUnsigned` and `AcceptUnverified`, and the key pair of each. A policy
+  that is to sign or to verify by default and names no key is refused.
 - **A key pair on the wire is its public key**, with its algorithm, serialization and encoding
   where they are not the defaults. No serializer of a rule, a role or a policy writes a private
   key, so none is in what a node says about its own policy either.
