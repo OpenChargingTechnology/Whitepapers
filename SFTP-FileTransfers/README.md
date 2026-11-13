@@ -437,7 +437,7 @@ the files on. That is storage and forwarding on the Local Controller, and not sp
 ### 8.1 Per peer: `SSHPeerController`
 
 The instances of `SSHPeerController` ([OCPP over SSH](../OCPP-over-SSH/README.md), section 7.3)
-get seven variables more:
+get eight variables more:
 
 | Variable Name | req/opt | Mutability | Data Type | Default Value | Values List / Limits | Description |
 |---|---|---|---|---|---|---|
@@ -448,6 +448,7 @@ get seven variables more:
 | FileTransferConnection | optional | rw | OptionList | `Dedicated` | `Dedicated`, `Shared` | `Shared`: a request whose login is the login of the station's connection to this peer goes as one more channel of it (section 5.3). `Dedicated`: every transfer has a connection of its own. |
 | FileTransferPublicKey | optional | ro | string | "" | one variable instance per login | The public key the station signs in with under this login at this peer, as a line of `authorized_keys` (chapter 9). The instance is the login, and there is one for every entry of `FileTransferUsers`. |
 | FileTransferPendingPublicKey | optional | ro | string | "" | one variable instance per login | The next key of that login during a rotation; empty otherwise. |
+| FileTransferKeyState | optional | ro | OptionList | `Unconfirmed` | one variable instance per login: `Unconfirmed`, `Confirmed`, `Rotating` | Whether the key of this login is used. `Unconfirmed`: made and shown, and not used until somebody confirmed that the file server holds it. `Confirmed`: used. `Rotating`: the current key is used, and a pending one waits to be confirmed. |
 
 `{id}` in a path stands for the station's identity, so that one value serves a fleet:
 `UploadPaths` `/upload/{id}/`.
@@ -468,6 +469,7 @@ A peer of a station that speaks OCPP over a WebSocket and SSH for nothing but it
 | `SSHPeerController[files].UploadPaths` | `/upload/{id}/` |
 | `SSHPeerController[files].DownloadPaths` | `/firmware/` |
 | `SSHPeerController[files].FileTransferPublicKey[cs001]` | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI… cs001@files` (read only) |
+| `SSHPeerController[files].FileTransferKeyState[cs001]` | `Confirmed` (read only) |
 
 With it, `sftp://cs001@logs.example.org:2222/upload/cs001/` is a place for logs, and
 `sftp://cs001@logs.example.org:2222/firmware/station-4.2.1.bin` a place firmware comes from.
@@ -490,7 +492,7 @@ With it, `sftp://cs001@logs.example.org:2222/upload/cs001/` is a place for logs,
 named and read like the variables of section 8.1: `sshPeer.<name>.fileTransfers`,
 `.fileTransferUsers`, `.uploadPaths`, `.downloadPaths` (CSL strings, rw), `.fileTransferConnection`
 (rw), and per login `sshPeer.<name>.fileTransferPublicKey.<login>` and
-`.fileTransferPendingPublicKey.<login>` (ro). A peer is added by its `url` with its pins, as that section says,
+`.fileTransferPendingPublicKey.<login>` and `.fileTransferKeyState.<login>` (ro). A peer is added by its `url` with its pins, as that section says,
 and is no file server until `fileTransfers` is written. The station-wide values of section 8.2
 are `sshPeers.fileTransferConnectTimeout`, `sshPeers.fileTransferIdleTimeout` and
 `sshPeers.fileTransferMaxDownloadSize`.
@@ -550,24 +552,66 @@ keys here and not one key:
 
 ### 9.2 Enrolment
 
-The server needs the `authorized_keys` line of the login. The station shows it in
-`FileTransferPublicKey` of the peer, on its web interface and its command line, and over OCPP with
-the messages of OCPP over SSH, section 9.3, which get two optional fields for it:
+Which login the station uses at a file server, and which key, is the station's to say and the
+CSMS's to read. Nothing of it is a secret: the login is one of `FileTransferUsers`, and the key is
+the public half. The private half is never read by anybody.
+
+| What the CSMS needs | Where it reads it |
+|---|---|
+| The logins the station signs in under at this file server | `SSHPeerController[<peer>].FileTransferUsers`; where that is empty, `UserName` of the peer, or the station's identity |
+| The public key of each login | `SSHPeerController[<peer>].FileTransferPublicKey[<login>]`: one variable instance per login, each a line of `authorized_keys` |
+| Whether the station uses that key already | `SSHPeerController[<peer>].FileTransferKeyState[<login>]` |
+| The next key of a login, during a rotation | `SSHPeerController[<peer>].FileTransferPendingPublicKey[<login>]` |
+
+A `GetVariables` or a `GetReport` for the component `SSHPeerController` returns all of them: the
+list of logins and public keys of every file server the station has.
+
+```mermaid
+sequenceDiagram
+    participant CSMS
+    participant CS as Charging station
+    participant FS as File server
+    CSMS->>CS: SetVariables (signed): peer "files", pins,<br/>FileTransfers, FileTransferUsers = cs001, paths
+    Note over CS: makes a key pair for cs001 at "files"
+    CSMS->>CS: GetVariables(FileTransferPublicKey[cs001])
+    CS-->>CSMS: ssh-ed25519 AAAA… cs001@files
+    CSMS->>FS: enter the line into authorized_keys of cs001
+    CSMS->>CS: SSHKeySigned(SFTP, publicKey, peer = files, login = cs001)
+    Note over CS: FileTransferKeyState[cs001] = Confirmed
+    CSMS->>CS: GetLog(sftp://cs001@logs.example.org:2222/upload/cs001/)
+    CS->>FS: publickey(cs001), sftp
+```
+
+1. **The login is configured.** With the peer, or later: a login added to `FileTransferUsers` has
+   a key pair made for it at once, and its state is `Unconfirmed`.
+2. **The CSMS learns the key.** It reads `FileTransferPublicKey[<login>]`, or is sent it: the
+   station sends a `SignSSHKey` (below) by itself when a login is added, and on a
+   `TriggerMessage`.
+3. **The CSMS enters the key at the file server**, where that login lives: in its own store, by
+   `InstallSSHKey` at a Local Controller, in the `authorized_keys` of an OpenSSH server, or by
+   having it certified (section 9.5). How it reaches a file server of somebody else is not OCPP's.
+4. **The CSMS confirms it** with `SSHKeySigned`, naming the key, the peer and the login. The
+   station checks that this is the key it holds for that login, and from then on uses it:
+   `FileTransferKeyState` is `Confirmed`. An account on the station itself may confirm a key as
+   well, on its web interface or its command line, where an installer entered it by hand.
+5. **Not used before.** Until then a request for that login is rejected (section 5.1, case 5):
+   the server would refuse the login anyway, and the CSMS reads why in `FileTransferKeyState`.
+
+The messages are those of OCPP over SSH, section 9.3, with two optional fields:
 
 | Message | Field | Type | Card. | Description |
 |---|---|---|---|---|
 | `SignSSHKey`, `SSHKeySigned` | `peer` | string[0..50] | 0..1 | With the purpose `SFTP`: the name of the file server, as in `SSHPeerController.Peers`. |
 | `SignSSHKey`, `SSHKeySigned` | `login` | string[0..32] | 0..1 | With the purpose `SFTP`: the login the key is for. |
 
-- The CSMS asks with `TriggerMessage`, `customTrigger` `SignSSHKey:SFTP:<peer>:<login>`, and the
-  station answers with `SignSSHKey`; it sends one by itself when a login is added, and when a key
-  reaches its `ClientKeyMaxAge[SFTP]`.
-- The CSMS installs the key where that login lives - in its own store, by `InstallSSHKey` at a
-  Local Controller, by whatever the operator's SFTP server takes - and answers `SSHKeySigned` with
-  the same `peer` and `login`.
-- **Not used before it is confirmed.** Until an `SSHKeySigned` or a confirmation on the station
-  itself, a request for that login is rejected (section 5.1, case 5): the server would refuse the
-  login anyway.
+`TriggerMessage` asks for a `SignSSHKey` with the `customTrigger` `SignSSHKey:SFTP:<peer>:<login>`;
+`SignSSHKey:SFTP` alone asks for one message per login of every file server. Over OCPP 1.6 and
+2.0.1 the messages travel as `DataTransfer`, as that paper says, and the keys are read by
+`GetConfiguration` (section 8.3).
+
+A CSMS that wants a login to use a key it knows already cannot have that: a key is made on the
+station, for one login at one file server, and what the CSMS decides is the login and where the
+public half is entered.
 
 ### 9.3 Rotation
 
