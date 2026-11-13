@@ -40,12 +40,13 @@ discovers endpoints through HTTPS, SVCB and SRV records, which are only as trust
 channel they are fetched over (its section 5.2, step 6).
 
 *Status*: this is a draft for discussion, version 0.2. It decides eight of the eleven questions of
-version 0.1 (chapter 12). Built so far is the client side in Hermod: a DNS client that asks over the
-subsystem, alone or as one of the servers of a client that asks several, on an SSH connection of its
-own or on one the station keeps anyway; and the subsystem on Hermod's DNS server for it to talk to
-(chapter 10). The protocol itself was tried end to end with unmodified software as well, OpenSSH
-10.0, `socat` and BIND 9.20 (appendix B). The variables, the security events and the key purpose
-are proposals still, and so is everything a Local Controller or a CSMS would do as a server.
+version 0.1 (chapter 12). Built is the client side (chapter 10): a DNS client in Hermod that asks
+over the subsystem, alone or as one of the servers of a client that asks several, on an SSH
+connection of its own or on one the station keeps anyway; the transport `SSH` of a node's name
+servers with the variables, configuration keys, key purpose and security events of chapter 7; and
+conformance tests of the client, against a scripted subsystem and against OpenSSH, `socat` and BIND
+(appendix B). Not built is what a Local Controller or a CSMS would do as a server: there the paper
+is a proposal still.
 
 ## Contents
 
@@ -888,13 +889,30 @@ The problems of section 1.1 can partly be solved within TLS, and interoperably:
   of somebody's SSH server, through the handler of the framed stream that serves TCP and TLS, with
   the exit statuses of section 3.5. A request says who asked: `DNSPacket.ClientIdentity`, the login.
 
+- **WWCP_Node: the transport `SSH` of a name server.** A server of the node's DNS configuration is
+  asked over the subsystem, on a connection of its own, signed in with a DNS key of the node and
+  held to its pins and CAs, or as one more channel of the connection to an SSH peer. Per server the
+  status of the last attempt (`SSHStatus`), the host key shown and since when it is known. Nothing
+  is learned on first use, and nothing falls back to another transport of that server.
+- **WWCP_OCPP: `DNSServerController`.** `Transport` `SSH`, the variables of section 7.1 and the
+  rules of section 7.2, the configuration keys of OCPP 1.6 (section 7.5), the key purpose `DNS`
+  and the security events of section 7.4.
+- **Tests.** Of the test criteria of chapter 11: T5 to T7, T9, T11 to T18 and T21 in the nodes,
+  against an SSH server with Hermod's DNS server behind it; T2, T3, T5, T11, T12, T19 and T22 for
+  the client in [DNSConformanceTests](https://github.com/Vanaheimr/DNSConformanceTests), against a
+  subsystem scripted by the suite, and T1 against OpenSSH, `socat` and BIND in the setup of
+  appendix B.
+
 ### 10.3 What is missing
 
-- **WWCP_Node and WWCP_OCPP**: the transport `SSH` and the variables of chapter 7; `SSHConnection`;
-  the key purpose `DNS`; the security events.
-- **Conformance tests** of the client against the test criteria of chapter 11.
-- **Interoperability** of Hermod's client and server with OpenSSH, `socat` and BIND (appendix B) as
-  tests that run.
+- **T8** has no test: a server without strict KEX is refused (`WeakAlgorithms`,
+  `InvalidSSHAlgorithms`), but the SSH server the tests run against always has it.
+- **The station's DNS key over OCPP.** It is shown as `ClientPublicKey[DNS]` and is the node's: not
+  enrolled, rotated or aged over OCPP, as the NTS key is not
+  ([OCPP over SSH](../OCPP-over-SSH/README.md), section 12.3). There is no configuration key of
+  OCPP 1.6 for it.
+- **The server's criteria**, T4, T10, T20 and T23, and the first half of T3: Hermod's DNS server
+  has the subsystem, but is not under conformance test with it.
 
 Not part of this work, and a task of its own:
 
@@ -902,21 +920,21 @@ Not part of this work, and a task of its own:
   only (`AuthoritativeDNSRequestHandler`). A node that is the name server of its station network
   (section 6.4) needs a forwarding, caching `IDNSRequestHandler` that asks upstream through
   `DNSClient`, a DNS proxy, and `dns@open.charging.cloud` on its shared listener, given to its
-  stations by their login group ([OCPP over SSH](../OCPP-over-SSH/README.md), section 5.2). Until
-  then a station has its names over SSH from a server that offers the subsystem itself, such as a
-  resolver behind OpenSSH (section 6.5), and `SSHConnection` `Shared` to a Local Controller or a
-  CSMS of the reference implementation finds no subsystem there.
+  stations by their login group ([OCPP over SSH](../OCPP-over-SSH/README.md), section 5.2), with
+  `InstallSSHKey` for the purpose `DNS`. Until then a station has its names over SSH from a server
+  that offers the subsystem itself, such as a resolver behind OpenSSH (section 6.5), and
+  `SSHConnection` `Shared` to a Local Controller or a CSMS of the reference implementation finds
+  no subsystem there.
 - **Views per identity** in the request handlers (section 4.3).
 
 ### 10.4 Work plan
 
 1. *(done)* Hermod: the client, and the server side for it to talk to.
-2. WWCP_Node and WWCP_OCPP: `Transport` `SSH`, the variables, `SSHConnection`, the key purpose and
-   the security events, end to end in the
-   [EVChargingTestEnvironment](https://github.com/OpenChargingCloud/EVChargingTestEnvironment).
-3. [DNSConformanceTests](https://github.com/Vanaheimr/DNSConformanceTests): the test criteria of
-   chapter 11 that concern the client as conformance tests of Hermod, and OpenSSH, `socat` and BIND
-   as an independent server.
+2. *(done)* WWCP_Node and WWCP_OCPP: `Transport` `SSH`, the variables, `SSHConnection`, the key
+   purpose and the security events.
+3. *(done)* [DNSConformanceTests](https://github.com/Vanaheimr/DNSConformanceTests): the test
+   criteria of chapter 11 that concern the client as conformance tests of Hermod, and OpenSSH,
+   `socat` and BIND as an independent server.
 
 ---
 
