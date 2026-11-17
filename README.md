@@ -10,16 +10,22 @@ Let’s advance the future of interoperable, secure, and open electric vehicle i
 
 ## 1. EVQI Secure Transport
 
-To reduce attack surfaces and meet cybersecurity requirements arising from regulations such as the *EU Cyber Resilience Act (EU CRA)* and *NIS2 Directive (EU NIS2)*, the EVQI project defines a wide range of modern transport protocols and protocol extensions to secure communication between all devices within the EV charging infrastructure eco system.
+To reduce attack surfaces and meet cybersecurity requirements arising from regulations such as the *EU Cyber Resilience Act (EU CRA)* and *NIS2 Directive (EU NIS2)*, the EVQI project defines a wide range of modern transport protocols and protocol extensions to secure communication between all devices within the EV charging infrastructure eco system. Unlike many existing EV charging communication standards, EVQI emphasizes ***cryptographic agility***, giving charging infrastructure operators explicit control over the cryptographic algorithms and security policies deployed within their networks. This enables cryptographic mechanisms to evolve as security requirements change, without requiring fundamental protocol redesigns. ***Post-Quantum Cryptography (PQC)*** is therefore an integral part of the EVQI security architecture, with support designed into all relevant protocol layers rather than treated as a future add-on.
 
-This infrastructure is often part of the open Internet, but deployments within restricted private networks are becoming more common these days. In such environments, relying on the conventional *Web Public Key Infrastructure (Web PKI)*, *Domain Name Services (DNS)* and *Time Synchronization (NTP/NTS)* can be impractical, particularly when public services, certificate issuance, renewal, or revocation services are not directly accessible.
+The EV charging infrastructure is often connected to the public Internet and public Cloud providers. However, growing cybersecurity threats and increasingly stringent security requirements are driving the adoption of restricted or isolated private networks. In such environments, relying on public infrastructure services such as the ***Web Public Key Infrastructure (Web PKI)***, *Domain Name Services (DNS)* and *Time Synchronization (NTP/NTS)* can be impractical, particularly when external services for certificate issuance, renewal, revocation checking, name resolution, or time synchronization are inaccessible or deliberately restricted.
 
-There are three approaches for establishing authenticated and encrypted communication without depending on public Web PKI services:
+There are three approaches for establishing authenticated and encrypted communication with a server or remote application _without_ depending on *Web Public Key Infrastructure (Web PKI)* services:
 1. **Private PKI**: Deploying and maintaining a dedicated private X.509 Public Key Infrastructure, including certificate authorities, certificate lifecycle management, and trust distribution. This typically follows a hierarchical, top-down trust model, which becomes more complex when devices belonging to different administrative domains need to communicate securely, but do not share a common set of *Root CAs*.
 2. **TLS v1.3 RAW Pulic Keys** Using TLS with raw public keys instead of X.509 certificates, as specified in [RFC 7250](https://www.rfc-editor.org/info/rfc7250/). Similar to traditional SSH authentication, trust must be established through external key provisioning, public-key pinning, or another suitable trust mechanism. This preserves the TLS 1.3 security protocol while eliminating the need for X.509 certificate management.
 3. **SSH-based trust**: Leveraging the Secure Shell (SSH) ecosystem, which traditionally follows a decentralized, bottom-up trust model based on explicitly trusted public keys. Host and application identities can be established through preconfigured public keys, secure provisioning/pairing, or *Trust on First Use (TOFU)* followed by an independent verification process. Once trusted, these keys are pinned to their respective hosts or applications, allowing subsequent connections to detect unexpected changes in host or application identity. For larger deployments SSH also supports a more centralized, CA-based trust model through OpenSSH certificates without introducing the complexity of a X.509 PKI.
 
-The fundamental distinction is therefore not encryption strength, but how trust is established, distributed, and maintained. Hierarchical PKIs delegate trust through certificate authorities, whereas decentralized approaches establish trust directly between communicating peers. Both SSH and TLS can support different trust models, depending on their configuration.
+The fundamental distinction is therefore not encryption strength, but how trust is established, distributed, and maintained. Hierarchical PKIs delegate trust through certificate authorities, whereas decentralized approaches establish trust directly between communicating peers. Both SSH and TLS can support different server trust models, depending on their configuration.
+
+For ***Client Authentication***, HTTPS supports application-layer mechanisms such as **HTTP Basic Authentication**, as well as transport-layer authentication through **TLS client certificates (mTLS)**. SSH, on the other hand, provides built-in support for both traditional username/password authentication and public-key authentication, with the latter being the preferred approach in most modern deployments.
+
+Since reliable and authenticated time synchronization is already an important requirement in EV charging infrastructure, we propose a third option: ***Time-based One-Time Passwords (TOTP) Authentication***. It follows a similar approach to password based authentication, but replaces the static password with an automatically generated, short-lived authentication code that typically changes every 30 seconds. Consequently, a compromised one-time password can only be exploited within a limited time window, while the underlying shared secret will never be transmitted over the wire and thus remains secure.
+
+An additional security feature is ***TOTP Authentication with Channel Binding***. By incorporating cryptographic keying material obtained through the ***TLS v1.3 or SSH Key Exporter*** into the TOTP generation process, authentication codes become bound not only to a specific time window but also to the individual TLS or SSH connection. This prevents an intercepted authentication code from being replayed over a different TLS or SSH connection. The result is a lightweight, time-dependent, and cryptographically channel-bound client authentication mechanism that avoids the complexity of client-side X.509 certificate management while providing stronger replay protection than conventional password-based authentication.
 
 
 ### 1.1 EVQI over HTTP/1.1, HTTP/2 and HTTP/3 WebSockets
@@ -43,10 +49,7 @@ Together with proper certificate chain validation and hostname verification, the
 
 ### 1.2 EVQI over SSH
 
-SSH is widely known for *Secure remote Shell (SSH)*, *Secure File Transfer Protocol (SFTP)*, and encrypted *TCP tunneling*.
-However, its extensible connection protocol also supports additional application-layer protocols through dedicated SSH channels and named subsystems.
-This makes SSH an interesting alternative transport and authentication framework for private EV charging infrastructure networks, particularly when
-decentralized trust relationships are desirable and operating a dedicated X.509 PKI would introduce unnecessary complexity.
+SSH is widely known for *Secure Shell (SSH)*, *Secure File Transfer Protocol (SFTP)*, and encrypted *TCP Tunneling*. However, its extensible connection protocol also supports additional application-layer protocols through dedicated SSH channels and named subsystems. This makes SSH an interesting alternative transport and authentication framework for private EV charging infrastructure networks, particularly when decentralized trust relationships are desirable and operating a dedicated X.509 PKI would introduce unnecessary complexity.
 
 - [DNS over SSH](DNS-over-SSH/README.md) (EU RED/CRA)
 - [NTS Key Establishment over SSH](NTS-over-SSH/README.md) (EU RED/CRA)
@@ -58,7 +61,7 @@ decentralized trust relationships are desirable and operating a dedicated X.509 
 - [Secure SSH Configuration](SecureSSHConfiguration/README.md)
 - [SFTP for Logfile Uploads and Firmware Downloads](SFTP-FileTransfers/README.md) (EU RED/CRA)
 
-- SSH Channel Binding
+- SSH Channel Binding *(WIP)*
 
 
 ### 1.3 Secure Domain Name Service (DNS)
