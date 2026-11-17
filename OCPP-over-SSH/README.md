@@ -382,6 +382,12 @@ sequenceDiagram
   connection names, and only after it has verified the host key, so that a password never reaches
   a server it does not believe. The nodes of the reference implementation never let a station in
   with a password: a station login is a key.
+- **One-time password**, where a server asks for one and the connection names TOTP credentials
+  ([SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md)). Bound to the SSH
+  session it is sent as the authentication method `totp@open.charging.cloud` and is good in no
+  other session; unbound it is the answer to a `keyboard-interactive` prompt, or a password, and
+  then under the rules of a password. Credentials that say "bound" are never sent unbound.
+- **No key at all**, where the connection says so: it signs in with its password alone.
 - **SSH user certificates**: possible in the SSH stack, not used for stations yet (section 10.5).
 
 ### 4.3 How the server proves it
@@ -395,10 +401,10 @@ key was refused.
 
 - **TLS client certificates.** There is no TLS handshake to show one in. A connection that names
   one is not dialled over SSH.
-- **TOTP passwords** ([TOTP for M2M Authentication](../TimeBasedOneTimePasswords/README.md)). A
-  one-time password is answered over HTTP, and a key already proves what it would add: that the
-  station holds a secret that never crossed the wire. A connection that names TOTP credentials is
-  not dialled over SSH.
+- **HTTP TOTP Auth as such.** There is no HTTP request to carry an `Authorization: TOTP` header
+  in. The shared secret of TOTP credentials is used all the same, in SSH's own authentication
+  methods (section 4.2). A key remains the normal case: it already proves what a one-time
+  password adds, that the station holds a secret that never crossed the wire.
 
 ### 4.5 Relation to the security profiles
 

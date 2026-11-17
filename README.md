@@ -52,6 +52,9 @@ decentralized trust relationships are desirable and operating a dedicated X.509 
 - [NTS Key Establishment over SSH](NTS-over-SSH/README.md) (EU RED/CRA)
 - [OCPP over SSH](OCPP-over-SSH/README.md) (EU RED/CRA)
 
+- [SFTP for Logfile Uploads and Firmware Downloads](SFTP-FileTransfers/README.md) (EU RED/CRA)
+- [SSH Authentication Extensions for OCPP](SSHAuthExtensions/README.md) (EU RED/CRA)
+
 - [Secure SSH Configuration](SecureSSHConfiguration/README.md)
 - [SFTP for Logfile Uploads and Firmware Downloads](SFTP-FileTransfers/README.md) (EU RED/CRA)
 
@@ -83,6 +86,7 @@ A more expressive alternative is *Concise Binary Object Representation (CBOR)*, 
 EVQI builds upon CBOR, extending it with domain-specific data structures and semantics for the precise, interoperable, and verifiable exchange of metrological measurements and related information.
 
 - [Metrological CBOR (CBOR Tag 44252)](MetrologicalCBOR/README.md) (EU MID)
+
 
 
 ### 2. EVQI End-to-End Security
