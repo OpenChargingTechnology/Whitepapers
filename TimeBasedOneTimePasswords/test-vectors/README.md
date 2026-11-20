@@ -59,15 +59,16 @@ Each vector: `input` → expected `previous`/`current`/`next` token,
 Vectors for the HTTP authentication binding
 ([totp-http-authentication.md](../totp-http-authentication.md)) as
 RFC 9110 auth-params:
-`TOTP login="<b64>", totp="<b64>"[, tlscb=true|false]` — `login`/`totp`
-mandatory (Base64 of UTF-8), `tlscb` optional with default **true**.
+`TOTP login="<b64>", totp="<b64>"` — `login`/`totp` mandatory (Base64 of
+UTF-8). Whether a token is bound to the TLS session is the login's
+configuration, not part of the header; `tlscb`, the binding flag of earlier
+drafts, is withdrawn and ignored like any unknown parameter.
 
- * `vectors` — credential building (login, token, binding flag → the exact
-   canonical header value); harnesses also parse the header back
-   (round-trip).
- * `parseVectors` — parse-only leniency cases: scheme and value casing,
-   parameter order, `tlscb` defaulting and quoting, the unknown-parameter
-   must-ignore rule, token-form values.
+ * `vectors` — credential building (login and token → the exact canonical
+   header value); harnesses also parse the header back (round-trip).
+ * `parseVectors` — parse-only leniency cases: scheme and parameter name
+   casing, parameter order, the unknown-parameter must-ignore rule (the
+   withdrawn `tlscb` included, whatever its value), token-form values.
  * `invalidHeaders` — header values parsers MUST reject (duplicates,
    missing mandatory parameters, the wire forms of earlier drafts).
 
@@ -81,7 +82,8 @@ never silence — and still fails on capability names it does not know.
 What a verifier **answers** (HTTP binding sections 5.3, 6.2 and 8), not
 what a header looks like. `verifier` names one verifier: `logins` maps each
 login to its TOTP configuration (absent optional fields mean the verifier's
-own defaults, as in `input` of the generation vectors), and
+own defaults, as in `input` of the generation vectors; an absent
+`tlsChannelBinding` means raw tokens), and
 `unixTimestampMillis` is its clock. Each vector carries one `authorization`
 header value (`null`: no header) and the `expected` answer:
 
@@ -93,8 +95,9 @@ header value (`null`: no header) and the `expected` answer:
    as failed.
 
 The verifier holds **no TLS exporter material** — a harness talking plain
-TCP to a live server has none — so a credential claiming a channel binding
-(`tlscb` absent or `true`) is rejected, never verified as raw. No presented
+TCP to a live server has none — so it lets in no token of a login whose
+configuration asks for channel binding (`tlsChannelBinding: true`), never
+verifying one as raw. No presented
 token is bound to any session, so a verifier with exporter material reaches
 the same outcomes. The clock lies at least 10 seconds before the end of its
 slot for every login: a harness may set a live server's clock to it and

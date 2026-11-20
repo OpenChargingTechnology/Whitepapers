@@ -1,6 +1,6 @@
 # Open Charging Technology TOTP — HTTP Authentication
 
-**Version 1.0 — Draft**, 2026-08-22
+**Version 1.0 — Draft**, 2026-11-20
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · conformance suite: [OpenChargingCloud/TOTPConformanceTests](https://github.com/OpenChargingCloud/TOTPConformanceTests)
 
 This document specifies how the tokens of the
@@ -12,8 +12,8 @@ OCPI-style `Authorization: Token …`). Three bindings are defined:
  * **TOTP over HTTP Basic Authentication** (section 4) — the token in
    Basic's password field: zero new wire code, the migration path;
  * the **`Authorization: TOTP` scheme** (section 5) — login and token as
-   RFC 9110 auth-params, with TLS channel binding signaled in-band
-   (`tlscb`, default **true**): the native Basic replacement;
+   RFC 9110 auth-params, whether the token is bound to the TLS session
+   being part of the login's configuration: the native Basic replacement;
  * the **`TOTP` request header** (section 6) — a typed token only, for
    deployments where the peer's login is already established.
 
@@ -59,7 +59,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHOULD", "SHOULD NOT",
 *Token format spec* refers to [totp-token-format.md](totp-token-format.md).
 The **login** is the name under which the verifier looks up a peer's TOTP
 configuration (shared secret, validity time, length, alphabet, hash
-algorithm — the `TOTPConfig` of token format spec Appendix B). It is
+algorithm, and whether its tokens are bound to the TLS session — the
+`TOTPConfig` of token format spec Appendix B). It is
 deliberately not called a "user": a login names a **role** — a charging
 station, a backend service, a tenant — and nothing about it implies a
 natural person. *Base64* is the Base64 encoding of [RFC 4648] section 4,
@@ -70,7 +71,11 @@ with padding.
 
 Client and verifier share a TOTP configuration per login, provisioned out of
 band. The verifier maintains a mapping *login → TOTP configuration*; the
-client knows its own login and configuration. How the mapping is provisioned
+client knows its own login and configuration. Both sides agree in it on
+whether the login's tokens are **raw** or **bound** to the TLS session
+(section 6.2): the native `Authorization: TOTP` scheme carries no signal for
+it, so a client cannot talk a binding down, and a verifier never has to
+guess. How the mapping is provisioned
 and rotated is out of scope (token format spec section 8 states the
 requirements on the secret itself).
 
@@ -110,8 +115,9 @@ password comparison changes.
  * The login **MUST NOT contain a `":"`** — RFC 7617 encodes
    `login ":" password` as one Base64 blob, so a colon in the login is
    unrepresentable (the classic Basic ambiguity).
- * There is **no channel binding signal**: every Basic-carried token is a
-   raw token (section 6.2 does not apply).
+ * There is **no channel binding**: every Basic-carried token is a raw
+   token (section 6.2 does not apply), and a login whose configuration
+   asks for binding is not let in this way (section 5.3).
  * Non-ASCII logins and tokens inherit RFC 7617's charset vagueness
    (the `charset` auth-param covers only UTF-8, and support varies).
  * From the outside it stays *Basic*: intermediaries, security scanners and
@@ -136,7 +142,6 @@ credentials  = "TOTP" 1*SP #auth-param
 ; defined parameters:
 ;   login = <Base64 of the UTF-8 encoded login>          (MANDATORY)
 ;   totp  = <Base64 of the UTF-8 encoded TOTP>           (MANDATORY)
-;   tlscb = "true" / "false"                             (OPTIONAL, default: true)
 ```
 
  * The scheme name and all parameter names are matched case-insensitively;
@@ -145,16 +150,18 @@ credentials  = "TOTP" 1*SP #auth-param
    form for them — Base64 padding (`=`) is not a `token` character;
    recipients MUST also accept the token form where it is syntactically
    valid (unpadded Base64).
- * `tlscb` says whether the token is bound to this TLS session (section
-   6.2). It is OPTIONAL and **defaults to `true`** — secure by default: a
-   credential that says nothing about binding claims the strong mode, and
-   a deployment sending raw tokens must say `tlscb=false` explicitly.
-   Senders SHOULD omit `tlscb` when it is `true`. The value is matched
-   case-insensitively, in token or quoted-string form.
+ * Whether the token is raw or bound to this TLS session (section 6.2) is
+   **not** part of the credentials: the login's configuration says it, on
+   both sides (section 3). A client cannot claim a weaker mode than its
+   login is configured for, and a verifier holds every token of a login to
+   that login's mode.
  * Recipients MUST ignore unknown parameters — the standard auth-param
-   extension point. Duplicate parameters, missing mandatory parameters,
-   invalid Base64 and invalid `tlscb` values are rejected as malformed
-   (section 8).
+   extension point. Duplicate parameters, missing mandatory parameters and
+   invalid Base64 are rejected as malformed (section 8).
+ * Earlier drafts of this document defined a parameter `tlscb` (`true` /
+   `false`) that signaled the binding in-band. It is withdrawn: senders
+   MUST NOT send it, and recipients ignore it like any unknown parameter,
+   whatever its value — it neither binds a token nor unbinds one.
 
 Example — login `chargingstation-0001`, raw token `CN63y502maVh` (the
 `defaults-mid-slot` vector of the canonical test vectors):
@@ -162,11 +169,12 @@ Example — login `chargingstation-0001`, raw token `CN63y502maVh` (the
 ```http
 GET /ocpp HTTP/1.1
 Host: csms.example.com
-Authorization: TOTP login="Y2hhcmdpbmdzdGF0aW9uLTAwMDE=", totp="Q042M3k1MDJtYVZo", tlscb=false
+Authorization: TOTP login="Y2hhcmdpbmdzdGF0aW9uLTAwMDE=", totp="Q042M3k1MDJtYVZo"
 ```
 
-The same login with a TLS-channel-bound token (`gAzxPfYtmRgd`, the
-`tls-binding-sha256` vector) — the canonical form omits `tlscb`:
+The same login, configured for channel binding, with a TLS-channel-bound
+token (`gAzxPfYtmRgd`, the `tls-binding-sha256` vector) — the header has
+the very same form:
 
 ```http
 Authorization: TOTP login="Y2hhcmdpbmdzdGF0aW9uLTAwMDE=", totp="Z0F6eFBmWXRtUmdk"
@@ -180,7 +188,11 @@ contain any Unicode character, including `":"`.
 ### 5.2. Client behaviour
 
 For every request the client computes the **current** token for its
-configuration (token format spec section 4) and sends it as above. A token
+configuration (token format spec section 4) — bound to the TLS session of
+the connection the request travels on where the configuration asks for
+channel binding (section 6.2) — and sends it as above. A client that cannot
+derive exporter material for that connection sends no token for a login
+configured for binding, rather than a raw one. A token
 MAY be reused for consecutive requests within its remaining validity time;
 clients MUST NOT send a cached token beyond that.
 
@@ -189,20 +201,25 @@ clients MUST NOT send a cached token beyond that.
 On receiving the header, the verifier:
 
 1. Parses the auth-params: unknown parameters are ignored; duplicate
-   parameters, a missing `login` or `totp`, invalid Base64 and an invalid
-   `tlscb` value are rejected as malformed (section 8). `login` and `totp`
-   are Base64-decoded and UTF-8-decoded; `tlscb` defaults to `true` when
-   absent.
+   parameters, a missing `login` or `totp` and invalid Base64 are rejected
+   as malformed (section 8). `login` and `totp` are Base64-decoded and
+   UTF-8-decoded.
 2. Looks up the TOTP configuration for the login. An unknown login is
    rejected exactly like a wrong token (section 8).
 3. Computes `previous`, `current` and `next` for its own clock and the
-   login's configuration — with `tlscb=true` (explicit or by default) the
-   exporter material of the receiving TLS session is applied on the
-   verifier's side as well, under the rules of section 6.2 — and accepts
+   login's configuration — where the configuration asks for channel
+   binding, with the exporter material of the receiving TLS session,
+   under the rules of section 6.2; otherwise raw — and accepts
    iff the presented token equals one of the three: the acceptance window
    of token format spec section 7, including its guidance: constant-time
    comparison, no widening of the window, single-use enforcement and rate
    limiting where replay matters.
+
+A login whose configuration asks for channel binding takes **bound tokens
+only**: a verifier MUST NOT accept a raw token for it — not in this scheme,
+not as the password of the Basic binding (section 4), not as type `0` of
+the `TOTP` request header (section 6). Where the receiving connection
+exports no keying material, such a login is therefore not let in at all.
 
 Requests without an `Authorization` header, and requests that fail
 verification, are answered with `401 Unauthorized`; the response SHOULD
@@ -269,8 +286,13 @@ verifier that cannot derive exporter material for the receiving connection
 MUST reject a bound token; it MUST NOT fall back to verifying it as raw.
 
 These rules apply to channel binding in **either** native binding: the
-`TOTP` request header signals it with type digit `1`, the
-`Authorization: TOTP` scheme with `tlscb` absent or `true` (section 5.1).
+`TOTP` request header signals it with type digit `1`; in the
+`Authorization: TOTP` scheme the login's configuration says it (section
+5.1), and a bound token arriving on a connection without exporter material
+is rejected there as well. A login configured for binding takes no type `0`
+token in the `TOTP` request header (section 5.3); a login configured for raw
+tokens MAY take a type `1` token where the verifier can derive the material
+— that is more than it asked for.
 
 ### 6.3. Verification
 
@@ -315,8 +337,8 @@ plays its other role, in dynamic QR codes (token format spec section 1.2).
 ## 8. Error handling
 
  * Syntactically malformed credentials (bad Base64, a missing mandatory
-   parameter, duplicate parameters, an invalid `tlscb` value, an unknown
-   type digit, an empty token): `400 Bad Request` — or `401` as below; a
+   parameter, duplicate parameters, an unknown type digit, an empty
+   token): `400 Bad Request` — or `401` as below; a
    server MAY treat malformed as failed.
  * Failed verification and unknown logins: `401 Unauthorized`. The
    response MUST NOT distinguish "unknown login" from "wrong token"
@@ -334,7 +356,8 @@ schemes. This scheme is private-use (see the third point), but answers them
 anyway:
 
  * **Statelessness.** Every request carries everything the verifier needs:
-   login, token and the binding flag. Verification requires only the
+   login and token; whether the token is bound is part of the provisioned
+   configuration, not of the request. Verification requires only the
    verifier's clock and the provisioned login → configuration mapping
    (section 3) — no per-client session state. Two deliberate exceptions:
    the OPTIONAL single-use enforcement of section 5.3 (anti-replay) is
@@ -368,8 +391,8 @@ anyway:
  * **Origin-server and proxy authentication.** The scheme is designed for
    origin-server authentication (`401` / `WWW-Authenticate` /
    `Authorization`). It MAY be used for proxy authentication (`407` /
-   `Proxy-Authenticate` / `Proxy-Authorization`) with raw tokens
-   (`tlscb=false`), where the proxy holds the login's configuration.
+   `Proxy-Authenticate` / `Proxy-Authorization`) for logins configured for
+   raw tokens, where the proxy holds the login's configuration.
    Channel binding is only meaningful when the verifier is the TLS
    endpoint of the connection carrying the request — with classic CONNECT
    tunneling a proxy is not, so bound tokens MUST NOT be used for proxy
@@ -385,8 +408,9 @@ anyway:
 
 ## 10. Security considerations
 
- * **TLS is REQUIRED** for the Basic binding, and for raw tokens
-   (`tlscb=false` / type `0`) in the native bindings: a raw token is
+ * **TLS is REQUIRED** for the Basic binding, and for raw tokens (a login
+   configured without channel binding / type `0`) in the native bindings:
+   a raw token is
    replayable within its acceptance window by anyone who observes it.
    (This is still a categorical improvement over classic Basic Auth, where
    observation compromises the credential *permanently*.) A bound token is
@@ -422,12 +446,13 @@ normative annex:
 [`test-vectors/totp-http-auth-vectors.json`](test-vectors/totp-http-auth-vectors.json),
 gated as a whole file by the capability **`httpAuthentication`**:
 
- * `vectors` — credential building: login, token and binding flag in, the
-   exact canonical header value out; harnesses also parse the header back
-   and compare (round-trip).
- * `parseVectors` — parse-only leniency cases: scheme and value casing,
-   parameter order, `tlscb` defaulting and quoting, the
-   unknown-parameter must-ignore rule, token-form values.
+ * `vectors` — credential building: login and token in, the exact
+   canonical header value out; harnesses also parse the header back and
+   compare (round-trip).
+ * `parseVectors` — parse-only leniency cases: scheme and parameter name
+   casing, parameter order, the unknown-parameter must-ignore rule — the
+   withdrawn `tlscb` of earlier drafts included, whatever its value —
+   token-form values.
  * `invalidHeaders` — header values parsers MUST reject, including
    duplicates, missing mandatory parameters, and the wire forms of
    earlier drafts of this document.
@@ -447,10 +472,11 @@ one `Authorization` header (or none) together with the verifier's answer:
 `malformed` (`400`, or `401`). They cover the acceptance window (previous,
 current and next — never two slots), per-login configurations, unknown
 logins, exact token comparison (no prefix, no case folding, no trimming),
-the `tlscb` default on a verifier without exporter material, and duplicate
-parameters, of which neither value may win. The verifier holds no TLS
-exporter material; no presented token is bound, so a verifier that does
-reaches the very same outcomes. Its clock lies at least 10 seconds before
+a login configured for channel binding on a verifier without exporter
+material (no token of it is let in, a withdrawn `tlscb=false` changing
+nothing), and duplicate parameters, of which neither value may win. The
+verifier holds no TLS exporter material; no presented token is bound, so a
+verifier that does reaches the very same outcomes. Its clock lies at least 10 seconds before
 the end of its slot for every login, so a harness may drive a live
 server's clock to it.
 
@@ -495,11 +521,11 @@ exercised through the scheme vectors.
 | Piece | Hermod | TOTP.ts |
 |-------|--------|---------|
 | Token derivation | yes | yes |
-| TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes. Verification: yes, in the WebSocket server (`BasicCredentialsAreKnown`): the password of a Basic login is its static password, or the previous, the current or the next one-time password of its TOTP configuration - a raw one, so a login whose configuration asks for the binding is not let in this way. A login may have both during a transition. Not verified by the plain HTTP server | wire: needs no helper (`generateTOTPs()` as the password), verification: no |
-| `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`, `tlscb` with its true-default (Hermod: `HTTPTOTPAuthentication`; TOTP.ts: `formatTOTPAuthorization` / `parseTOTPAuthorization`; vector-driven tests on both sides) | yes; sent by the WebSocket client under its `TOTPLogin`, with a token of the moment for every attempt, a reconnect included — raw (`tlscb=false`) over every version of HTTP, bound (`tlscb` absent) by a client told to open its WebSocket over HTTP/3 and nothing else | yes |
+| TOTP over Basic Authentication (section 4) — existing RFC 7617 machinery; only the server-side password check changes | wire: yes. Verification: yes, in the WebSocket server (`BasicCredentialsAreKnown`): the password of a Basic login is its static password, or the previous, the current or the next one-time password of its TOTP configuration - a raw one, so a login whose configuration asks for the binding (`TLSChannelBinding`) is not let in this way. A login may have both during a transition. Not verified by the plain HTTP server | wire: needs no helper (`generateTOTPs()` as the password), verification: no |
+| `Authorization: TOTP` — build & parse as auth-params: `login`, `totp`; unknown parameters, the withdrawn `tlscb` among them, ignored (Hermod: `HTTPTOTPAuthentication`; TOTP.ts: `formatTOTPAuthorization` / `parseTOTPAuthorization`; vector-driven tests on both sides) | yes; sent by the WebSocket client under its `TOTPLogin`, with a token of the moment for every attempt, a reconnect included — raw over every version of HTTP, bound, where its `TOTPConfig` asks for it (`TLSChannelBinding`), by a client told to open its WebSocket over HTTP/3 and nothing else | yes |
 | `TOTP` request header — build & parse (`TOTPHTTPHeader`), auto-attached by the HTTP client from its `TOTPConfig` | wire: yes — raw, and bound (type `1`) by a WebSocket client without a login that opens its WebSocket over HTTP/3. Verification (section 6.3): yes, in the WebSocket server, where the server says who a connection is known as (`TOTPLoginOfAConnection`, unset by default — unset, the header lets nobody in) and the request carries no `Authorization`: raw over every version of HTTP, bound over HTTP/3, as for the scheme. The `Cache-Control` of section 6.4 is not set: the answers to a WebSocket handshake are not cacheable. Not verified by the plain HTTP server | no |
 | TLS exporter material (channel binding derivation) | derivation: yes; on a connection: over HTTP/3 only. `SslStream`, the TLS of the clients and servers over HTTP/1.1 and HTTP/2, exposes no exporter; Hermod's own QUIC, their TLS over HTTP/3, does, and both sides of a WebSocket opened over HTTP/3 take it from there. A client whose `TOTPConfig` asks for binding and that is not told HTTP/3 and nothing else — one left the choice of the version included, since it may come to an `SslStream` — sends nothing and says why, rather than a token weaker than configured | yes (`tlsExporterMaterialOf`, TLS v1.3 only) |
-| Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`, `TOTPIsTheOneOf`), for a WebSocket opened by an Upgrade over HTTP/1.1 and by an extended CONNECT over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]) alike. Raw tokens over all three; bound tokens over HTTP/3, verified with the exporter material of the QUIC connection the request arrived on. Over HTTP/1.1 and HTTP/2 a bound token is rejected, as section 6.2 requires of a verifier without exporter material. A login whose configuration asks for binding takes no raw token; one that does not takes a bound token all the same where it can verify it | no — a client library (a worked example in its README) |
+| Server-side verification of `Authorization: TOTP` (section 5.3) against the login → config mapping — the verification vectors (`httpVerification`) | yes, in the WebSocket server (`AWebSocketEndpoint.AuthenticateAsync` against `ClientTOTPConfig`, `TOTPIsTheOneOf`), for a WebSocket opened by an Upgrade over HTTP/1.1 and by an extended CONNECT over HTTP/2 ([RFC 8441]) or HTTP/3 ([RFC 9220]) alike. The login's `TOTPConfig` says raw or bound (`TLSChannelBinding`): raw tokens over all three; bound tokens over HTTP/3, verified with the exporter material of the QUIC connection the request arrived on. Over HTTP/1.1 and HTTP/2 a login configured for binding is not let in, as section 6.2 requires of a verifier without exporter material. A login whose configuration asks for binding takes no raw token, in no binding; in the `TOTP` request header, one that does not takes a bound token (type `1`) all the same where it can verify it | no — a client library (a worked example in its README) |
 | The challenge `WWW-Authenticate: TOTP` (section 5.3, SHOULD) | yes, in the WebSocket server: its `401` names `TOTP` where it has one-time passwords and `Basic` where it has passwords or takes a raw one-time password as one (section 4) — both in one field value where it has both ([RFC 9110] section 11.6.1), `realm` included. A client of the reference implementation does not act on the challenge: it sends its credentials preemptively | — |
 | Single-use enforcement (section 5.3, OPTIONAL) | no, on purpose: a request lost on its way would leave its sender waiting for the next slot (section 10) | — |
 | Rate limiting of failed attempts (section 5.3) | no: left to the operator of the server, with whatever else limits its requests | — |
@@ -515,7 +541,9 @@ and no condition this document waits for:
    every TLS v1.3 connection, and TOTP.ts derives the material for any of
    them.
 
-The Hermod column is as of Hermod `e4c4e4b1` (2026-11-13). That a WebSocket
+The Hermod column is as of Hermod `2c8a5d72` (2026-11-19), which took the
+binding out of the `Authorization: TOTP` header and into the login's
+configuration. That a WebSocket
 opened over HTTP/2 or HTTP/3 is authenticated as one opened over HTTP/1.1,
 and that a bound token is sent and verified over HTTP/3, is held by tests of
 the stack built on it as well (WWCP_Core `bb22ff9a`, WWCP_OCPP `9afd4153`,

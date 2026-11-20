@@ -400,10 +400,16 @@ implementations storing configurations:
     "validityTime":            30,
     "length":                  12,
     "alphabet":                "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    "useTLSExporterMaterial":  false,
+    "tlsChannelBinding":       false,
     "hashAlgorithm":           "sha256"
 }
 ```
 
-All fields except `sharedSecret` are optional and default as in section 3.
+All fields except `sharedSecret` are optional and default as in section 3;
+an absent `tlsChannelBinding` means `false`. `tlsChannelBinding` says whether
+the configuration's tokens are bound to the TLS session they travel on
+(section 6) — for the HTTP bindings, where it decides how the
+`Authorization: TOTP` scheme is verified, see
+[totp-http-authentication.md](totp-http-authentication.md). (Earlier
+revisions of Hermod named it `useTLSExporterMaterial`.)
 `hashAlgorithm` uses the canonical lowercase names.

@@ -587,12 +587,14 @@ def invalid_vectors() -> list[dict]:
 # The HTTP authentication vectors (../totp-http-authentication.md,
 # "Authorization: TOTP" scheme) - RFC 9110 auth-params:
 #
-#     TOTP login="<b64>", totp="<b64>"[, tlscb=true|false]
+#     TOTP login="<b64>", totp="<b64>"
 #
-# login/totp are mandatory (Base64 of UTF-8), tlscb is optional and
-# DEFAULTS TO TRUE (secure by default: an unbound deployment must say
-# tlscb=false explicitly). Unknown parameters are ignored, duplicates are
-# rejected. The whole file requires the "httpAuthentication" capability -
+# login/totp are mandatory (Base64 of UTF-8). Whether a token is bound to
+# the TLS session is no part of the credentials: the login's configuration
+# says so, on both sides - a client cannot talk a binding down. Unknown
+# parameters are ignored - "tlscb", the binding flag of earlier drafts,
+# among them - and duplicates are rejected. The whole file requires the
+# "httpAuthentication" capability -
 # implemented by Hermod and TOTP.ts; harnesses without it skip the file DECLARATIVELY
 # (a visible skip, never silence). The Basic Auth binding of the
 # specification gets no vectors here: its encoding is RFC 7617's, not ours.
@@ -607,22 +609,19 @@ def b64(text: str) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
-def http_header(login: str, totp: str, tlscb: bool) -> str:
+def http_header(login: str, totp: str) -> str:
     # The canonical form: login and totp as quoted strings (Base64 padding
-    # "=" is not a token character), tlscb omitted at its default (true).
-    header = f'TOTP login="{b64(login)}", totp="{b64(totp)}"'
-    if not tlscb:
-        header += ", tlscb=false"
-    return header
+    # "=" is not a token character).
+    return f'TOTP login="{b64(login)}", totp="{b64(totp)}"'
 
 
 def http_auth_vector(id_: str, description: str,
-                     login: str, totp: str, tlscb: bool) -> dict:
+                     login: str, totp: str) -> dict:
     return {
         "id":           id_,
         "description":  description,
-        "input":        {"login": login, "totp": totp, "tlscb": tlscb},
-        "expected":     {"header": http_header(login, totp, tlscb)}
+        "input":        {"login": login, "totp": totp},
+        "expected":     {"header": http_header(login, totp)}
     }
 
 
@@ -631,25 +630,26 @@ def http_auth_vectors() -> list[dict]:
     return [
 
         http_auth_vector("raw-token",
-                         "A raw token must say so: tlscb defaults to true, so tlscb=false is explicit.",
-                         HTTP_LOGIN, HTTP_RAW_TOTP, False),
+                         "A raw token.",
+                         HTTP_LOGIN, HTTP_RAW_TOTP),
 
         http_auth_vector("tls-channel-bound",
-                         "The canonical bound form omits tlscb - true is the default (secure by default).",
-                         HTTP_LOGIN, HTTP_BOUND_TOTP, True),
+                         "A token bound to the TLS session travels exactly like a raw one: "
+                         "the login's configuration says which it is, not the header.",
+                         HTTP_LOGIN, HTTP_BOUND_TOTP),
 
         http_auth_vector("login-with-colon",
                          "Login and token are Base64-encoded separately, so a colon in the "
                          "login - HTTP Basic Auth's classic ambiguity - is harmless.",
-                         "EVSE:DE*GEF*E1234*1", HTTP_RAW_TOTP, False),
+                         "EVSE:DE*GEF*E1234*1", HTTP_RAW_TOTP),
 
         http_auth_vector("login-utf8",
                          "A non-ASCII login is UTF-8 encoded before Base64.",
-                         "Ladesäule-Süd-01", "SLuwWQOYh3g0", False),
+                         "Ladesäule-Süd-01", "SLuwWQOYh3g0"),
 
         http_auth_vector("short-token",
                          "A six character token (the OCPP minimum length).",
-                         HTTP_LOGIN, "Ik0dNs", False),
+                         HTTP_LOGIN, "Ik0dNs"),
 
     ]
 
@@ -661,60 +661,66 @@ def http_parse_vectors() -> list[dict]:
     bound_q = f'totp="{b64(HTTP_BOUND_TOTP)}"'
 
     def parses(id_: str, description: str, header: str,
-               login: str, totp: str, tlscb: bool) -> dict:
+               login: str, totp: str) -> dict:
         return {
             "id":           id_,
             "description":  description,
             "header":       header,
-            "expected":     {"login": login, "totp": totp, "tlscb": tlscb}
+            "expected":     {"login": login, "totp": totp}
         }
 
     return [
 
         parses("scheme-lowercase",
                "The scheme name is matched case-insensitively.",
-               f'totp {login_q}, {raw_q}, tlscb=false',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
+               f'totp {login_q}, {raw_q}',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
 
         parses("scheme-mixed-case",
                "The scheme name is matched case-insensitively.",
                f'tOtP {login_q}, {bound_q}',
-               HTTP_LOGIN, HTTP_BOUND_TOTP, True),
+               HTTP_LOGIN, HTTP_BOUND_TOTP),
 
-        parses("explicit-tlscb-true",
-               "tlscb=true is the spelled-out default.",
-               f'TOTP {login_q}, {bound_q}, tlscb=true',
-               HTTP_LOGIN, HTTP_BOUND_TOTP, True),
-
-        parses("tlscb-value-case-insensitive",
-               "The tlscb value is matched case-insensitively.",
-               f'TOTP {login_q}, {raw_q}, tlscb=FALSE',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
-
-        parses("tlscb-quoted",
-               "Auth-param values may use the quoted-string form.",
-               f'TOTP {login_q}, {raw_q}, tlscb="false"',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
+        parses("parameter-names-case-insensitive",
+               "Parameter names are matched case-insensitively.",
+               f'TOTP LOGIN="{b64(HTTP_LOGIN)}", ToTp="{b64(HTTP_RAW_TOTP)}"',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
 
         parses("parameter-order-insensitive",
                "Auth-params are unordered.",
-               f'TOTP {raw_q}, tlscb=false, {login_q}',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
+               f'TOTP {raw_q}, {login_q}',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
 
         parses("unknown-parameter-ignored",
                "Unknown auth-params MUST be ignored - the standard extension point.",
-               f'TOTP {login_q}, {raw_q}, tlscb=false, foo="bar"',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
+               f'TOTP {login_q}, {raw_q}, foo="bar"',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
+
+        parses("earlier-draft-tlscb-false-ignored",
+               "tlscb, the binding flag of earlier drafts, is an unknown parameter now "
+               "and ignored: the login's configuration says whether a token is bound.",
+               f'TOTP {login_q}, {raw_q}, tlscb=false',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
+
+        parses("earlier-draft-tlscb-true-ignored",
+               "The same for tlscb=true: it binds nothing.",
+               f'TOTP {login_q}, {bound_q}, tlscb=true',
+               HTTP_LOGIN, HTTP_BOUND_TOTP),
+
+        parses("earlier-draft-tlscb-any-value-ignored",
+               "An ignored parameter has no values to reject.",
+               f'TOTP {login_q}, {raw_q}, tlscb=maybe',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
 
         parses("token-form-value",
                "A Base64 value without padding is a valid token and may come unquoted.",
-               f'TOTP {login_q}, totp={b64(HTTP_RAW_TOTP)}, tlscb=false',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
+               f'TOTP {login_q}, totp={b64(HTTP_RAW_TOTP)}',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
 
         parses("whitespace-around-separators",
                'Optional whitespace around "=" and "," is accepted.',
-               f'TOTP login = "{b64(HTTP_LOGIN)}" , {raw_q} ,tlscb=false',
-               HTTP_LOGIN, HTTP_RAW_TOTP, False),
+               f'TOTP login = "{b64(HTTP_LOGIN)}" ,totp= "{b64(HTTP_RAW_TOTP)}"',
+               HTTP_LOGIN, HTTP_RAW_TOTP),
 
     ]
 
@@ -750,12 +756,9 @@ def http_invalid_headers() -> list[dict]:
             f'TOTP {login_q}, {raw_q}, {raw_q}'),
 
         bad("duplicate-tlscb",
-            "Duplicate parameters are ambiguous and rejected.",
+            "Duplicate parameters are ambiguous and rejected - an unknown one, like "
+            "tlscb of earlier drafts, as well.",
             f'TOTP {login_q}, {raw_q}, tlscb=false, tlscb=true'),
-
-        bad("tlscb-invalid-value",
-            "tlscb is a boolean.",
-            f'TOTP {login_q}, {raw_q}, tlscb=maybe'),
 
         bad("login-not-base64",
             "The login value must be valid Base64.",
@@ -816,10 +819,11 @@ def http_invalid_headers() -> list[dict]:
 # first agree with every HTTP authentication vector above.
 #
 # The verifier is modelled WITHOUT TLS exporter material, as a harness
-# talking plain TCP to a live server has none: a credential claiming a
-# channel binding (tlscb absent or true) is rejected, never verified as
-# raw (section 6.2). None of the presented tokens is bound to any session,
-# so a verifier WITH exporter material reaches the very same outcomes.
+# talking plain TCP to a live server has none: for a login whose
+# configuration asks for channel binding it rejects every token, never
+# verifying one as raw (sections 5.3 and 6.2). None of the presented tokens
+# is bound to any session, so a verifier WITH exporter material reaches the
+# very same outcomes.
 #
 # The verifier clock lies at least VERIFY_SLACK_S seconds before the end
 # of its slot for every configured login: a harness that sets a live
@@ -832,19 +836,23 @@ def http_invalid_headers() -> list[dict]:
 VERIFY_CLOCK    = TS2               # the instant of vector "defaults-mid-slot"
 VERIFY_SLACK_S  = 10
 
-HTTP_LOGIN_2    = "chargingstation-0002"
-HTTP_LOGIN_EVSE = "EVSE:DE*GEF*E1234*1"
+HTTP_LOGIN_2     = "chargingstation-0002"
+HTTP_LOGIN_EVSE  = "EVSE:DE*GEF*E1234*1"
+HTTP_LOGIN_BOUND = "chargingstation-0003"
 
 # Absent optional parameters mean what they mean in "input" of the
-# generation vectors: the verifier's own defaulting is exercised.
+# generation vectors: the verifier's own defaulting is exercised. An absent
+# "tlsChannelBinding" means false: the login's tokens are raw ones.
 VERIFY_LOGINS = {
-    HTTP_LOGIN:       {"sharedSecret": SECRET},
-    HTTP_LOGIN_2:     {"sharedSecret": "another!Station!"},
-    HTTP_LOGIN_EVSE:  {"sharedSecret":         "Ladesäule-Süd-01",
-                       "validityTimeSeconds":  60,
-                       "totpLength":           16,
-                       "alphabet":             BASE32_ALPHABET,
-                       "hashAlgorithm":        "sha512"},
+    HTTP_LOGIN:        {"sharedSecret": SECRET},
+    HTTP_LOGIN_2:      {"sharedSecret": "another!Station!"},
+    HTTP_LOGIN_EVSE:   {"sharedSecret":         "Ladesäule-Süd-01",
+                        "validityTimeSeconds":  60,
+                        "totpLength":           16,
+                        "alphabet":             BASE32_ALPHABET,
+                        "hashAlgorithm":        "sha512"},
+    HTTP_LOGIN_BOUND:  {"sharedSecret":         "bound!Station!03",
+                        "tlsChannelBinding":    True},
 }
 
 TCHARS = frozenset("!#$%&'*+-.^_`|~0123456789"
@@ -856,7 +864,7 @@ class Malformed(ValueError):
 
 
 def parse_totp_authorization(header: str) -> dict:
-    """The credentials of section 5.1 - login, totp, tlscb - or Malformed."""
+    """The credentials of section 5.1 - login and totp - or Malformed."""
 
     pos = 0
     end = len(header)
@@ -931,13 +939,9 @@ def parse_totp_authorization(header: str) -> dict:
             raise Malformed(f"{name} is empty")
         return text
 
-    tlscb = params.get("tlscb", "true").lower()
-    if tlscb not in ("true", "false"):
-        raise Malformed("tlscb is a boolean")
-
+    # Every other parameter - tlscb of earlier drafts included - is ignored.
     return {"login": base64_utf8("login"),
-            "totp":  base64_utf8("totp"),
-            "tlscb": tlscb == "true"}
+            "totp":  base64_utf8("totp")}
 
 
 def verify(authorization: str | None) -> dict:
@@ -953,9 +957,11 @@ def verify(authorization: str | None) -> dict:
 
     config = VERIFY_LOGINS.get(credentials["login"])
 
-    # An unknown login is rejected exactly like a wrong token; a bound
-    # token is rejected rather than verified as raw (section 6.2).
-    if config is None or credentials["tlscb"]:
+    # An unknown login is rejected exactly like a wrong token. A login whose
+    # configuration asks for channel binding takes bound tokens only, and
+    # without exporter material none can be verified: rejected, never
+    # verified as raw (sections 5.3 and 6.2).
+    if config is None or config.get("tlsChannelBinding", False):
         return {"outcome": "rejected"}
 
     window = generate_totps(config["sharedSecret"],
@@ -1040,7 +1046,7 @@ def verification_vectors() -> list[dict]:
     assert flipped != current
 
     def raw(login: str, totp: str) -> str:
-        return http_header(login, totp, False)
+        return http_header(login, totp)
 
     return [
 
@@ -1114,23 +1120,29 @@ def verification_vectors() -> list[dict]:
              "The current token with a leading space inside the Base64: compared exactly, never trimmed.",
              raw(HTTP_LOGIN, " " + current), "rejected"),
 
-        # -- Channel binding: claimed, but not verifiable here -----------
+        # -- Channel binding: the login's configuration decides ----------
 
-        case("reject-tlscb-default",
-             "The current raw token without tlscb: the default true claims a channel "
-             "binding, which a verifier without exporter material rejects - never "
-             "verifying the token as raw.",
-             http_header(HTTP_LOGIN, current, True), "rejected"),
+        case("reject-raw-token-of-bound-login",
+             "The current raw token of a login whose configuration asks for channel "
+             "binding: such a login takes no raw token - and a verifier without "
+             "exporter material verifies no bound one.",
+             raw(HTTP_LOGIN_BOUND, login_token(HTTP_LOGIN_BOUND)), "rejected"),
 
-        case("reject-tlscb-true",
-             "The same with tlscb=true spelled out.",
-             http_header(HTTP_LOGIN, current, True) + ", tlscb=true", "rejected"),
+        case("reject-bound-login-with-earlier-draft-tlscb-false",
+             "The same with tlscb=false of earlier drafts: an unknown parameter, "
+             "ignored - a client cannot talk the binding down.",
+             raw(HTTP_LOGIN_BOUND, login_token(HTTP_LOGIN_BOUND)) + ", tlscb=false", "rejected"),
+
+        case("accept-earlier-draft-tlscb-true-ignored",
+             "The current raw token with tlscb=true of earlier drafts: an unknown "
+             "parameter, ignored - the login's configuration says raw.",
+             raw(HTTP_LOGIN, current) + ", tlscb=true", "accepted", HTTP_LOGIN),
 
         # -- The wire form is the parser's, the outcome the verifier's ---
 
         case("accept-lenient-casing",
-             "Scheme, parameter names and the tlscb value are matched case-insensitively.",
-             f'totp LOGIN="{b64(HTTP_LOGIN)}", TOTP="{b64(current)}", TLSCB=False',
+             "Scheme and parameter names are matched case-insensitively.",
+             f'totp LOGIN="{b64(HTTP_LOGIN)}", TOTP="{b64(current)}"',
              "accepted", HTTP_LOGIN),
 
         case("accept-unknown-parameter",
@@ -1143,22 +1155,22 @@ def verification_vectors() -> list[dict]:
 
         case("malformed-missing-totp",
              "The totp parameter is mandatory.",
-             f'TOTP login="{b64(HTTP_LOGIN)}", tlscb=false', "malformed"),
+             f'TOTP login="{b64(HTTP_LOGIN)}"', "malformed"),
 
         case("malformed-empty-totp",
              "An empty token.",
-             f'TOTP login="{b64(HTTP_LOGIN)}", totp="", tlscb=false', "malformed"),
+             f'TOTP login="{b64(HTTP_LOGIN)}", totp=""', "malformed"),
 
         case("malformed-duplicate-totp-valid-first",
              "A valid token followed by a second totp parameter: ambiguous, so "
              "malformed - never the first one wins.",
              f'TOTP login="{b64(HTTP_LOGIN)}", totp="{b64(current)}", '
-             f'totp="{b64(flipped)}", tlscb=false', "malformed"),
+             f'totp="{b64(flipped)}"', "malformed"),
 
         case("malformed-duplicate-totp-valid-last",
              "The same with the valid token last - never the last one wins.",
              f'TOTP login="{b64(HTTP_LOGIN)}", totp="{b64(flipped)}", '
-             f'totp="{b64(current)}", tlscb=false', "malformed"),
+             f'totp="{b64(current)}"', "malformed"),
 
     ]
 
@@ -1210,10 +1222,11 @@ def build_files(mirror_dirs: list[Path]) -> dict[Path, str]:
             "$comment":       header["$comment"],
             "specification":  SPEC_NAME_HTTP,
             "description":    "The 'Authorization: TOTP' scheme as RFC 9110 auth-params: "
-                              "TOTP login=\"<b64>\", totp=\"<b64>\"[, tlscb=true|false]. "
-                              "login/totp are mandatory Base64 of UTF-8; tlscb is "
-                              "optional and defaults to TRUE; unknown parameters are "
-                              "ignored, duplicates rejected. 'vectors' round-trip (build "
+                              "TOTP login=\"<b64>\", totp=\"<b64>\". login/totp are "
+                              "mandatory Base64 of UTF-8; whether a token is bound to the "
+                              "TLS session is the login's configuration, not part of the "
+                              "header. Unknown parameters are ignored - tlscb of earlier "
+                              "drafts among them - duplicates rejected. 'vectors' round-trip (build "
                               "the canonical header AND parse it back), 'parseVectors' "
                               "are parse-only leniency cases, 'invalidHeaders' MUST be "
                               "rejected by parsers. The whole file requires the listed "
@@ -1229,14 +1242,16 @@ def build_files(mirror_dirs: list[Path]) -> dict[Path, str]:
             "description":    "Server-side verification of the 'Authorization: TOTP' scheme "
                               "(sections 5.3, 6.2 and 8): a verifier holding 'verifier.logins' "
                               "(login -> TOTP configuration; absent optional parameters mean "
-                              "the verifier's own defaults) at the clock "
+                              "the verifier's own defaults, an absent 'tlsChannelBinding' "
+                              "raw tokens) at the clock "
                               "'verifier.unixTimestampMillis' receives 'authorization' (null: "
                               "no header) and answers 'accepted' (the request is "
                               "authenticated as 'login'), 'rejected' (401; an unknown login "
                               "is indistinguishable from a wrong token) or 'malformed' (400, "
                               "or 401: a server MAY treat malformed as failed). The verifier "
-                              "has no TLS exporter material, so a credential claiming a "
-                              "channel binding is rejected, never verified as raw; no "
+                              "has no TLS exporter material, so it rejects every token of a "
+                              "login whose configuration asks for channel binding, never "
+                              "verifying one as raw; no "
                               "presented token is bound, so a verifier with exporter material "
                               f"reaches the same outcomes. The clock lies at least "
                               f"{VERIFY_SLACK_S}s before the end of its slot for every login, "

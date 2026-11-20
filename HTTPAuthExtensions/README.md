@@ -196,7 +196,7 @@ HTTP TOTP Auth uses **Time-Based One-Time-Passwords** to generate tokens for aut
 Authorization: TOTP login="{base64(login)}", totp="{base64(totp(timestamp, shared_secret, ...))}"
 ```
 
-The scheme carries its credentials as **RFC 9110 auth-params**: `login` and `totp` are mandatory (Base64 of UTF-8), plus an optional `tlscb` parameter for TLS v1.3 channel binding with its secure default `true`. The scheme, the corresponding `TOTP` request header, and the zero-code-change variant of putting the TOTP into HTTP Basic Auth's password field are **normatively specified** in [Time-Based One-Time Passwords](../TimeBasedOneTimePasswords/totp-http-authentication.md).
+The scheme carries its credentials as **RFC 9110 auth-params**: `login` and `totp` are mandatory (Base64 of UTF-8); whether the token is bound to the TLS v1.3 session (channel binding) is part of the login's configuration on both sides, so a client cannot talk the binding down. The scheme, the corresponding `TOTP` request header, and the zero-code-change variant of putting the TOTP into HTTP Basic Auth's password field are **normatively specified** in [Time-Based One-Time Passwords](../TimeBasedOneTimePasswords/totp-http-authentication.md).
 
 #### OCPP vNext
 
