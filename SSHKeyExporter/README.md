@@ -396,10 +396,10 @@ A protocol that uses the TLS exporter and is to run over SSH as well has to deci
 | Protocol | How it uses the exporter |
 |---|---|
 | [NTS Key Establishment over SSH](../NTS-over-SSH/README.md) | Method `0x0001` of the [SSH Key Binding record](../NTS-over-SSH/nts-ke-ssh-key-binding.md). The NTS-KE server chooses a 32-octet nonce for every exchange and sends it in its response. Both ends export the two NTP keys with the label and contexts of RFC 8915. |
-| [SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md) | Version 0.1 binds the one-time password of `totp@open.charging.cloud` to the `session_id`. Section 8.1 below proposes to take the binding from the exporter, as over TLS. |
+| [SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md) | Since version 0.2, `totp@open.charging.cloud` binds its one-time password with exporter material, as over TLS (section 8.1 below). Version 0.1 bound it to the `session_id` itself. |
 | SSH channel binding *(WIP)* | A candidate: an exporter with a fixed nonce and an empty context would give SSH what `tls-exporter` gives TLS: a channel binding that is unique and taken from secret exporter output, while the binding itself, as in RFC 9266, is not treated as a secret. |
 
-### 8.1 Proposal: One-Time Passwords Bound by the Exporter
+### 8.1 One-Time Passwords Bound by the Exporter
 
 A node that signs in at an HTTP back end with [HTTP TOTP Auth](../HTTPAuthExtensions/README.md) can bind its one-time password to the TLS connection. Section 6 of the [TOTP token format](../TimeBasedOneTimePasswords/totp-token-format.md) defines the binding: both ends export 32 octets with the label `EXPORTER-Time-Based-One-Time-Password-v1` and an empty context. The token is then read off a second HMAC, keyed with this exporter material, instead of off the first one. A token read on the way is useless on any other connection.
 
@@ -421,15 +421,16 @@ totp  = length characters of the alphabet, read off bound
 - **One code path.** Label, context, length and the second HMAC are those of the TOTP token format. An implementation has one function that binds a token to `exporter_material`, and two sources of it: the TLS exporter for `wss://` and `https://`, and the SSH exporter for `ssh://`. The test vectors of the token format then apply to SSH unchanged, with the exporter material of Appendix A.4 as input.
 - **Before user authentication.** The exporter exists from the first `SSH_MSG_NEWKEYS` on (section 4.4), so it is there when the one-time password is sent.
 - **What it adds to the binding by the `session_id`.** Both stop a token from being relayed to another connection, because both differ for every connection. A binding needs nothing more. The exporter material is also secret, though, and the `session_id` is not (section 2.12). A token bound by the exporter therefore depends on a key that never leaves the two ends: no SSH agent, debug log or forwarded agent ever sees it. The binding is also the same over TLS and SSH, which is the main gain.
-- **Where the exporter is missing.** Behind an SSH server that does not offer the exporter, the binding by the `session_id` of version 0.1 remains possible. Which binding a login expects belongs to its configuration, and **MUST NOT** be negotiated in the clear.
+- **Where the exporter is missing.** A server can take an authentication method of its own only with an SSH implementation of its own, which holds `K` and `H` and so can offer the exporter. Behind a server that cannot, the method is not offered, and a node falls back to the unbound ways only where its credentials allow that, as [SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md) describes.
 
-Adopting this would change [SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md): either `totp@open.charging.cloud` takes its binding from the exporter, or a second method name says that it does.
+[SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md) takes this binding for `totp@open.charging.cloud` since its version 0.2. A token bound to the `session_id` itself, as in version 0.1, is no longer accepted.
 
 
 ## 9. Implementation Status
 
 - **[Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod)** (C#), `SshExporter` in `Hermod/SSH/Transport`. It computes `exporter_secret` in the first key exchange of every connection, for all key exchange methods it supports: `curve25519-sha256` (and `@libssh.org`), `ecdh-sha2-nistp256`/`384`/`521`, `diffie-hellman-group14-sha256`, `diffie-hellman-group16-sha512`, `mlkem768x25519-sha256` and `sntrup761x25519-sha512` (and `@openssh.com`). A rekey leaves the secret alone, and the end of the connection wipes it. Every export takes a nonce and refuses an empty one. A server hands the exporter to subsystem handlers with the session, a client exposes it on the connection. Hermod also implements strict key exchange. The tests cover the vectors of Appendix A, both ends agreeing for every key exchange method, another nonce, a rekey and another connection.
 - **[Vanaheimr/Norn](https://github.com/Vanaheimr/Norn)** (C#) uses it for NTS-KE over SSH, as client and as server.
+- **Hermod** binds the one-time password of `totp@open.charging.cloud` with it (`SshSessionBoundTotp.BindingOf`, section 8.1), on the client and on the server side.
 - **[OpenChargingCloud/WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node)** hands it to the subsystems of its shared SSH listener.
 - **OpenSSH** does not offer it. A subsystem process behind `sshd` sees neither `K` nor `H`.
 
@@ -526,4 +527,12 @@ info                00000028 4558504f525445522d54696d652d42617365642d4f6e652d546
                     00000000
 PRK                 f5946f03655cf4695f6ed02af80a71f01dd70ab666670396cf655786b0e410b0
 exporter_material   40f294c52877ab676e1c139752f7be2d2d3ed650e5f1eb7069cdc036e9492c04
+```
+
+With the shared secret `a-shared-secret-of-enough-length`, the time `1700000000`, a validity of 30 s, 12 characters, the alphabet `0-9a-zA-Z` and HMAC-SHA256, the test vector of [SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md#test-vector):
+
+```
+inner               8f52075e3bb97d00c4671891689a815e2f3f54f6c1f7d8489c6c84698687a7f7
+bound               0fa69e4a5db2577a7433de2023de96cc2b5813eab02a589c63049d400abc9436
+one-time password   pYSPAwzAqiHq
 ```

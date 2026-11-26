@@ -1,9 +1,9 @@
 # SSH Authentication Extensions for OCPP
 
-**Version 0.1, Draft**, 2026-11-15
+**Version 0.2, Draft**, 2026-11-26
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · reference implementations: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, `totp@open.charging.cloud`), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (the node that dials)
 
-This white paper describes how an OCPP node that dials its back end over **SSH** - a charging station, a local controller - proves who it is, beyond the public key every SSH implementation knows. It extends section 4 of [OCPP over SSH](../OCPP-over-SSH/README.md), is the counterpart of [HTTP Authentication Extensions for OCPP](../HTTPAuthExtensions/README.md) for connections whose URL begins with `ssh://`, and it defines one new SSH authentication method: **`totp@open.charging.cloud`**, a time-based one-time password bound to the SSH session it is sent in.
+This white paper describes how an OCPP node that dials its back end over **SSH** - a charging station, a local controller - proves who it is, beyond the public key every SSH implementation knows. It extends section 4 of [OCPP over SSH](../OCPP-over-SSH/README.md), is the counterpart of [HTTP Authentication Extensions for OCPP](../HTTPAuthExtensions/README.md) for connections whose URL begins with `ssh://`, and it defines one new SSH authentication method: **`totp@open.charging.cloud`**, a time-based one-time password bound to the SSH connection it is sent in, through the [SSH Keying Material Exporter](../SSHKeyExporter/README.md).
 
 It answers three questions:
 
@@ -77,18 +77,23 @@ An unbound one-time password is read by whoever the SSH session ends at. A serve
 
 ### What it is bound to
 
-Both ends of an SSH connection work out the **session identifier**: the exchange hash `H` of the first key exchange ([RFC 4253 §7.2](https://datatracker.ietf.org/doc/html/rfc4253#section-7.2)). It covers both sides' version strings, both `KEXINIT` messages, the server's host key and the key exchange values; nobody between the two ends can choose it, and two different connections never share it. It is what a `publickey` signature is made over, for the same reason.
-
-The bound one-time password puts the session identifier where the TLS v1.3 channel binding of the token format ([section 6](../TimeBasedOneTimePasswords/totp-token-format.md)) puts the TLS exporter material - the second HMAC is the same one, keyed differently:
+Over TLS v1.3, the token format binds a one-time password with **exporter material** of the connection ([section 6](../TimeBasedOneTimePasswords/totp-token-format.md)): 32 bytes under the label `EXPORTER-Time-Based-One-Time-Password-v1` and an empty context. Over SSH, the [SSH Keying Material Exporter](../SSHKeyExporter/README.md) gives the same: 32 bytes under the same label, which only the two ends of this one connection can work out ([section 8.1](../SSHKeyExporter/README.md#81-one-time-passwords-bound-by-the-exporter) of that paper). Its nonce is the **session identifier**, the exchange hash `H` of the first key exchange ([RFC 4253 §7.2](https://datatracker.ietf.org/doc/html/rfc4253#section-7.2)): both ends have it without sending anything, and two different connections never share it.
 
 ```
+exporter_material = SSH-Exporter(nonce   = session_identifier,
+                                 label   = "EXPORTER-Time-Based-One-Time-Password-v1",
+                                 context = "" (empty),
+                                 L       = 32)
+
 slot  = floor(unixtime / validity)                      // 8 bytes, big-endian
 inner = HMAC(hash, key = shared_secret (UTF-8), slot)
-bound = HMAC(hash, key = session_identifier,    inner)
+bound = HMAC(hash, key = exporter_material,     inner)
 totp  = length characters of the alphabet, read off bound
 ```
 
-The characters are read off `bound` exactly as an unbound token is read off `inner`. The session identifier is used as it is, in its full length (32 bytes for a SHA-256 key exchange, 64 for SHA-512). A key re-exchange does not change it.
+The characters are read off `bound` exactly as an unbound token is read off `inner`. Everything after `exporter_material` is the token of the TLS v1.3 binding: an implementation has one function that binds a token, and the exporter of TLS or of SSH as the source of what it binds with. A key re-exchange does not change the exporter material.
+
+> Version 0.1 of this paper keyed the second HMAC with the session identifier itself. That bound the token as well, since the session identifier differs for every connection, but the session identifier is no secret: SSH agents are handed it and debug logs show it. The exporter material is a secret of the two ends, and the binding is now the same over TLS and SSH. A token of version 0.1 is not accepted by version 0.2.
 
 ### On the wire
 
@@ -106,16 +111,16 @@ The method name follows [RFC 4251 §6](https://datatracker.ietf.org/doc/html/rfc
 
 ### Verifying
 
-The server works out the bound one-time password for the session identifier **of the connection the request arrived on**, for the current time slot and the slots before and after it, and compares in constant time. It needs no memory of tokens it has seen: a token is good in one session, and a session is authenticated once.
+The server works out the bound one-time password for the exporter material **of the connection the request arrived on**, for the current time slot and the slots before and after it, and compares in constant time. It needs no memory of tokens it has seen: a token is good in one session, and a session is authenticated once.
 
 A server lists `totp@open.charging.cloud` among its methods only for logins it holds a shared secret for, or for all, as it lists `password`. It may require it after `publickey` as a second factor, with a partial success ([RFC 4252 §5.1](https://datatracker.ietf.org/doc/html/rfc4252#section-5.1)).
 
 ### What it gives, and what it does not
 
-- A one-time password read on the way, or by a server that is not the one meant, **opens no other session**. Relaying it to the real server fails: that connection has another session identifier.
+- A one-time password read on the way, or by a server that is not the one meant, **opens no other session**. Relaying it to the real server fails: that connection has other exporter material.
 - The shared secret **never travels**, as with every TOTP.
 - The **server is still authenticated by its host key**. The method does not prove to the node that the server knows the shared secret; a node must not treat a successful login as a reason to believe a host key.
-- Both ends need this method. No stock SSH server or client has it; a node falls back to the unbound ways only where its credentials allow that (below).
+- Both ends need this method, and an SSH implementation that gives it the exporter of the connection. No stock SSH server or client has either; a node falls back to the unbound ways only where its credentials allow that (below).
 
 ### Bound, or unbound
 
@@ -137,9 +142,19 @@ Credentials that are bound are never sent less than they were told. Credentials 
 | validity, length, alphabet, hash | 30 s, 12, `0-9a-zA-Z`, HMAC-SHA256 |
 | `inner` | `8f52075e3bb97d00c4671891689a815e2f3f54f6c1f7d8489c6c84698687a7f7` |
 | unbound one-time password | `0aFolGu5wL1m` |
-| session identifier | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
+| exporter material | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
 | `bound` | `ae0c05ece1be93e3273ee0bc8e18d91857310bc89c913c6a49deaf36637cbeb4` |
 | bound one-time password | `D4nFD0C2iovo` |
+
+From a connection on, with the connection of Appendix A.2 of the [SSH Keying Material Exporter](../SSHKeyExporter/README.md#a2-curve25519-sha256-hash--sha-256) (`curve25519-sha256`) and the same secret and time:
+
+| | |
+|---|---|
+| `K` | `000000204a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742` |
+| session identifier | `202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f` |
+| exporter material | `40f294c52877ab676e1c139752f7be2d2d3ed650e5f1eb7069cdc036e9492c04` |
+| `bound` | `0fa69e4a5db2577a7433de2023de96cc2b5813eab02a589c63049d400abc9436` |
+| bound one-time password | `pYSPAwzAqiHq` |
 
 
 ## Configuration
@@ -189,10 +204,10 @@ A connection test - the node dials once, signs in, asks for a Heartbeat and lets
   - Test: Send a `none` request for a login with a shared secret.
   - Expect: `SSH_MSG_USERAUTH_FAILURE` listing `totp@open.charging.cloud`.
 - CSMS-2: Bound one-time password of this session
-  - Test: Send the bound one-time password of the session's identifier and the current time.
+  - Test: Send the bound one-time password of the connection's exporter material and the current time.
   - Expect: `SSH_MSG_USERAUTH_SUCCESS`.
 - CSMS-3: Bound one-time password of another session
-  - Test: Send the bound one-time password worked out with another session identifier.
+  - Test: Send the bound one-time password worked out with the exporter material of another connection.
   - Expect: `SSH_MSG_USERAUTH_FAILURE`.
 - CSMS-4: Unbound one-time password in the bound method
   - Test: Send the unbound one-time password as `totp@open.charging.cloud`.
@@ -210,7 +225,10 @@ A connection test - the node dials once, signs in, asks for a Heartbeat and lets
   - Test: Send wrong passwords and one-time passwords until the attempt budget is spent.
   - Expect: The connection is closed; further attempts from the same address are delayed or refused.
 - CSMS-9: Test vector
-  - Test: Verify the test vector of this paper.
+  - Test: Verify the test vectors of this paper.
+- CSMS-10: Bound as in version 0.1
+  - Test: Send the one-time password bound with the session identifier itself instead of the exporter material.
+  - Expect: `SSH_MSG_USERAUTH_FAILURE`.
 
 ### Client-Side (Charging Station)
 
@@ -238,4 +256,4 @@ A connection test - the node dials once, signs in, asks for a Heartbeat and lets
 - CS-8: Login of the URL and of the credentials differ
   - Expect: The connection is not dialled, and says why.
 - CS-9: Test vector
-  - Test: Generate the test vector of this paper.
+  - Test: Generate the test vectors of this paper.
