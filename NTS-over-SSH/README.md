@@ -181,7 +181,7 @@ Label and context are those of RFC 8915. Option B thus differs from option A onl
 | Key binding record in the response     | 38 bytes, with the nonce      | 38 bytes, with the secret         |
 | New specifications                     | SSH exporter and record       | record only                       |
 
-**Recommendation**: option A is preferred wherever both ends terminate SSH themselves, as the NTS-KE server with an SSH listener of section 8.1 and a client on the same SSH stack do. Option B is mandatory to implement nevertheless: it is the common ground for clients with off-the-shelf SSH libraries and for servers behind an unmodified OpenSSH server. The record of section 5 negotiates between both. The SSH exporter itself should be specified independently of NTS, as it would be useful for other protocols over SSH as well.
+**Recommendation**: option A is preferred wherever both ends terminate SSH themselves, as the NTS-KE server with an SSH listener of section 8.1 and a client on the same SSH stack do. Option B is mandatory to implement nevertheless: it is the common ground for clients with off-the-shelf SSH libraries and for servers behind an unmodified OpenSSH server. The record of section 5 negotiates between both. The SSH exporter itself should be specified independently of NTS, as it would be useful for other protocols over SSH as well. The white paper [SSH Keying Material Exporter](../SSHKeyExporter/README.md) does so, and compares it with the exporter of TLS 1.3.
 
 
 ## 5. The SSH Key Binding Record

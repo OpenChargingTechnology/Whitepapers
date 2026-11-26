@@ -25,7 +25,7 @@ For ***Client Authentication***, HTTPS supports application-layer mechanisms suc
 
 Since reliable and authenticated time synchronization is already an important requirement in EV charging infrastructure, we propose a third option: ***Time-based One-Time Passwords (TOTP) Authentication***. It follows a similar approach to password based authentication, but replaces the static password with an automatically generated, short-lived authentication code that typically changes every 30 seconds. Consequently, a compromised one-time password can only be exploited within a limited time window, while the underlying shared secret will never be transmitted over the wire and thus remains secure.
 
-An additional TOTP security feature is ***TOTP Authentication with Channel Binding***. By incorporating cryptographic keying material obtained through the ***TLS v1.3 or SSH Key Exporter*** into the TOTP generation process, authentication codes become bound not only to a specific time window but also to the individual TLS or SSH connection. This prevents an intercepted authentication code from being replayed over a different TLS or SSH connection. The result is a lightweight, time-dependent, and cryptographically channel-bound client authentication mechanism that avoids the complexity of client-side X.509 certificate management while providing stronger replay protection than conventional password-based authentication.
+An additional TOTP security feature is ***TOTP Authentication with Channel Binding***. By incorporating cryptographic keying material obtained through the ***TLS v1.3 or [SSH Key Exporter](SSHKeyExporter/README.md)*** into the TOTP generation process, authentication codes become bound not only to a specific time window but also to the individual TLS or SSH connection. This prevents an intercepted authentication code from being replayed over a different TLS or SSH connection. The result is a lightweight, time-dependent, and cryptographically channel-bound client authentication mechanism that avoids the complexity of client-side X.509 certificate management while providing stronger replay protection than conventional password-based authentication.
 
 
 ### 1.1 EVQI over HTTP/1.1, HTTP/2 and HTTP/3 WebSockets
@@ -61,6 +61,7 @@ SSH is widely known for *Secure Shell (SSH)*, *Secure File Transfer Protocol (SF
 - [Secure SSH Configuration](SecureSSHConfiguration/README.md)
 - [SFTP for Logfile Uploads and Firmware Downloads](SFTP-FileTransfers/README.md) (EU RED/CRA)
 
+- [SSH Keying Material Exporter](SSHKeyExporter/README.md), compared with the TLS v1.3 exporter
 - SSH Channel Binding *(WIP)*
 
 
