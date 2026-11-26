@@ -3,7 +3,7 @@
 **Version 0.1, Draft**, 2026-11-26
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementation: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (`SshExporter`) · first user: [NTS Key Establishment over SSH](../NTS-over-SSH/README.md)
 
-TLS has had a *keying material exporter* since 2010. A protocol that runs inside a TLS connection can ask it for keys that only the two ends of this one connection know. SSH has never had one. This white paper defines one, **`ssh-exporter@open.charging.cloud`**, independently of any protocol that uses it. It also compares the exporter with that of TLS v1.3, and the encrypted connections of TLS and SSH with each other, because the design follows from where the two differ.
+The Transport Layer Security (TLS) protocol has had a ***Keying Material Exporter*** since [RFC 5705](https://datatracker.ietf.org/doc/rfc5705) in March 2010. An application layer protocol that runs inside a TLS connection can ask it for keys that only the two ends of this one connection know. SSH has never had one. This white paper defines one, **`ssh-exporter@open.charging.cloud`**, independently of any protocol that uses it. It also compares the exporter with that of TLS v1.3, and the encrypted connections of TLS and SSH with each other, because the design follows from where the two differ.
 
 It answers four questions:
 
