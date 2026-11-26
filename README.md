@@ -158,6 +158,8 @@ The goal is not merely to secure communication channels and implicitly trust wha
 
 ## 4.5 ISO 15118
 
+- [Chargy in the Vehicle: Meter Readings, Vehicle-Side Measurement and a Signed Charging Report over ISO 15118](ChargyInTheVehicle/README.md) (EU MID) *(Concept paper)*
+
 *Upcoming:*
 
 - [ISO 15118-Computer Science Edition](ISO15118-CSE/README.md)
