@@ -1,16 +1,17 @@
 # SSH Keying Material Exporter
 
-**Version 0.1, Draft**, 2026-11-26
+**Version 0.2, Draft**, 2026-11-27
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementation: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (`SshExporter`) · first user: [NTS Key Establishment over SSH](../NTS-over-SSH/README.md)
 
 The Transport Layer Security (TLS) protocol has had a ***Keying Material Exporter*** since [RFC 5705](https://datatracker.ietf.org/doc/rfc5705) in March 2010. An application layer protocol that runs inside a TLS connection can ask it for keys that only the two ends of this one connection know. SSH has never had one. This white paper defines one, **`ssh-exporter@open.charging.cloud`**, independently of any protocol that uses it. It also compares the exporter with that of TLS v1.3, and the encrypted connections of TLS and SSH with each other, because the design follows from where the two differ.
 
-It answers four questions:
+It answers five questions:
 
 1. How do two TLS v1.3 connections and two SSH connections differ in what they protect, how they authenticate, and what an observer sees?
 2. How does the TLS v1.3 exporter work, and which of its properties do protocols built on it rely on?
 3. How does an SSH connection export keys that are as good, and why does the SSH exporter need a nonce where the TLS exporter does not?
 4. What does a protocol designer have to decide when moving a protocol that uses the TLS exporter to SSH?
+5. What does it take to add the exporter to the open source SSH implementations, and where would it meet blockers?
 
 The exporter was first specified as option A of the white paper [NTS Key Establishment over SSH](../NTS-over-SSH/README.md) (section 4.3), and as method `0x0001` of its [SSH Key Binding record](../NTS-over-SSH/nts-ke-ssh-key-binding.md) (section 5.2). Section 4.5 of that white paper asks for it to be specified on its own, because other protocols over SSH can use it as well. This document does so. The construction, the label in the hash and the test vectors are unchanged, so an implementation of either document is one of the other.
 
@@ -432,10 +433,93 @@ totp  = length characters of the alphabet, read off bound
 - **[Vanaheimr/Norn](https://github.com/Vanaheimr/Norn)** (C#) uses it for NTS-KE over SSH, as client and as server.
 - **Hermod** binds the one-time password of `totp@open.charging.cloud` with it (`SshSessionBoundTotp.BindingOf`, section 8.1), on the client and on the server side.
 - **[OpenChargingCloud/WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node)** hands it to the subsystems of its shared SSH listener.
-- **OpenSSH** does not offer it. A subsystem process behind `sshd` sees neither `K` nor `H`.
+- **OpenSSH** does not offer it. A subsystem process behind `sshd` sees neither `K` nor `H` (section 10.2).
 
 
-## 10. References
+## 10. Implementation Effort in Open Source SSH Stacks
+
+No open source SSH implementation besides Hermod offers the exporter today, and none of them has a technical obstacle to it. What is missing is an interface, not anything in the protocol: RFC 4253 never defined an exporter, so no implementation had a reason to keep `K` or to hand anything of the key exchange to its channels. This section says what each implementation would need, and where a patch alone is not enough. It was read from their sources as of 2026-11-27; the sizes of the patches are estimates.
+
+
+### 10.1 What an Implementation Needs
+
+1. **`exporter_secret` inside the key exchange.** It is one more hash of the form of RFC 4253, section 7.2, and belongs in the function that derives the keys `A` to `F`, at the first key exchange. In most implementations it cannot be added from outside, because they wipe `K` right there: OpenSSH in `kex_derive_keys`, Dropbear in `gen_new_keys`, PuTTY after `SSH_MSG_NEWKEYS`, TinySSH with `purge`, Russh when the secret is dropped, and JSch with `clearK`.
+2. **HKDF with `HASH`.** Every implementation has HMAC for its MACs. HKDF-Extract and HKDF-Expand are a few lines on top of it.
+3. **A way to the channel handlers** (section 4.5). In a library, the handler of a subsystem runs in the process that holds the keys, and a method on the connection suffices. A daemon that starts each subsystem as a program of its own, such as OpenSSH, Dropbear, TinySSH or `wolfsshd`, has to carry the exporter across that process boundary.
+
+
+### 10.2 OpenSSH: Why the Subsystem Sees Neither `K` nor `H`
+
+The patch OpenSSH needs is the price of its privilege separation, not a defect of it:
+
+- Since OpenSSH 10.0 the key exchange runs in `sshd-auth`, the unprivileged process before user authentication. `K` exists only there, and only inside `kex_derive_keys`.
+- After user authentication the monitor hands the state of the transport to the `sshd-session` child, which runs as the user. `kex_to_blob` carries the `session_id`, and `newkeys_to_blob` the keys of the ciphers and MACs, but nothing else of the key exchange.
+- That child starts the subsystem with three pipes and an environment of `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_ORIGINAL_COMMAND` and the like. The one precedent for handing session data to the program is `ExposeAuthInfo`, which writes the methods and keys of the user authentication to a file named in `SSH_USER_AUTH`.
+
+A patch therefore does three things:
+- It computes `exporter_secret` in `kex_derive_keys` while `K` is alive, for the first key exchange only.
+- It adds the secret to `kex_to_blob` and `kex_from_blob`, so that it survives the way to the child after user authentication.
+- It gives the subsystem process a way to the exporter.
+
+With an `sshd_config` option and regression tests, that is about 150 to 300 lines.
+
+The OpenSSH client has no way out at all. Neither `ssh -s` nor the protocol of `ControlMaster` gives key material to the program that called it, so exports on the client side need a new option as well, for instance a file descriptor on which `ssh` answers them. An authentication method of its own, such as the bound one-time password of section 8.1, needs still more: a new method in `sshd-auth` and in the monitor.
+
+
+### 10.3 Is It a Security Problem?
+
+**The missing exporter is not.** A protocol designed as section 6, item 5, asks falls back to a second source of keys, negotiated inside the connection. NTS-KE over SSH stays secure with the *Transported Secret*; what it loses is the binding of its keys to `K`, not a defence it depends on.
+
+**Adding the exporter is no security problem either**, if four rules hold:
+
+- **One way only.** `exporter_secret` and every export are hashes of `K` under inputs the connection never uses for its own keys (section 7). Whoever holds them computes neither `K` nor a key of the connection, so a subsystem gains no power over the transport.
+- **No new trust domain.** In OpenSSH and Dropbear the process that holds the transport keys after user authentication already runs as the user, and the subsystem runs as the same user. It learns nothing that its parent could not hand it anyway.
+- **Exports, not the secret.** Section 4.5 allows handing `exporter_secret` across a process boundary. The better design for a daemon is to keep it, and to answer `SSH-Exporter(nonce, label, context, L)` over a socket pair that the subsystem inherits. Whoever holds `exporter_secret` can derive from their nonces the keys of every exchange on the connection, including those of other programs on it: a shell, `sftp-server`, or another client multiplexed through `ControlMaster` (section 6, item 3).
+- **A private channel.** An inherited file descriptor, never an environment variable or a file. The environment can be read through `/proc/<pid>/environ`, is inherited by every grandchild, and turns up in logs and crash dumps. The file of `ExposeAuthInfo` in `/tmp` suits public authentication data, not a secret.
+
+Two pitfalls concern adapters that take `K` from a library without changing it:
+
+- **Russh** hands its client callback `kex_done` the shared secret. For `mlkem768x25519-sha256`, however, the callback gets only the X25519 part. An exporter built on it would interoperate with no other implementation, and would lose its post-quantum protection without anyone noticing.
+- **`K` left in memory.** Taking `K` through the internals of Paramiko, AsyncSSH or SSH.NET works only because these libraries do not wipe it. That is a weakness of its own, and a release that starts wiping `K` breaks the adapter.
+
+Libraries also hand out `K` in different forms: fully encoded (Go, AsyncSSH, JSch), without its length (MINA SSHD, SSH.NET), as an integer (Paramiko), or raw (Russh, wolfSSH). An adapter normalises it to the encoding of section 4.1. The vectors of section A.3.1 of the [SSH Key Binding record](../NTS-over-SSH/nts-ke-ssh-key-binding.md#a31-from-the-key-exchange), whose `mpint` needs a leading zero octet, catch one that does not.
+
+
+### 10.4 Effort per Implementation
+
+Four libraries allow the exporter without a change to their code, through an adapter that captures `K` and `H` at the first key exchange. Every other implementation needs a patch.
+
+| Implementation | Roles | `K` after the keys `A` to `F` | Without a patch | Minimal patch | Route upstream, licence |
+|---|---|---|---|---|---|
+| [OpenSSH](https://github.com/openssh/openssh-portable) 10.x | both | wiped in `kex_derive_keys` | no | 150–300 lines: key exchange, state transfer, hand-over to the subsystem, `sshd_config` option; on the client an fd option | openssh-unix-dev, Bugzilla; BSD |
+| [Dropbear](https://github.com/mkj/dropbear) 2026.94 | both | wiped in `gen_new_keys` | no | 150–250 lines, configurable subsystems included (section 10.5) | GitHub; MIT |
+| [TinySSH](https://github.com/janmojzis/tinyssh) 20261101 | server | wiped (`purge`) | no | 80–150 lines | GitHub; public domain |
+| [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) 0.85 | client | wiped after `SSH_MSG_NEWKEYS` | no | 100–200 lines, up to an option of `plink` | patches by mail; MIT |
+| [libssh](https://www.libssh.org/) 0.11 / 0.12 | both | kept until the next key exchange | no, no accessor | 80–150 lines, HKDF in all three crypto back ends | Developer's Certificate of Origin; LGPL 2.1 |
+| [wolfSSH](https://github.com/wolfSSL/wolfssh) 1.6.0 | both | kept in `ssh->k` | no, no accessor; the hook `wolfSSH_SetKeyingCompletionCb` is there | 60–120 lines | signed contributor agreement; GPLv3 or commercial |
+| [Go `x/crypto/ssh`](https://github.com/golang/crypto) 0.59 | both | unreachable (local `kexResult`) | no; a fork with a `replace` directive | 60–120 lines | Go proposal process, Google CLA; BSD |
+| [Russh](https://github.com/Eugeny/russh) 0.65 | both | zeroised on drop | client in part (`kex_done`, see section 10.3), server no | 80–150 lines, the hybrid secret included | GitHub; Apache 2.0 |
+| [AsyncSSH](https://github.com/ronf/asyncssh) 2.24 | both | a local variable | yes, by wrapping `send_newkeys` | 30–60 lines | issue first, then a pull request; EPL 2.0 |
+| [Paramiko](https://github.com/paramiko/paramiko) 4 / 5 | both | `Transport.K` until `SSH_MSG_NEWKEYS` | yes, by overriding `_set_K_H`; no post-quantum key exchange at all | 30–50 lines | GitHub; LGPL 2.1 |
+| [Apache MINA SSHD](https://github.com/apache/mina-sshd) 2.20 | both | kept, public `KeyExchange.getK()` | yes, by wrapping the `KeyExchangeFactory` | 60–100 lines | GitHub or ASF JIRA; Apache 2.0 |
+| [JSch](https://github.com/mwiede/jsch) 2.28 (fork by Matthias Wiede) | client | wiped (`clearK`) | only by a subclass in the package `com.jcraft.jsch` | 40–70 lines | GitHub; BSD |
+| [SSH.NET](https://github.com/sshnet/SSH.NET) 2026.0 | client | kept, public `SharedKey` | yes, by wrapping the key exchange factories of `ConnectionInfo` | 50–80 lines | issue first; MIT |
+| [Hermod](https://github.com/Vanaheimr/Hermod) | both | – | implemented (section 9) | – | – |
+
+
+### 10.5 Possible Blockers
+
+None of them is cryptographic. Four are bigger than a patch:
+
+1. **Dropbear and `wolfsshd` refuse the subsystem itself.** Both daemons accept the subsystem `sftp` and no other (`svr-chansession.c`, `sessioncommand`; the `SessionRequestCb` of `wolfsshd`). That stops a protocol in a subsystem altogether, its second source of keys included, not only the exporter. A device with Dropbear as its server needs a patch for configurable subsystems, or a forced command (`command=` in `authorized_keys`) in place of the subsystem, which is still untested. The wolfSSH library itself hands any subsystem name to the application, and TinySSH takes them with `-x name=command`.
+2. **OpenSSH upstream.** The patch touches the key exchange, the state transfer of privilege separation and the session code at once. Without a published specification there is little reason to take it, and until then whoever ships it carries it from release to release. OpenSSH is the server most protocols over SSH meet, and the client behind `ssh -s`. A protocol therefore needs its second source of keys for as long as OpenSSH has no exporter (section 6, item 5).
+3. **Go.** An exporter is a new method in the public API of `x/crypto/ssh`, and must pass the [Go proposal process](https://go.dev/doc/contribute); contributions need a Google CLA. Until then only a fork works, through a `replace` directive that only the main module of a build can set.
+4. **Contributor agreements.** wolfSSH merges a contribution only with a signed agreement that lets wolfSSL relicense it. SSH.NET discourages larger pull requests from new contributors.
+
+The lever is the specification. An Internet-Draft of this exporter for the IETF working group SSHM is the precondition for OpenSSH, Go and libssh. Until then the exporter is a feature of the stacks a deployment controls: Hermod, the four libraries that allow an adapter, and libssh or wolfSSH with a small patch. Behind an unmodified OpenSSH a protocol uses its second source of keys; behind Dropbear or `wolfsshd` it first needs configurable subsystems.
+
+
+## 11. References
 
 - [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119), [RFC 8174](https://datatracker.ietf.org/doc/html/rfc8174): requirement levels.
 - [RFC 4251](https://datatracker.ietf.org/doc/html/rfc4251): The Secure Shell (SSH) Protocol Architecture.
