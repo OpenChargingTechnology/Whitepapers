@@ -1,7 +1,7 @@
 # SSH Authentication Extensions for OCPP
 
 **Version 0.2, Draft**, 2026-11-26
-[CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · reference implementations: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, `totp@open.charging.cloud`), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (the node that dials)
+[CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · reference implementations: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (SSH stack, `totp@open.charging.cloud`), [Vanaheimr/SSHTOTPTool](https://github.com/Vanaheimr/SSHTOTPTool) (the unbound one-time password for an unmodified OpenSSH), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (the node that dials)
 
 This white paper describes how an OCPP node that dials its back end over **SSH** - a charging station, a local controller - proves who it is, beyond the public key every SSH implementation knows. It extends section 4 of [OCPP over SSH](../OCPP-over-SSH/README.md), is the counterpart of [HTTP Authentication Extensions for OCPP](../HTTPAuthExtensions/README.md) for connections whose URL begins with `ssh://`, and it defines one new SSH authentication method: **`totp@open.charging.cloud`**, a time-based one-time password bound to the SSH connection it is sent in, through the [SSH Keying Material Exporter](../SSHKeyExporter/README.md).
 
@@ -69,6 +69,8 @@ It is carried in one of two standard methods, whichever the server lists:
 The server accepts the one-time password of the current time slot and of the slots before and after it, for clocks that do not agree to the second, and **accepts each one once**.
 
 > This token is *not* the six digits of [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238) that authenticator apps and `pam_google_authenticator` produce: it is longer, drawn from a larger alphabet, and uses HMAC-SHA256 and a different truncation. A server verifies it with an implementation of this paper or of HTTP TOTP Auth.
+
+**An unmodified OpenSSH.** [Vanaheimr/SSHTOTPTool](https://github.com/Vanaheimr/SSHTOTPTool) (`hermod-ssh-totp`, a native .NET binary built on Hermod's `TOTPGenerator`) brings this token to a stock OpenSSH without a change to its sources, with every parameter of the token format but the channel binding. On the server, `sshd` asks for it with `keyboard-interactive` through PAM - `AuthenticationMethods publickey,keyboard-interactive:pam` and a `pam_exec` line in `/etc/pam.d/sshd` that hands the answer to the tool, which checks it against the login's configuration. On the client, `ssh` takes the answer from the tool as its `SSH_ASKPASS`. Its README is a deployment guide for both ends, and the [SSH Conformance Tests](https://github.com/Vanaheimr/SSHConformanceTests) run it between OpenSSH clients and servers and Hermod's own on every push. The tool remembers no token it has checked: within its window of three time slots a token is accepted more than once, so where *each one once* matters the validity is to be kept short, or a verifier with a memory of used tokens is to be put in its place.
 
 An unbound one-time password is read by whoever the SSH session ends at. A server that is not the one meant, having been believed by mistake, can sign in at the real server with it until it runs out. That is what the next section removes.
 

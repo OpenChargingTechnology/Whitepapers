@@ -39,6 +39,14 @@ states, and nightly against the upstream HEADs. Both implementation
 repositories additionally run their own test suites against vendored copies
 of the annex (see [test-vectors/README.md](test-vectors/README.md)).
 
+Built on Hermod's `TOTPGenerator`,
+**[Vanaheimr/SSHTOTPTool](https://github.com/Vanaheimr/SSHTOTPTool)**
+(`hermod-ssh-totp`) brings the token, unbound, to an unmodified OpenSSH:
+`sshd` checks it through `pam_exec`, `ssh` answers it as `SSH_ASKPASS`. Its
+tests run the generation vectors of this annex; see
+[SSH Authentication Extensions for OCPP](../SSHAuthExtensions/README.md) for
+where it fits.
+
 ## Relationship to OCPP — and to the whitepapers around this directory
 
 The format was originally developed for **OCPP v2.1**: use case C25
