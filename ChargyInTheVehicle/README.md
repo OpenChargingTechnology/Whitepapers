@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.3 (2026-11-27)
+**Version:** 0.4 (2026-11-27)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -10,7 +10,7 @@
 
 ## 1. Summary
 
-ISO 15118 carries the charging station's meter readings to the vehicle and lets the vehicle acknowledge them with a signature. Both parts of the standard even reserve a field for the meter's own signature. In practice the chain is complete in none of the five stacks examined: each implements a different half, and none had the ISO 15118-20 confirmation as a working flow. Our stack now has one as a prototype, so far checked only against itself.
+ISO 15118 carries the charging station's meter readings to the vehicle and lets the vehicle acknowledge them with a signature. Both parts of the standard even reserve a field for the meter's own signature. In practice the chain is complete in none of the five stacks examined: each implements a different half, and none had the ISO 15118-20 confirmation as a working flow. Our stack now has one as a prototype, recorded as a test session and answered by its Kotlin and Swift vehicles too, but so far checked only against itself.
 
 The vehicle's receipt is also only an acknowledgement of receipt. The car signs the station's number, not its own measurement. And the driver sees none of it.
 
@@ -86,7 +86,7 @@ No third-party stack has the complete chain, and none has the ISO 15118-20 confi
 
 | Stack (revision) | -2: station sends MeterInfo | -2: meter signature | -2: vehicle signs receipt | -2: station verifies receipt | -20: MeterInfo | -20: MeteringConfirmation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Ours (WWCP\_ISO15118) | yes | yes, own convention | yes | yes, verdict logged per receipt | yes, AC and DC, with `MeterSignature`; vehicle can ask, EVCLI's does in every charge loop | yes, AC and DC: station asks, vehicle signs, station verifies; a prototype, checked only against itself |
+| Ours (WWCP\_ISO15118) | yes | yes, own convention | yes | yes, verdict logged per receipt | yes, AC and DC, with `MeterSignature`; vehicle can ask, EVCLI's does in every charge loop | yes, AC and DC: station asks, vehicle signs, station verifies; the Kotlin and Swift vehicles sign too; a prototype, checked only against itself |
 | Josev (`d645255`) | no, commented out in the code | no | yes, if demanded and over TLS | yes, aborts on failure | yes, if the vehicle asks, unsigned; its own EVCC never asks | a TODO and the failure response only |
 | EVerest `EvseV2G` (2026.02.1, deprecated) | yes, 2 of 5 elements | no | (station only) | no, and does not forward it | (-2 only) | (-2 only) |
 | EVerest C++ stack (2026.10.0, `74845c57`) | yes | no | yes, new EV side | yes | no: the request is read, the response never set | omitted, per its own documentation |
@@ -149,7 +149,7 @@ How the station should obtain legally defensible time is the subject of two comp
 | --- | --- | --- |
 | V2G tap | takes `MeterInfo`, meter signature, timestamps, tariff and receipt from the EVCC; sets `MeterInfoRequested` | in the stack: `Evcc20Base.RequestMeterInfo` |
 | Clock comparison | offsets of station and meter clock against the vehicle's reference | in the stack: `ClockComparison`; shown on EVCLI's Charging page |
-| Receipt signer | signs the station's reading when asked, as `MeteringConfirmationReq` | in the stack: `Evcc20Base`, ISO 15118-20 AC and DC; shown on EVCLI's Charging page |
+| Receipt signer | signs the station's reading when asked, as `MeteringConfirmationReq` | in the stack: `Evcc20Base`, ISO 15118-20 AC and DC, and in its Kotlin and Swift ports; shown on EVCLI's Charging page |
 | Transparency record | key, serial number, signed raw data and calibration certificate of the meter | missing, see implementation |
 | Verification core | verifies the meters' signature formats | `ChargyCore.TS` |
 | Vehicle measurement | reads current, voltage, state of charge and auxiliary consumption from the battery system | in the simulator: `EvMeter`; in a real car through the vehicle interface |
@@ -159,7 +159,7 @@ How the station should obtain legally defensible time is the subject of two comp
 ### 6.3 Three runtime environments, one core
 
 - **Infotainment.** An app on Android Automotive or in the manufacturer's web view. This is the goal. Android Automotive gives third-party apps with the energy permission at least the instantaneous charge rate in milliwatts and the battery level in watt-hours, but neither voltage, current nor an energy counter, and nothing from the ISO 15118 session. The full scope needs the manufacturer.
-- **Phone at the car.** The app pairs with the vehicle or an OBD adapter. Less data, but feasible without the manufacturer.
+- **Phone at the car.** The app pairs with the vehicle or an OBD adapter. Less data, but feasible without the manufacturer. Our stack's Kotlin and Swift ports already run the vehicle's side of an ISO 15118 session on a phone, metering confirmation included (Section 11.6), so in tests a phone can play the car.
 - **EVCLI.** Our simulated vehicle with its web interface plays the car. The prototype is built there, because both ends of the session are ours.
 
 ### 6.4 What the driver sees
@@ -463,7 +463,7 @@ EVCLI already logs every request and every answer while it happens. The transpar
 Order of work:
 
 1. Clock comparison and the two counters in EVCLI, against ChargingStationCLI with an unsigned meter. No signature is needed yet, and step 6 already works. **Built**, but against the stack's own station program, not ChargingStationCLI.
-2. `MeteringConfirmation` in the stack, with a loopback test and a recorded session. **Built**, with loopback tests and a live run. The recorded session is still missing.
+2. `MeteringConfirmation` in the stack, with a loopback test and a recorded session. **Built**, with loopback tests, a live run and a recorded session, which the Kotlin and Swift vehicles replay as well.
 3. OCMF from the signing meter, the VAS and the HTTP paths; `ChargyCore.TS` verifies in the EVCLI web interface.
 4. Fault switches in the station and the comparator's verdicts against them.
 5. The signed charging report, and its export in the Chargy format.
@@ -510,7 +510,7 @@ Command-line switches:
 **Three choices no second implementation has confirmed yet:**
 
 - **The signed bytes.** The stack signs the EXI fragment of the whole `MeteringConfirmationReq`, with the signature slot left empty, which is how cbV2G's ISO 15118-20 fragment grammar carries this message. The signature reference names `SignedMeteringData` by its `Id`. Whether a foreign station computes the same digest is open.
-- **The signature form.** The vehicle signs in the same P-256 form its Plug & Charge `AuthorizationReq` already uses, not with the P-521/SHA-512 or Ed448 named in Section 3. The station accepts both EXI encodings of `SignedInfo`: the grammar of ISO 15118-20's common messages and the standalone XMLDSig one.
+- **The signature form.** The vehicle signs in the same form as its Plug & Charge `AuthorizationReq`. Since 27 November 2026 that is `ecdsa-sha512` with a SHA-512 digest, over the P-256 key of the test contract. So the hash is the one Section 3 names, but the curve is not P-521, and Ed448 is not used. The station accepts both EXI encodings of `SignedInfo`: the grammar of ISO 15118-20's common messages and the standalone XMLDSig one.
 - **The side stream, one at a time.** The vehicle never sends a confirmation while a charge-loop request is outstanding. The station answers every frame in arrival order, on the payload type it came in on. A vehicle that sends both at once is untested.
 
 **What it does not change.** The confirmation still only says "received". The vehicle's own count is shown beside the station's reading, but it is not part of what the vehicle signs: `SignedMeteringData` has no place for it. That gap is extension 3 of Section 11.3, and the prototype makes it concrete.
@@ -526,6 +526,23 @@ Command-line switches:
 A note under them repeats the limit above: a confirmation says the vehicle received the reading, not that it is right. The session log has a line per confirmation as it is answered. An ISO 15118-2 session shows no such lines, because it counts its metering receipts on the run itself. A `FAILED` answer ends the session in the stack, so it appears as the session's error.
 
 In a live run, EVCLI with a throwaway contract charged at the stack's station program, which asked in every response after the first. The station asked four times, at 374, 561, 748 and 935 Wh, and every check passed. The page showed "4 signed with the contract key; the station answered OK to all" and the last reading at 935 Wh, with the vehicle's 935 Wh beside it.
+
+**Recorded, and answered in three languages.** Since 27 November 2026 the exchange is also a recorded session, and the stack's phone vehicles answer it too.
+
+| Where | What |
+| --- | --- |
+| Session corpus | `iso20-dc-pnc-meterconfirm` ([EVSimulatorApp#46](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/46), recorder in [ISO15118ConformanceTests#167](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/167)): ISO 15118-20 DC with Plug & Charge. The station has a signing meter and asks from its second charge-loop response on. The session holds two confirmations on `0x8102`, both answered `OK` by a station set to end the session on an invalid one. |
+| Kotlin and Swift vehicles | [EVSimulatorApp#47](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/47): the Android and iOS vehicles sign and send the confirmation as the C# one does, AC and DC, and report it in the same way. |
+| Event stream | All four bridges, in C#, Kotlin, Swift and TypeScript, decode payload type `0x8102`, so the app's session inspector shows the confirmations. |
+
+It is the first recorded message that two parties signed: the meter's signature lies inside the bytes the vehicle signs. That made the corpus comparison harder.
+
+- **Re-recording.** A new recording changes both ECDSA signatures, and because the meter's signature is part of what the vehicle digests, the digest changes too. The comparison therefore takes the recorded signature element whole and checks each recording's digest against its own body.
+- **Replaying.** The vehicle copies the reading out of the recorded response, so its bytes and the digest stay exactly as recorded.
+
+Each port replays the session byte for byte. Each also verifies the confirmations the C# vehicle recorded, with its own encoders and digest included, so all three agree on which bytes are signed. Kotlin passed 92 of 92 vehicle tests locally. Swift passed on macOS CI: 268 tests, no failures.
+
+This is agreement among ports of one design, not a second implementation. It shows that the choice of signed bytes is reproducible, not that it is right. The three open choices above stay open.
 
 ## 12. Further ideas
 
@@ -562,7 +579,8 @@ Sorted by usefulness, the obvious ones first.
 
 - [x] Clock comparison and the two counters in EVCLI (against the stack's station program; ChargingStationCLI not yet)
 - [x] `MeteringConfirmation` as a flow in the stack, with loopback tests and a live run
-- [ ] A recorded `MeteringConfirmation` session in the corpus, and the same exchange over TLS
+- [x] A recorded `MeteringConfirmation` session in the corpus, replayed by the Kotlin and Swift vehicles as well
+- [ ] The same exchange over TLS
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
@@ -581,6 +599,7 @@ Own material:
 - Requirement identifiers on `MeterInfo`, `MeteringReceipt` and `MeteringConfirmation`, and the measurements against EVerest, from the ISO15118ConformanceTests repository
 - Source trees in the interoperability rig: Josev `d645255`, everest-core 2026.10.0 `74845c57`, eVDriveFlow `60249c3`, iso15118-simulator-rs `fc51088`
 - The prototype: [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and [EV#2](https://github.com/OpenChargingCloud/EV/pull/2), merged and pinned in EVCLI on 27 November 2026; the Charging page's confirmations, [EV#3](https://github.com/OpenChargingCloud/EV/pull/3), merged the same day
+- The recorded session, [EVSimulatorApp#46](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/46) and [ISO15118ConformanceTests#167](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/167), and the Kotlin and Swift vehicles, [EVSimulatorApp#47](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/47), merged on 27 November 2026
 
 Read on the web on 26 November 2026:
 
