@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.6 (2026-11-27)
+**Version:** 0.7 (2026-11-27)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -506,7 +506,7 @@ Command-line switches:
 - **Silent vehicle.** With the vehicle silenced, the station asked once and did not ask again within the 5 seconds it had allowed.
 - **Loopback tests.** Eight tests cover the same cases, plus a wrong key and the mode that requires a valid confirmation.
 - **Over TLS.** Both programs ran with the TLS backend that implements the ISO 15118-20 profile: TLS 1.3, mutual, P-521 certificates on both sides, and a P-521 contract. The station asked twice, at 1,600 and 2,400 Wh, and every check passed, in two runs out of two ([run notes](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/blob/master/docs/interop-runs/2026-11-27-iso20-dc-pnc-meterconfirm-tls/notes.md)). A second run validated every chain to a root: the vehicle's TLS certificate to the OEM root, the contract to the MO root, and the station's TLS certificate to the V2G root, again with every check passed, in three runs out of three ([run notes](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/blob/master/docs/interop-runs/2026-11-27-iso20-dc-pnc-meterconfirm-tls-chain/notes.md)).
-- **What a station must check.** In a variant of that run without the MO root, the station rejected the contract chain, but still accepted both confirmations, because it checks the signature only against the contract certificate the vehicle presented. A station that relies on the confirmation has to require both a valid signature and a contract it trusts. Our station does not do the second yet.
+- **What a station must check.** In a variant of that run without the MO root, the station rejected the contract chain, but still accepted both confirmations, because it checks the signature only against the contract certificate the vehicle presented. A station that relies on the confirmation has to require both a valid signature and a contract it trusts. Our station does since the same evening ([WWCP_ISO15118#58](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/58)): with the MO root missing, it now refuses the first confirmation with `FAILED_MeteringSignatureNotValid`.
 - **Not tested.** Nothing has run against another stack. No other stack implements the exchange.
 
 **Three choices no second implementation has confirmed yet:**
@@ -583,7 +583,7 @@ Sorted by usefulness, the obvious ones first.
 - [x] `MeteringConfirmation` as a flow in the stack, with loopback tests and a live run
 - [x] A recorded `MeteringConfirmation` session in the corpus, replayed by the Kotlin and Swift vehicles as well
 - [x] The same exchange over TLS (our station and vehicle), with every chain validated to its root
-- [ ] Our station refuses a confirmation whose contract chain it rejected
+- [x] Our station refuses a confirmation whose contract chain it rejected
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
