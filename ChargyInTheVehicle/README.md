@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.2 (2026-11-27)
+**Version:** 0.3 (2026-11-27)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -149,7 +149,7 @@ How the station should obtain legally defensible time is the subject of two comp
 | --- | --- | --- |
 | V2G tap | takes `MeterInfo`, meter signature, timestamps, tariff and receipt from the EVCC; sets `MeterInfoRequested` | in the stack: `Evcc20Base.RequestMeterInfo` |
 | Clock comparison | offsets of station and meter clock against the vehicle's reference | in the stack: `ClockComparison`; shown on EVCLI's Charging page |
-| Receipt signer | signs the station's reading when asked, as `MeteringConfirmationReq` | in the stack: `Evcc20Base`, ISO 15118-20 AC and DC |
+| Receipt signer | signs the station's reading when asked, as `MeteringConfirmationReq` | in the stack: `Evcc20Base`, ISO 15118-20 AC and DC; shown on EVCLI's Charging page |
 | Transparency record | key, serial number, signed raw data and calibration certificate of the meter | missing, see implementation |
 | Verification core | verifies the meters' signature formats | `ChargyCore.TS` |
 | Vehicle measurement | reads current, voltage, state of charge and auxiliary consumption from the battery system | in the simulator: `EvMeter`; in a real car through the vehicle interface |
@@ -456,7 +456,7 @@ The prototype is built in [EVCLI](https://github.com/OpenChargingCloud/EVCLI), o
 | --- | --- |
 | WWCP\_ISO15118 (stack) | `MeteringConfirmation` as a real flow on both sides (built); the clock comparison and the pairing of every reading with the vehicle's own count (built); the transparency VAS; `SigningMeter` emitting real OCMF records beside the simulator convention |
 | ChargingStationCLI (station) | the signing meter with switchable faults: scaling error, missing phase, register jump, wrong clock; the three HTTP paths over the Internet service |
-| EVCLI (vehicle) | clock comparison at session start (built); `EvMeter` as the vehicle's own measurement (built); comparator with loss model and uncertainty band; report signer; a *Transparency* view that shows the two counters, the band and the verification chain live (built as a section of the *Charging* page, with clocks and counters; band and chain still missing) |
+| EVCLI (vehicle) | clock comparison at session start (built); `EvMeter` as the vehicle's own measurement (built); comparator with loss model and uncertainty band; report signer; a *Transparency* view that shows the two counters, the band and the verification chain live (built as a section of the *Charging* page, with clocks, counters and the metering confirmations; band and chain still missing) |
 
 EVCLI already logs every request and every answer while it happens. The transparency page is a second view on the same event stream, not a second data path.
 
@@ -515,7 +515,17 @@ Command-line switches:
 
 **What it does not change.** The confirmation still only says "received". The vehicle's own count is shown beside the station's reading, but it is not part of what the vehicle signs: `SignedMeteringData` has no place for it. That gap is extension 3 of Section 11.3, and the prototype makes it concrete.
 
-EVCLI's vehicle inherits the signing from the stack, but its Charging page does not show the confirmations yet. They appear only in the vehicle program's output.
+**On the Charging page.** Since [EV#3](https://github.com/OpenChargingCloud/EV/pull/3), EVCLI's Transparency section shows the confirmations beside the clocks and counters:
+
+| Line | Shows |
+| --- | --- |
+| Metering confirmations | how many the vehicle signed with its contract key, and the station's answers ("OK to all", or each answer with its count); "the station asked for none" where it did not ask |
+| Last confirmed | the last confirmed reading and meter, whether the cost receipt was signed too, and the vehicle's own count with the difference |
+| Could not sign | only where the station asked and the vehicle had no contract key or no reading to sign |
+
+A note under them repeats the limit above: a confirmation says the vehicle received the reading, not that it is right. The session log has a line per confirmation as it is answered. An ISO 15118-2 session shows no such lines, because it counts its metering receipts on the run itself. A `FAILED` answer ends the session in the stack, so it appears as the session's error.
+
+In a live run, EVCLI with a throwaway contract charged at the stack's station program, which asked in every response after the first. The station asked four times, at 374, 561, 748 and 935 Wh, and every check passed. The page showed "4 signed with the contract key; the station answered OK to all" and the last reading at 935 Wh, with the vehicle's 935 Wh beside it.
 
 ## 12. Further ideas
 
@@ -553,7 +563,7 @@ Sorted by usefulness, the obvious ones first.
 - [x] Clock comparison and the two counters in EVCLI (against the stack's station program; ChargingStationCLI not yet)
 - [x] `MeteringConfirmation` as a flow in the stack, with loopback tests and a live run
 - [ ] A recorded `MeteringConfirmation` session in the corpus, and the same exchange over TLS
-- [ ] Show the confirmations on EVCLI's Charging page
+- [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
 - [ ] Comparator with loss model and uncertainty band, first against the station's fault switches
@@ -570,7 +580,7 @@ Own material:
 - XSD schemas of ISO 15118-2 and ISO 15118-20 as used by the WWCP\_ISO15118 stack
 - Requirement identifiers on `MeterInfo`, `MeteringReceipt` and `MeteringConfirmation`, and the measurements against EVerest, from the ISO15118ConformanceTests repository
 - Source trees in the interoperability rig: Josev `d645255`, everest-core 2026.10.0 `74845c57`, eVDriveFlow `60249c3`, iso15118-simulator-rs `fc51088`
-- The prototype: [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and [EV#2](https://github.com/OpenChargingCloud/EV/pull/2), merged and pinned in EVCLI on 27 November 2026
+- The prototype: [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and [EV#2](https://github.com/OpenChargingCloud/EV/pull/2), merged and pinned in EVCLI on 27 November 2026; the Charging page's confirmations, [EV#3](https://github.com/OpenChargingCloud/EV/pull/3), merged the same day
 
 Read on the web on 26 November 2026:
 
