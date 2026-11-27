@@ -2,15 +2,15 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.1 (2026-11-27)
+**Version:** 0.2 (2026-11-27)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
-**Prototype:** planned in [EVCLI](https://github.com/OpenChargingCloud/EVCLI), see Section 11.5.
+**Prototype:** in [EVCLI](https://github.com/OpenChargingCloud/EVCLI) and the [WWCP\_ISO15118](https://github.com/OpenChargingCloud/WWCP_ISO15118) stack. The first two steps are built, see Sections 11.5 and 11.6.
 
 ## 1. Summary
 
-ISO 15118 carries the charging station's meter readings to the vehicle and lets the vehicle acknowledge them with a signature. Both parts of the standard even reserve a field for the meter's own signature. In practice the chain is complete in none of the five stacks examined: each implements a different half, and the ISO 15118-20 confirmation exists nowhere as a working flow.
+ISO 15118 carries the charging station's meter readings to the vehicle and lets the vehicle acknowledge them with a signature. Both parts of the standard even reserve a field for the meter's own signature. In practice the chain is complete in none of the five stacks examined: each implements a different half, and none had the ISO 15118-20 confirmation as a working flow. Our stack now has one as a prototype, so far checked only against itself.
 
 The vehicle's receipt is also only an acknowledgement of receipt. The car signs the station's number, not its own measurement. And the driver sees none of it.
 
@@ -82,11 +82,11 @@ Two weaknesses remain. The 64 bytes hold exactly one raw P-256 signature `r‖s`
 
 ## 4. What the stacks actually implement
 
-No third-party stack has the complete chain, and the ISO 15118-20 confirmation exists nowhere as a flow, not in ours either. State of the source trees in our rig on 26 November 2026:
+No third-party stack has the complete chain, and none has the ISO 15118-20 confirmation as a flow. Ours has had one since 27 November 2026, from the prototype (Section 11.6). State of the source trees in our rig on 26 November 2026, with our own row updated for the prototype:
 
 | Stack (revision) | -2: station sends MeterInfo | -2: meter signature | -2: vehicle signs receipt | -2: station verifies receipt | -20: MeterInfo | -20: MeteringConfirmation |
 | --- | --- | --- | --- | --- | --- | --- |
-| Ours (WWCP\_ISO15118) | yes | yes, own convention | yes | yes, verdict logged per receipt | yes, AC and DC, with `MeterSignature`; vehicle can ask | codec and signature tests only, no flow |
+| Ours (WWCP\_ISO15118) | yes | yes, own convention | yes | yes, verdict logged per receipt | yes, AC and DC, with `MeterSignature`; vehicle can ask, EVCLI's does in every charge loop | yes, AC and DC: station asks, vehicle signs, station verifies; a prototype, checked only against itself |
 | Josev (`d645255`) | no, commented out in the code | no | yes, if demanded and over TLS | yes, aborts on failure | yes, if the vehicle asks, unsigned; its own EVCC never asks | a TODO and the failure response only |
 | EVerest `EvseV2G` (2026.02.1, deprecated) | yes, 2 of 5 elements | no | (station only) | no, and does not forward it | (-2 only) | (-2 only) |
 | EVerest C++ stack (2026.10.0, `74845c57`) | yes | no | yes, new EV side | yes | no: the request is read, the response never set | omitted, per its own documentation |
@@ -148,7 +148,8 @@ How the station should obtain legally defensible time is the subject of two comp
 | Block | Task | Exists |
 | --- | --- | --- |
 | V2G tap | takes `MeterInfo`, meter signature, timestamps, tariff and receipt from the EVCC; sets `MeterInfoRequested` | in the stack: `Evcc20Base.RequestMeterInfo` |
-| Clock comparison | offsets of station and meter clock against the vehicle's reference | new |
+| Clock comparison | offsets of station and meter clock against the vehicle's reference | in the stack: `ClockComparison`; shown on EVCLI's Charging page |
+| Receipt signer | signs the station's reading when asked, as `MeteringConfirmationReq` | in the stack: `Evcc20Base`, ISO 15118-20 AC and DC |
 | Transparency record | key, serial number, signed raw data and calibration certificate of the meter | missing, see implementation |
 | Verification core | verifies the meters' signature formats | `ChargyCore.TS` |
 | Vehicle measurement | reads current, voltage, state of charge and auxiliary consumption from the battery system | in the simulator: `EvMeter`; in a real car through the vehicle interface |
@@ -315,7 +316,7 @@ Recommendation: a dedicated measurement certificate, with rotating pseudonyms fo
 
 ### 9.4 Signed by both sides
 
-The strongest report carries two signatures. The vehicle signs its report, and the station acknowledges its hash, just as the vehicle today acknowledges the station's meter reading. Afterwards neither side can claim not to have known the other's view. This is the standard's `MeteringConfirmation`, mirrored in the opposite direction.
+The strongest report carries two signatures. The vehicle signs its report, and the station acknowledges its hash, just as the vehicle today acknowledges the station's meter reading. Afterwards neither side can claim not to have known the other's view. This is the standard's `MeteringConfirmation`, mirrored in the opposite direction. The forward direction runs in the prototype (Section 11.6). The mirrored one does not exist yet.
 
 ## 10. For metrology authorities: market surveillance by vehicle
 
@@ -453,20 +454,68 @@ The prototype is built in [EVCLI](https://github.com/OpenChargingCloud/EVCLI), o
 
 | Where | What |
 | --- | --- |
-| WWCP\_ISO15118 (stack) | `MeteringConfirmation` as a real flow on both sides, where today there are only codec and signature tests; the transparency VAS; `SigningMeter` emitting real OCMF records beside the simulator convention |
+| WWCP\_ISO15118 (stack) | `MeteringConfirmation` as a real flow on both sides (built); the clock comparison and the pairing of every reading with the vehicle's own count (built); the transparency VAS; `SigningMeter` emitting real OCMF records beside the simulator convention |
 | ChargingStationCLI (station) | the signing meter with switchable faults: scaling error, missing phase, register jump, wrong clock; the three HTTP paths over the Internet service |
-| EVCLI (vehicle) | clock comparison at session start; `EvMeter` as the vehicle's own measurement; comparator with loss model and uncertainty band; report signer; a *Transparency* page beside *Charging* and *Logs* that shows the two counters, the band and the verification chain live |
+| EVCLI (vehicle) | clock comparison at session start (built); `EvMeter` as the vehicle's own measurement (built); comparator with loss model and uncertainty band; report signer; a *Transparency* view that shows the two counters, the band and the verification chain live (built as a section of the *Charging* page, with clocks and counters; band and chain still missing) |
 
 EVCLI already logs every request and every answer while it happens. The transparency page is a second view on the same event stream, not a second data path.
 
 Order of work:
 
-1. Clock comparison and the two counters in EVCLI, against ChargingStationCLI with an unsigned meter. No signature is needed yet, and step 6 already works.
-2. `MeteringConfirmation` in the stack, with a loopback test and a recorded session.
+1. Clock comparison and the two counters in EVCLI, against ChargingStationCLI with an unsigned meter. No signature is needed yet, and step 6 already works. **Built**, but against the stack's own station program, not ChargingStationCLI.
+2. `MeteringConfirmation` in the stack, with a loopback test and a recorded session. **Built**, with loopback tests and a live run. The recorded session is still missing.
 3. OCMF from the signing meter, the VAS and the HTTP paths; `ChargyCore.TS` verifies in the EVCLI web interface.
 4. Fault switches in the station and the comparator's verdicts against them.
 5. The signed charging report, and its export in the Chargy format.
 6. Interoperability against EVerest, once its ISO 15118-20 module sets `MeterInfo`.
+
+### 11.6 What the prototype shows
+
+Steps 1 and 2 are built. They went into the stack with [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and into EVCLI's vehicle with [EV#2](https://github.com/OpenChargingCloud/EV/pull/2). EVCLI has pinned both since 27 November 2026.
+
+**Clock comparison.**
+
+- **Sources.** The vehicle reads the station's clock from the header `TimeStamp` of every ISO 15118-20 response, starting with `SessionSetupRes`, so before anything is authorised. It reads the meter's `MeterTimestamp` as a second clock.
+- **Precision.** The offset is resolved as far as whole-second timestamps and the round trip allow.
+- **Drift.** A clock counts as drifted only when it moved by more than two samples can hide, so a second ticking over is not reported.
+- **Live result.** The station program was started with its clock 90 seconds ahead. The Charging page showed the station clock 89.9 s ahead with a warning, the meter clock in step, and 935 Wh on both sides. This is the case Section 6.1 anticipates: the station's two clocks disagreeing with each other.
+
+**Readings side by side.** Every `MeterInfo`, in ISO 15118-2 and -20, is paired with what the vehicle's own `EvMeter` counted in the same iteration. Each reading is marked either "signed, not verified" or "unsigned". Verifying the meter's signature (step 2 of the chain) needs the record and the key from Stage 1, which do not exist yet.
+
+**MeteringConfirmation, AC and DC.**
+
+| Side | Behaviour | Requirement |
+| --- | --- | --- |
+| Station asks | sets `EVSENotification = MeteringConfirmation` with the reading, every n-th charge-loop response | `[V2G20-1083]` |
+|  | never in the first charge-loop response | `[V2G20-1622]` |
+|  | never under EIM, and never without a meter | `[V2G20-2704]` |
+|  | no second request while one is open and its `NotificationMaxDelay` has not run out | `[V2G20-2105]` |
+| Vehicle signs | `SessionID`, reading, receipt and the selected schedule tuple, with the contract key | `[V2G20-776]`, `[V2G20-2236]`, `[V2G20-1808]` |
+|  | sends on V2GTP payload type `0x8102`, between two charge-loop iterations | `[V2G20-1084]`, `[V2G20-1085]` |
+| Station checks | session; reading field by field against what it sent; receipt; control mode; digest; the signature against the contract certificate from `AuthorizationReq`. Each result is recorded separately | `[V2G20-904]` |
+| Station answers | `OK`, or `FAILED_MeteringSignatureNotValid` (which ends the session) when set to require a valid confirmation | `[V2G20-1990]` |
+
+Command-line switches:
+
+- Station: `--metering-confirmation <n>` and `--require-metering-confirmation`.
+- Vehicle: `--no-metering-confirmation`, which keeps it silent.
+
+**Test results.**
+
+- **Normal live run.** The stack's station and vehicle programs ran over TCP, with a throwaway P-256 test contract and the station asking in every response after the first. The station asked twice. Both confirmations passed every check, at 1,600 and 2,400 Wh, and the vehicle had counted 2,400 Wh itself.
+- **Silent vehicle.** With the vehicle silenced, the station asked once and did not ask again within the 5 seconds it had allowed.
+- **Loopback tests.** Eight tests cover the same cases, plus a wrong key and the mode that requires a valid confirmation.
+- **Not tested.** Nothing has run over TLS or against another stack. No other stack implements the exchange.
+
+**Three choices no second implementation has confirmed yet:**
+
+- **The signed bytes.** The stack signs the EXI fragment of the whole `MeteringConfirmationReq`, with the signature slot left empty, which is how cbV2G's ISO 15118-20 fragment grammar carries this message. The signature reference names `SignedMeteringData` by its `Id`. Whether a foreign station computes the same digest is open.
+- **The signature form.** The vehicle signs in the same P-256 form its Plug & Charge `AuthorizationReq` already uses, not with the P-521/SHA-512 or Ed448 named in Section 3. The station accepts both EXI encodings of `SignedInfo`: the grammar of ISO 15118-20's common messages and the standalone XMLDSig one.
+- **The side stream, one at a time.** The vehicle never sends a confirmation while a charge-loop request is outstanding. The station answers every frame in arrival order, on the payload type it came in on. A vehicle that sends both at once is untested.
+
+**What it does not change.** The confirmation still only says "received". The vehicle's own count is shown beside the station's reading, but it is not part of what the vehicle signs: `SignedMeteringData` has no place for it. That gap is extension 3 of Section 11.3, and the prototype makes it concrete.
+
+EVCLI's vehicle inherits the signing from the stack, but its Charging page does not show the confirmations yet. They appear only in the vehicle program's output.
 
 ## 12. Further ideas
 
@@ -497,11 +546,14 @@ Sorted by usefulness, the obvious ones first.
 - Which key signs the report, and how does the driver stay pseudonymous without thinning out the fleet network?
 - How does the report reach the operator when OCPP has no field for it: as an extension, or past the station's backend?
 - How large is the auxiliary consumption really? There is no citable source, so it takes measurement series of our own.
+- Which octets does the signature of a `MeteringConfirmationReq` cover, and which curve do contract certificates carry in practice? The prototype had to choose both (Section 11.6). Only a second implementation can confirm the choice.
 
 ### 13.2 Next steps
 
-- [ ] Clock comparison and the two counters in EVCLI against ChargingStationCLI
-- [ ] `MeteringConfirmation` as a flow in the stack, with loopback test and a recorded session
+- [x] Clock comparison and the two counters in EVCLI (against the stack's station program; ChargingStationCLI not yet)
+- [x] `MeteringConfirmation` as a flow in the stack, with loopback tests and a live run
+- [ ] A recorded `MeteringConfirmation` session in the corpus, and the same exchange over TLS
+- [ ] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
 - [ ] Comparator with loss model and uncertainty band, first against the station's fault switches
@@ -518,6 +570,7 @@ Own material:
 - XSD schemas of ISO 15118-2 and ISO 15118-20 as used by the WWCP\_ISO15118 stack
 - Requirement identifiers on `MeterInfo`, `MeteringReceipt` and `MeteringConfirmation`, and the measurements against EVerest, from the ISO15118ConformanceTests repository
 - Source trees in the interoperability rig: Josev `d645255`, everest-core 2026.10.0 `74845c57`, eVDriveFlow `60249c3`, iso15118-simulator-rs `fc51088`
+- The prototype: [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and [EV#2](https://github.com/OpenChargingCloud/EV/pull/2), merged and pinned in EVCLI on 27 November 2026
 
 Read on the web on 26 November 2026:
 
