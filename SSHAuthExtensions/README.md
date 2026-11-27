@@ -77,7 +77,7 @@ An unbound one-time password is read by whoever the SSH session ends at. A serve
 
 ### What it is bound to
 
-Over TLS v1.3, the token format binds a one-time password with **exporter material** of the connection ([section 6](../TimeBasedOneTimePasswords/totp-token-format.md)): 32 bytes under the label `EXPORTER-Time-Based-One-Time-Password-v1` and an empty context. Over SSH, the [SSH Keying Material Exporter](../SSHKeyExporter/README.md) gives the same: 32 bytes under the same label, which only the two ends of this one connection can work out ([section 8.1](../SSHKeyExporter/README.md#81-one-time-passwords-bound-by-the-exporter) of that paper). Its nonce is the **session identifier**, the exchange hash `H` of the first key exchange ([RFC 4253 §7.2](https://datatracker.ietf.org/doc/html/rfc4253#section-7.2)): both ends have it without sending anything, and two different connections never share it.
+Over TLS v1.3, the token format binds a one-time password with **exporter material** of the connection ([section 6](../TimeBasedOneTimePasswords/totp-token-format.md)): 32 bytes under the label `EXPORTER-Time-Based-One-Time-Password-v1` and an empty context. Over SSH, the [SSH Keying Material Exporter](../SSHKeyExporter/README.md) gives the same: 32 bytes under the same label, which only the two ends of this one connection can work out ([section 4](../SSHKeyExporter/README.md#4-the-ssh-exporter) of that paper). Its nonce is the **session identifier**, the exchange hash `H` of the first key exchange ([RFC 4253 §7.2](https://datatracker.ietf.org/doc/html/rfc4253#section-7.2)): both ends have it without sending anything, and two different connections never share it.
 
 ```
 exporter_material = SSH-Exporter(nonce   = session_identifier,
@@ -91,7 +91,11 @@ bound = HMAC(hash, key = exporter_material,     inner)
 totp  = length characters of the alphabet, read off bound
 ```
 
-The characters are read off `bound` exactly as an unbound token is read off `inner`. Everything after `exporter_material` is the token of the TLS v1.3 binding: an implementation has one function that binds a token, and the exporter of TLS or of SSH as the source of what it binds with. A key re-exchange does not change the exporter material.
+The characters are read off `bound` exactly as an unbound token is read off `inner`. Everything after `exporter_material` is the token of the TLS v1.3 binding: an implementation has one function that binds a token, and the exporter of TLS or of SSH as the source of what it binds with. The test vectors of the token format therefore apply to SSH unchanged, with the exporter material as input.
+
+- **Why the session identifier is the nonce.** User authentication has no place where one end could send a nonce to the other before the password is sent, least of all with `password`. The exporter allows a nonce that neither end sends where a protocol has none ([section 4.3](../SSHKeyExporter/README.md#43-the-nonce)), and the session identifier is one both ends already have. Its length is that of the hash of the key exchange, fixed and within the block size, as section 4.3 requires.
+- **The same material for every attempt.** Every login attempt on one connection derives the same exporter material, as over TLS. That is what a binding needs, and the server accepts each one-time password once anyway.
+- **There before user authentication.** The exporter exists from the first `SSH_MSG_NEWKEYS` on ([section 4.4](../SSHKeyExporter/README.md#44-lifetime)), so it is there when the one-time password is sent. A key re-exchange does not change it.
 
 > Version 0.1 of this paper keyed the second HMAC with the session identifier itself. That bound the token as well, since the session identifier differs for every connection, but the session identifier is no secret: SSH agents are handed it and debug logs show it. The exporter material is a secret of the two ends, and the binding is now the same over TLS and SSH. A token of version 0.1 is not accepted by version 0.2.
 
@@ -120,7 +124,7 @@ A server lists `totp@open.charging.cloud` among its methods only for logins it h
 - A one-time password read on the way, or by a server that is not the one meant, **opens no other session**. Relaying it to the real server fails: that connection has other exporter material.
 - The shared secret **never travels**, as with every TOTP.
 - The **server is still authenticated by its host key**. The method does not prove to the node that the server knows the shared secret; a node must not treat a successful login as a reason to believe a host key.
-- Both ends need this method, and an SSH implementation that gives it the exporter of the connection. No stock SSH server or client has either; a node falls back to the unbound ways only where its credentials allow that (below).
+- Both ends need this method, and an SSH implementation that gives it the exporter of the connection. No stock SSH server or client has either; a node falls back to the unbound ways only where its credentials allow that (below). A server can offer the method only on an SSH implementation of its own, which holds `K` and `H` anyway. OpenSSH would need both the exporter and a new method in `sshd-auth` and its monitor ([section 10.2](../SSHKeyExporter/README.md#102-openssh-why-the-subsystem-sees-neither-k-nor-h) of the exporter paper).
 
 ### Bound, or unbound
 
@@ -146,12 +150,13 @@ Credentials that are bound are never sent less than they were told. Credentials 
 | `bound` | `ae0c05ece1be93e3273ee0bc8e18d91857310bc89c913c6a49deaf36637cbeb4` |
 | bound one-time password | `D4nFD0C2iovo` |
 
-From a connection on, with the connection of Appendix A.2 of the [SSH Keying Material Exporter](../SSHKeyExporter/README.md#a2-curve25519-sha256-hash--sha-256) (`curve25519-sha256`) and the same secret and time:
+From a connection on, with the connection of Appendix A.2 of the [SSH Keying Material Exporter](../SSHKeyExporter/README.md#a2-curve25519-sha256-hash--sha-256) (`curve25519-sha256`) and the same secret and time; [Appendix A.4](../SSHKeyExporter/README.md#a4-the-session_id-as-nonce) there spells out the export:
 
 | | |
 |---|---|
 | `K` | `000000204a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742` |
 | session identifier | `202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f` |
+| PRK (HKDF-Extract, salt = session identifier) | `f5946f03655cf4695f6ed02af80a71f01dd70ab666670396cf655786b0e410b0` |
 | exporter material | `40f294c52877ab676e1c139752f7be2d2d3ed650e5f1eb7069cdc036e9492c04` |
 | `bound` | `0fa69e4a5db2577a7433de2023de96cc2b5813eab02a589c63049d400abc9436` |
 | bound one-time password | `pYSPAwzAqiHq` |
