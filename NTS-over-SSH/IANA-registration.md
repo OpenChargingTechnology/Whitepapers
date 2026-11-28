@@ -105,7 +105,10 @@ the specification before they approve it.
   The white paper, which the specification references, is still a draft for discussion.
 - **Version 1.1** (2026-11-28): the context of Section 5.1 now carries the Protocol ID of the
   negotiated next protocol, as RFC 8915 has it, for NTPv5 (Section 5.4, Appendix A.4); the keys
-  for NTPv4 are unchanged. Submit 1.1, not 1.0.
+  for NTPv4 are unchanged.
+- **Version 1.2** (2026-11-28): the context begins with `0x0000` for NTPv5 as for NTPv4, as
+  chrony-ntp5 derives the keys; this withdraws the NTPv5 keys of 1.1 (Section 5.4, Appendix
+  A.4). Submit 1.2, not 1.0 or 1.1.
 - ~~**The white paper is a normative reference of the specification, and its status line is
   out of date.**~~ Done 2026-11-10: the status line of [README.md](README.md) no longer reads
   that nothing is implemented, but that Norn implements both options on Hermod, as

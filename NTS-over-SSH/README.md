@@ -34,7 +34,7 @@ Section 2.1 of the [Secure Time Synchronization](../SecureTimeSync/README.md) wh
 
 1. **Transport**: TCP port 4460, TLS 1.3, ALPN `ntske/1`. Exactly one request and one response per TLS connection; afterwards the server closes the connection and discards all state.
 2. **Records**: a 16-bit type with a *critical* bit, a 16-bit body length, and the body. Records delimit themselves and can therefore be carried over any reliable byte stream.
-3. **Keys**: the client-to-server (C2S) and server-to-client (S2C) keys are taken from the TLS exporter ([RFC 9846, section 7.5](https://www.rfc-editor.org/rfc/rfc9846.html#section-7.5), formerly RFC 8446) with the label `EXPORTER-network-time-security` and a context of five octets: the protocol id of the negotiated next protocol, `0x0000` for NTPv4, the id of the negotiated AEAD algorithm, and `0x00` for C2S or `0x01` for S2C.
+3. **Keys**: the client-to-server (C2S) and server-to-client (S2C) keys are taken from the TLS exporter ([RFC 9846, section 7.5](https://www.rfc-editor.org/rfc/rfc9846.html#section-7.5), formerly RFC 8446) with the label `EXPORTER-network-time-security` and a context of five octets: the protocol id `0x0000` of NTPv4, which implementations of NTPv5 keep (section 5), the id of the negotiated AEAD algorithm, and `0x00` for C2S or `0x01` for S2C.
 4. **Cookies**: the server encrypts C2S, S2C and the AEAD algorithm id with a master key into opaque cookies. The NTP server needs this master key, but no TLS state.
 5. **Decoupling**: the NTS extension fields of NTPv4, which NTPv5 takes over ([draft-ietf-ntp-ntpv5, section 11](https://datatracker.ietf.org/doc/draft-ietf-ntp-ntpv5/)), depend on cookies and keys only. Where the keys came from does not matter to the NTP server.
 
@@ -145,7 +145,7 @@ SSH-Exporter(label, context, L) =
 - **Time of computation**: `exporter_secret` once, during the first key exchange, together with the keys "A" to "F" of RFC 4253. K may be erased afterwards as usual. Re-keying does not change `exporter_secret`, just as `KeyUpdate` does not change the exporter of TLS 1.3, so both peers agree on it however re-keys and NTS-KE exchanges interleave.
 - **A string label instead of a letter**: keeps the letters after "F" free for future use and separates the domains unambiguously.
 - **A nonce for every exchange**: `exporter_secret` is constant for an SSH connection. Without a nonce, two NTS-KE exchanges over the same connection, e.g. through the connection multiplexing of OpenSSH (`ControlMaster`) or a station that refreshes its keys on a connection carrying OCPP for weeks (section 8.3), would derive identical keys. A key refresh would change nothing, a key that leaked would stay valid for as long as the connection lives, and associations with different NTP servers would share their keys. The server therefore generates a fresh `exporter_nonce` of 32 bytes for every exchange and sends it in the *SSH Key Binding* record (section 5). The nonce need not be secret. That the server alone chooses it is enough: it learns both keys under either option anyway, as it seals them into the cookies (section 4.4), and the nonce only has to keep the exchanges apart. Option A thus serves any number of exchanges per connection, as option B does.
-- **Use for NTS**: C2S = `SSH-Exporter("EXPORTER-network-time-security", protocol id || AEAD id || 0x00, key length)`, and S2C likewise with `0x01`, where the protocol id is that of the negotiated next protocol: `0x0000` for NTPv4, `0x8001` for NTPv5 in drafts (section 5). Always with the context of RFC 8915, section 5.1: record type 1024 (*Compliant AES-128-GCM-SIV Exporter Context*), which works around a deployed deviation in TLS-based implementations, has no meaning over SSH.
+- **Use for NTS**: C2S = `SSH-Exporter("EXPORTER-network-time-security", protocol id || AEAD id || 0x00, key length)`, and S2C likewise with `0x01`, where the protocol id is `0x0000`, that of NTPv4, whichever next protocol was agreed, NTPv5 included (section 5). Always with the context of RFC 8915, section 5.1: record type 1024 (*Compliant AES-128-GCM-SIV Exporter Context*), which works around a deployed deviation in TLS-based implementations, has no meaning over SSH.
 - **Cost**: the SSH implementation must hand the value to the application. An NTS-KE server with an SSH listener of its own (section 8.1), like a node with a shared listener (section 8.3), holds K and H anyway, so the exporter is a small addition to its key exchange. OpenSSH would need a patch that passes the value from the SSH session process to the subsystem process. What that patch takes, and the exporter in other open source SSH implementations, is in [section 10](../SSHKeyExporter/README.md#10-implementation-effort-in-open-source-ssh-stacks) of the SSH Keying Material Exporter.
 
 
@@ -221,7 +221,7 @@ Server → Client
   End of Message                 [C]
 ```
 
-**NTPv5.** The subsystem carries the key exchange of NTPv5 unchanged ([draft-ietf-ntp-ntpv5-10, section 11](https://datatracker.ietf.org/doc/draft-ietf-ntp-ntpv5/)): the client offers the protocol id of NTPv5, `0x8001` in drafts, and names its draft in the non-critical record `0x4001`; the server agrees with the records of NTPv4. Nothing about the *SSH Key Binding* record changes. Only the context of the keys does: it begins with the protocol id agreed (sections 4.3 and 4.4), so the same secret or nonce gives other keys for NTPv5 than for NTPv4 (Appendix A.1), and a cookie issued for one protocol does not authenticate the other.
+**NTPv5.** The subsystem carries the key exchange of NTPv5 unchanged ([draft-ietf-ntp-ntpv5-10, section 11](https://datatracker.ietf.org/doc/draft-ietf-ntp-ntpv5/)): the client offers the protocol id of NTPv5, `0x8001` in drafts, and names its draft in the non-critical record `0x4001`; the server agrees with the records of NTPv4. Nothing about the *SSH Key Binding* record changes, nor does the context of the keys: it begins with `0x0000` for NTPv5 as for NTPv4 (sections 4.3 and 4.4), as chrony-ntp5, the experimental NTPv5 implementation of one of the draft's authors, derives them over TLS, so the same secret or nonce gives the same keys for both (Appendix A.1). What keeps the protocols apart is the cookie: the server binds each to the protocol it was issued for, so a cookie issued for one protocol does not authenticate the other.
 
 ```text
 Client → Server
@@ -360,7 +360,7 @@ Everything else a general-purpose SSH server offers is refused: no operating sys
 
 What is implemented so far:
 
-- **Server**: the subsystem handler has the shape the shared listener of section 8.3 expects, so step 6 reuses it unchanged. The server knows the *SSH Key Binding* record over SSH only; over TLS it refuses the record with *Unrecognized Critical Record*, as section 5 requires. It selects the first method of the client's list it can use: the exporter where the SSH stack hands it out, with a fresh nonce for every exchange, and the transport with a fresh secret. It uses the context of RFC 8915 for every algorithm, with the protocol id of the next protocol agreed, NTPv4 or NTPv5 (section 5), and neither expects nor echoes record type 1024. The [NTS Conformance Tests](https://github.com/Vanaheimr/NTSConformanceTests) derive the keys of option B on their own and run authenticated NTPv4 and NTPv5 against it with them. Several exchanges on one connection are served, each with keys of its own and without state per connection.
+- **Server**: the subsystem handler has the shape the shared listener of section 8.3 expects, so step 6 reuses it unchanged. The server knows the *SSH Key Binding* record over SSH only; over TLS it refuses the record with *Unrecognized Critical Record*, as section 5 requires. It selects the first method of the client's list it can use: the exporter where the SSH stack hands it out, with a fresh nonce for every exchange, and the transport with a fresh secret. It uses the context of RFC 8915 for every algorithm, with the protocol id `0x0000` for NTPv4 and NTPv5 alike (section 5), and neither expects nor echoes record type 1024. The [NTS Conformance Tests](https://github.com/Vanaheimr/NTSConformanceTests) derive the keys of option B on their own and run authenticated NTPv4 and NTPv5 against it with them. Several exchanges on one connection are served, each with keys of its own and without state per connection.
 - **Client**: it opens the subsystem on an SSH connection it is handed, so that it can share the connection of OCPP (section 8.3) as well as use one of its own. It offers the exporter before the transport, takes the nonce or the secret from the response, and refuses a response that selects a method it did not offer or carries data of another length. A refused subsystem is reported as an error of its own; the client does not fall back to TLS silently.
 - **SSH exporter (step 4)**: Hermod computes `exporter_secret` once, in the first key exchange of a connection, for every key exchange method it supports, with K as an `mpint` or a `string` as the method encodes it. A rekey leaves it alone, and the end of the connection wipes it. Every export takes a nonce, and refuses an empty one. A server hands the exporter to subsystem handlers with the session, a client with the connection. Tests cover the test vectors of Appendix A.3, both ends agreeing for each of the eight key exchange methods, another nonce, a rekey, another connection, and the way to a subsystem handler.
 - **Tests**: key exchanges over SSH with either option followed by NTP requests with the cookies obtained, with AEAD_AES_SIV_CMAC_256 and with AEAD_AES_128_GCM_SIV; three exchanges on one connection, each with the exporter and keys of its own; four simultaneous requests for the exporter on one connection, each with a nonce of its own; and the refusals of an unknown client key, of another subsystem name, of requests without the record, and of requests with no method the server can use. The test vectors of Appendix A are part of them.
@@ -523,7 +523,7 @@ The test vectors cover option B (section 4.4), the record of section 5 and optio
 nts_ke_secret = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 label         = "EXPORTER-network-time-security"
 context       = protocol id (16 bits) || AEAD id (16 bits) || 0x00 for C2S, 0x01 for S2C
-                protocol id 0x0000 for NTPv4 here, 0x8001 for NTPv5 below
+                protocol id 0x0000, for NTPv4 and NTPv5 alike
 ```
 
 The `info` of HKDF-Expand for AEAD_AES_SIV_CMAC_256 and C2S, i.e. `string(label) || string(context)`:
@@ -553,21 +553,7 @@ AEAD_AES_256_GCM_SIV (31), L = 32
 
 For AEAD_AES_128_GCM_SIV the context carries the id 30, as section 4.3 requires over SSH. An implementation that reuses its TLS code, where the context falls back to the id 15 unless record type 1024 was exchanged, derives other keys over SSH; the second vector catches this.
 
-For NTPv5 (section 5), with the protocol id `0x8001` of the drafts, the context of AEAD_AES_SIV_CMAC_256 and C2S is `8001000f00`, and every key differs from those for NTPv4. An implementation that writes `0x0000` whatever was agreed derives the keys above instead; these catch it. Option A for NTPv5 is in Appendix A.4 of the [specification](nts-ke-ssh-key-binding.md).
-
-```text
-AEAD_AES_SIV_CMAC_256 (15), L = 32, NTPv5
-  C2S  764c1248ad0bc5b9b166ca1503a3819851b32ead61f5d024ad27648ccec8ff2b
-  S2C  d4194d2b81e7f47b505df60147ca271cdc8b709523accab3bb4c4be1674cea54
-
-AEAD_AES_128_GCM_SIV (30), L = 16, NTPv5
-  C2S  f5268d5c1ce1eefd50db2c93735b9559
-  S2C  f3493b68b3619827f91436f2cd253552
-
-AEAD_AES_256_GCM_SIV (31), L = 32, NTPv5
-  C2S  665de0df5b17c3cb5f06856ff803a0c9fde7557138d9ebd2e52dc6ac619a616e
-  S2C  0d4f6f61b16ed755a29786b96cbb90a6ec51c3a95332e221a2f71800e67ade32
-```
+For NTPv5 (section 5) the context and the keys are the same: `0000000f00` and the keys above. An implementation that writes the protocol id agreed, `0x8001` in the drafts, as version 1.1 of the specification had it, derives other keys and does not interoperate with chrony-ntp5; for AEAD_AES_SIV_CMAC_256 and C2S it gets `764c1248ad0bc5b9b166ca1503a3819851b32ead61f5d024ad27648ccec8ff2b` instead. Option A for NTPv5 is in Appendix A.4 of the [specification](nts-ke-ssh-key-binding.md).
 
 
 ### A.2 The SSH Key Binding Record

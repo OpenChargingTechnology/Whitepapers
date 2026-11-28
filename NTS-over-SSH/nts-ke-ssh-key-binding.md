@@ -1,6 +1,6 @@
 # NTS-KE Record Type "SSH Key Binding"
 
-**Version 1.1**, 2026-11-28 (changes: Appendix D)
+**Version 1.2**, 2026-11-28 (changes: Appendix D)
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · white paper: [NTS Key Establishment over SSH](README.md) · reference implementation: [Vanaheimr/Norn](https://github.com/Vanaheimr/Norn)
 
 This document specifies the NTS-KE record *SSH Key Binding* of section 5 of the white paper
@@ -178,8 +178,8 @@ material. Where [RFC8915] calls the TLS exporter with a label, a context and a l
 over SSH calls `Exporter(label, context, L)` of the selected method, with
 
 - `label` = `"EXPORTER-network-time-security"` (US-ASCII, 30 octets),
-- `context` = the five octets of Section 5.1 of [RFC8915]: the Protocol ID of the negotiated
-  next protocol (`0x0000` for NTPv4, Section 5.4), the Numeric Identifier of the negotiated
+- `context` = the five octets of Section 5.1 of [RFC8915]: the Protocol ID `0x0000` of NTPv4,
+  whatever next protocol was negotiated (Section 5.4), the Numeric Identifier of the negotiated
   AEAD algorithm, and `0x00` for the C2S key or `0x01` for the S2C key,
 - `L` = the key length of the negotiated AEAD algorithm.
 
@@ -249,17 +249,27 @@ Appendix A.2 has test vectors.
 
 ### 5.4. Next Protocols
 
-The Protocol ID of the context is the one of the NTS Next Protocol Negotiation record of the
-response, as in Section 5.1 of [RFC8915]: `0x0000` where the exchange agreed to NTPv4, and the
-Protocol ID of another next protocol where it agreed to that one. Neither method changes
-anything else for another next protocol: the records that agree to it travel over SSH as they
-do over TLS, beside the SSH Key Binding record, and the cookies stay opaque to the client.
+Section 5.1 of [RFC8915] defines the keys of NTPv4, under a context that begins with its
+Protocol ID `0x0000`. Both methods of this document use that context for every next protocol:
+an exchange that agrees to another next protocol derives the keys of NTPv4. Neither method
+changes anything else for another next protocol: the records that agree to it travel over SSH
+as they do over TLS, beside the SSH Key Binding record, and the cookies stay opaque to the
+client.
 
 NTPv5 [NTPv5] takes over the NTS-KE records of NTPv4 under a Protocol ID of its own, `0x8001`
-in drafts, and has a client of a draft name its draft in the non-critical record `0x4001`. Over
-SSH this is the same exchange as over TLS, and both methods derive the keys under the context
-`0x8001 || AEAD id || 0x00` or `0x01`. Keys of one context are no keys of the other, so a cookie
-issued for one next protocol does not authenticate the other. Appendix A.4 has test vectors.
+in drafts, and has a client of a draft name its draft in the non-critical record `0x4001`. It
+defines no key derivation of its own, and chrony-ntp5, the experimental implementation of one
+of its authors, derives the keys for NTPv5 over TLS under the context of NTPv4. Over SSH this
+is the same exchange as over TLS, with the same keys: both methods derive them under the
+context `0x0000 || AEAD id || 0x00` or `0x01`, so an exchange that agrees to NTPv5 has the keys
+of Appendix A.2 and A.3 (Appendix A.4).
+
+The keys therefore do not tell the next protocols apart; the cookies do. A server that issues
+cookies for more than one next protocol SHOULD bind each cookie to the next protocol it was
+issued for, and treat a cookie that arrives in another as one it cannot use. A packet of one
+version is no packet of the other, since the authenticator covers the version number of the
+header, so the shared keys open no way from one protocol to the other. Should a specification
+of NTPv5 define a context of its own, a later version of this document will follow it.
 
 
 ## 6. Security Considerations
@@ -478,33 +488,19 @@ PRK             = a27b86e7a70a029cba778d6f738d952696d6d8361b95103dd84ae9df6af063
 
 ### A.4. Another Next Protocol: NTPv5
 
-The inputs of A.2 and A.3.2 under the context of NTPv5 in drafts (Section 5.4). Only the first
-two octets of the context differ from A.1, and every key differs from A.2 and A.3.2.
+An exchange that agrees to NTPv5 (Section 5.4) has the `info` of A.1 and the keys of A.2 and
+A.3: the context begins with `0x0000` for NTPv5 as for NTPv4.
 
-`info` for AES-SIV-CMAC-256 (Numeric Identifier 15), C2S key:
+Version 1.1 of this document began the context with the Protocol ID agreed, `0x8001` for NTPv5
+in drafts. An implementation that still does derives other keys, and does not interoperate
+with implementations of this version or with chrony-ntp5. With the `nts_ke_secret` of A.2 and
+AES-SIV-CMAC-256 it derives the C2S key
 
 ```
-0000001e                                                          length of label (30)
-4558504f525445522d6e6574776f726b2d74696d652d7365637572697479      "EXPORTER-network-time-security"
-00000005                                                          length of context (5)
-8001000f00                                                        NTPv5 (draft), algorithm 15, C2S
+764c1248ad0bc5b9b166ca1503a3819851b32ead61f5d024ad27648ccec8ff2b
 ```
 
-Method `0x0002`, with the `nts_ke_secret` of A.2:
-
-| AEAD algorithm | L | C2S key | S2C key |
-|---|---|---|---|
-| AES-SIV-CMAC-256 (15) | 32 | `764c1248ad0bc5b9b166ca1503a3819851b32ead61f5d024ad27648ccec8ff2b` | `d4194d2b81e7f47b505df60147ca271cdc8b709523accab3bb4c4be1674cea54` |
-| AES-128-GCM-SIV (30) | 16 | `f5268d5c1ce1eefd50db2c93735b9559` | `f3493b68b3619827f91436f2cd253552` |
-| AES-256-GCM-SIV (31) | 32 | `665de0df5b17c3cb5f06856ff803a0c9fde7557138d9ebd2e52dc6ac619a616e` | `0d4f6f61b16ed755a29786b96cbb90a6ec51c3a95332e221a2f71800e67ade32` |
-
-Method `0x0001`, with the `exporter_secret`, `exporter_nonce` and PRK of A.3.2:
-
-| AEAD algorithm | L | C2S key | S2C key |
-|---|---|---|---|
-| AES-SIV-CMAC-256 (15) | 32 | `20ce9d781187cadb3131fb54e611d5720361c6568c465f9a7836070052a4fca6` | `34168036ba9d89f00e76ae45fe452299133fbe22cdba3b7da27b0d30ee589335` |
-| AES-128-GCM-SIV (30) | 16 | `79b0a7e1b3652d742ee0815aa0ce4243` | `a1a5dd3bcfa6967be84be3a642c2fc6f` |
-| AES-256-GCM-SIV (31) | 32 | `e4a61c99232b67a6bf99f460332e24a6220b8ad37e4d149fc9bbf5c70007dc40` | `ca73a3f8c6a8de86996751e60b75a8ec0fd5b969adaa9517957ca589e10e36ec` |
+instead of the `8a9424e3...d7d552ec` of A.2.
 
 
 ## Appendix B. Encoding Examples
@@ -550,7 +546,8 @@ This appendix is informative.
   where its SSH stack gives it the exporter. Behind the `ssh -s` of OpenSSH it offers `0x0002`
   alone. A Norn server selects `0x0001` only on connections of Hermod's SSH server. As of
   2026-11-09: Norn 962d4c6, Hermod 57c6add. Since 2026-11-28 (Norn 16ad4d9) it also agrees to
-  NTPv5 in drafts, over SSH as over TLS, with the keys of Section 5.4.
+  NTPv5 in drafts, over SSH as over TLS, with the keys of Section 5.4 since Norn 92b48f4 and
+  with those of version 1.1 before; interoperating with chrony-ntp5 over TLS.
 - **NTSConformanceTests** (<https://github.com/Vanaheimr/NTSConformanceTests>): recomputes the
   vectors of Appendix A with a key derivation of its own, written from Section 5, and runs key
   exchanges over SSH against Norn's server with method `0x0002`, for NTPv4 and NTPv5, with keys
@@ -565,6 +562,10 @@ document use only the value assigned by IANA.
 
 ## Appendix D. Changes
 
+- **1.2** (2026-11-28): the context of Section 5.1 begins with `0x0000`, the Protocol ID of
+  NTPv4, for every next protocol, as chrony-ntp5 derives the keys for NTPv5; the keys for
+  NTPv5 are those for NTPv4, and the cookies tell the protocols apart (Section 5.4, Appendix
+  A.4). This withdraws the NTPv5 keys of 1.1. For NTPv4 nothing changes.
 - **1.1** (2026-11-28): the context of Section 5.1 carries the Protocol ID of the negotiated
   next protocol, as Section 5.1 of [RFC8915] has it, instead of a fixed `0x0000`; for NTPv4 the
   keys are those of 1.0. New Section 5.4 and Appendix A.4 for NTPv5. The provisional record type
