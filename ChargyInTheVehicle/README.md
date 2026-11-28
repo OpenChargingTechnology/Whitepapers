@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.8 (2026-11-28)
+**Version:** 0.9 (2026-11-28)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -163,7 +163,7 @@ How the station should obtain legally defensible time is the subject of two comp
 ### 6.3 Three runtime environments, one core
 
 - **Infotainment.** An app on Android Automotive or in the manufacturer's web view. This is the goal. Android Automotive gives third-party apps with the energy permission at least the instantaneous charge rate in milliwatts and the battery level in watt-hours, but neither voltage, current nor an energy counter, and nothing from the ISO 15118 session. The full scope needs the manufacturer.
-- **Phone at the car.** The app pairs with the vehicle or an OBD adapter. Less data, but feasible without the manufacturer. Our stack's Kotlin and Swift ports already run the vehicle's side of an ISO 15118 session on a phone, metering confirmation included (Section 11.6), so in tests a phone can play the car.
+- **Phone at the car.** The app pairs with the vehicle or an OBD adapter. Less data, but feasible without the manufacturer. Our stack's Kotlin and Swift ports already run the vehicle's side of an ISO 15118 session on a phone, metering confirmation included (Section 11.6), and since 28 November 2026 a bidirectional one too, so in tests a phone can play the car.
 - **EVCLI.** Our simulated vehicle with its web interface plays the car. The prototype is built there, because both ends of the session are ours.
 
 ### 6.4 What the driver sees
@@ -203,6 +203,8 @@ In no other market does the seller accept that without a measurement of their ow
 ISO 15118-20 already separates the directions: `MeterInfo` has `ChargedEnergyReadingWh` and `BPT_DischargedEnergyReadingWh`, plus reactive energy in both directions. The vehicle's battery system counts both directions as well, because it needs to for state-of-charge estimation.
 
 So Chargy in the Vehicle treats a bidirectional session as two measurements with opposite roles. The charging report states both directions separately, each with its own comparison, and for the discharge direction it is the seller's delivery note. A vehicle owner who sells energy without one is trusting the customer's scale.
+
+**Where our prototype stands.** All three of our stack's vehicles negotiate the bidirectional services, AC and DC. The C# one has done so for some time; the Kotlin and Swift ones have since 28 November 2026, held by recorded sessions. But in every one of those sessions the energy still flows into the vehicle. Our station never asks for a discharge and never reports `BPT_DischargedEnergyReadingWh`. So the discharge direction this section is about has not run in our stack yet, and its comparison is untested.
 
 ## 8. Comparing against the battery system
 
@@ -589,6 +591,8 @@ Sorted by usefulness, the obvious ones first.
 - [x] The same exchange over TLS (our station and vehicle), with every chain validated to its root
 - [x] Our station refuses a confirmation whose contract chain it rejected
 - [x] An ISO 15118-2 receipt asked for without a `MeterInfo`: signed over the last one by the C#, Kotlin and Swift vehicles, recorded with and without a signing meter
+- [x] Bidirectional sessions negotiated by the C#, Kotlin and Swift vehicles, AC and DC, recorded
+- [ ] A session in which energy actually flows back, with `BPT_DischargedEnergyReadingWh` signed by the meter, so that the discharge comparison of Section 7 can run
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
@@ -609,6 +613,7 @@ Own material:
 - The prototype: [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and [EV#2](https://github.com/OpenChargingCloud/EV/pull/2), merged and pinned in EVCLI on 27 November 2026; the Charging page's confirmations, [EV#3](https://github.com/OpenChargingCloud/EV/pull/3), merged the same day
 - The recorded session, [EVSimulatorApp#46](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/46) and [ISO15118ConformanceTests#167](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/167), and the Kotlin and Swift vehicles, [EVSimulatorApp#47](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/47), merged on 27 November 2026
 - The ISO 15118-2 receipt without a record: the Kotlin and Swift vehicles, [EVSimulatorApp#50](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/50); the station's switch at a metered station, [WWCP\_ISO15118#59](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/59); the two recorded sessions, [EVSimulatorApp#52](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/52), [ISO15118ConformanceTests#177](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/177) and [#178](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/178), merged on 28 November 2026
+- Bidirectional sessions in the Kotlin and Swift vehicles: [EVSimulatorApp#67](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/67) and the recorder, [ISO15118ConformanceTests#179](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/179), merged on 28 November 2026
 
 Read on the web on 26 November 2026:
 
