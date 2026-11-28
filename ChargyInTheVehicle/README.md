@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.11 (2026-11-28)
+**Version:** 0.12 (2026-11-28)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -12,7 +12,7 @@
 
 ISO 15118 carries the charging station's meter readings to the vehicle and lets the vehicle acknowledge them with a signature. Both parts of the standard even reserve a field for the meter's own signature. In practice the chain is complete in none of the five stacks examined: each implements a different half, and none had the ISO 15118-20 confirmation as a working flow. Our stack now has one as a prototype, recorded as a test session and answered by its Kotlin and Swift vehicles too, but so far checked only against itself.
 
-The vehicle's receipt is also only an acknowledgement of receipt. The car signs the station's number, not its own measurement. And the driver sees none of it.
+The vehicle's receipt is also only an acknowledgement of receipt. The car signs the station's number, not its own measurement. And the driver sees none of it. A vehicle that finds the number cannot be right has one standard move: stop charging, and give the reason in a termination code for which no value has been defined yet (Section 8.6).
 
 This paper therefore proposes **Chargy in the Vehicle**. Before energy flows, the vehicle compares its clock with the station's and the meter's. During charging it verifies the signed meter readings live and compares them with the measurements of its own battery system, using the meter's digital calibration certificate. At the end it issues its own signed charging report.
 
@@ -103,7 +103,7 @@ Three observations:
 - **Nobody but us sends the meter's signature.** And ours is a simulator convention (`"V2G-METER-1"`, protocol byte, SessionID, MeterID, reading, time), not a legal-metrology format. A bidirectional meter signs `"V2G-METER-2"`, which adds the discharged register.
 - **ISO 15118-20 is almost empty.** Only Josev and we answer the vehicle's request, Josev with a fixed simulator value. EVerest reads `MeterInfoRequested` and answers byte-identically whether asked or not (control run of 10 August 2026). Release 2026.10.0 still sets the element in none of its -20 charge-loop states.
 
-Our own stack already has two building blocks for what follows: `SigningMeter` on the station side, and `EvMeter`, a counter of the vehicle's own that is never fed from the station's answer.
+Our own stack already has two building blocks for what follows: `SigningMeter` on the station side, and `EvMeter`, a counter of the vehicle's own. It is fed from the vehicle's side of each exchange, with one exception: in ISO 15118-20 DC the vehicle has no field for a current it measured, so the simulated car multiplies its own voltage by the current the station reports (Section 11.6).
 
 ## 5. What today's signature proves, and what it does not
 
@@ -212,10 +212,19 @@ The station's meter keeps the two directions in two registers. In a bidirectiona
 
 The vehicle's Transparency view compares net as well since the same day: its count against charged minus discharged, with both registers and the net figure shown on EVCLI's Charging page.
 
+**The discharge limits are negative as well** since the same day. `[V2G20-1213]` asks for every discharge parameter to be negative, limits included, and EVerest's stack sends them that way. Our cars and stations now do too, in C#, Kotlin and Swift, and every recorded bidirectional session holds them to it. Incoming limits are read by magnitude, because Josev and eVDriveFlow send them positive.
+
+**And a second stack has discharged against ours**, EVerest 2026.10.0, in Dynamic mode ([run notes](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/blob/master/docs/interop-runs/2026-11-28-everest-2026.10.0-discharge/notes.md)). Every response was `OK`, and every session ran to its end.
+- **Their car, our station, DC:** their car took our −100 A for 692 charge loops.
+- **Our car, their station:** their station was told to export 5 kW. In DC it settled at −25 A at 200 V for 278 loops. In AC our car followed the −5 000 W from the next loop on.
+- **Their car, our station, AC:** their simulated car ignored our negative target and kept drawing +11 kW. That is their vehicle simulator, not their protocol stack.
+
+Each side read the other's negative limits correctly. Their stations send no meter signature, so the signed discharge register is still checked only between our own programs.
+
 Three things are still open:
 - **Scheduled mode,** where the vehicle names the setpoint and the station would offer a discharging schedule.
-- **A second stack.** None has discharged against ours yet.
-- **The sign of the discharge limits.** Our stack sends the vehicle's and the station's discharge limits as positive magnitudes. `[V2G20-1213]` asks for them negative, and EVerest's stack sends them that way and reads those of others by magnitude. The flows themselves are already negative.
+- **Josev and eVDriveFlow.** How their stations take a negative limit from our car has not been run.
+- **Our DC car's own count when discharging.** In the long runs against EVerest it discharged past empty, still offering −125 A at 0 %. Its count also went on below empty. It counted at its fixed 400 V where their station stated 200 V, so its figure was twice the station's. A vehicle counter that is wrong in this way would raise false alarms in exactly the comparison this section asks for. It is ours to fix.
 
 ## 8. Comparing against the battery system
 
@@ -298,6 +307,69 @@ Here Ê is the vehicle's estimate of the station's value, and k = 2 the usual co
 ### 8.5 The honest limit
 
 The vehicle's sensor is not a legally verified measuring instrument. A deviation is therefore a well-founded indication that justifies an official inspection, not proof. A single session says little; many sessions at the same station say a lot. Section 10 builds on that.
+
+### 8.6 When the numbers cannot be right
+
+Detecting a deviation is half the work. The other half is what the vehicle does with it. ISO 15118 offers little here, and two of the obvious reactions are not open to the vehicle at all.
+
+**What the vehicle cannot do.**
+
+| Reaction | Why it is not an option |
+| --- | --- |
+| Withhold the receipt | When the station asks, the vehicle has to answer: `[V2G2-408]` (AC) and `[V2G2-789]`, `[V2G2-790]` (DC) in ISO 15118-2, `[V2G20-1084]` in ISO 15118-20. A missing receipt is a protocol error, not a statement. In ISO 15118-2 the station refuses the next request with `FAILED_SequenceError` (measured against EVerest, Section 2). In ISO 15118-20 it waits for the end of `NotificationMaxDelay` and may ask again (`[V2G20-2105]`). Either way, the station learns nothing about the reason. |
+| Sign a number of its own | The receipt repeats what the station sent. By the note to `[V2G20-1808]` the signature confirms that the vehicle received those elements, nothing more. A vehicle that puts its own reading into the `MeterInfo` it signs produces a record that does not match the one it was shown. Our station compares the reading field by field with what it sent and records the mismatch. Set to require a valid confirmation, it ends the session. |
+| Borrow a fault code | ISO 15118-2 DC lets the vehicle report `FAILED_ChargingCurrentdifferential`, but that code says the station cannot hold the requested current. A backend reads it as a hardware fault. `Reserved_A` to `Reserved_C` are reserved for future use. ISO 15118-20 DC has no error code of the vehicle at all. |
+
+The first row is less of a loss than it looks. Because the receipt says only "received", the vehicle can sign a reading it considers wrong without accepting it. It should go on confirming and keep every signed record as evidence.
+
+**What the standard allows.**
+
+1. **Ask more often.** With `MeterInfoRequested` set in every ISO 15118-20 charge loop (`[V2G20-1081]`, `[V2G20-1082]`), the comparison gets a reading per iteration. That sharpens the finding, but it tells the station nothing.
+2. **Stop, and say why.** The 2022 draft revision of ISO 15118-2 foresees exactly this case, in a note to its metering receipt clause (8.6.3.2). It suggests that the vehicle check the energy it actually received against the station's figure. On a mismatch, the vehicle may end the charge and keep an error entry of its own for later analysis. The purpose it names is finding a tap between station and car, a "T-branch". The `SessionStopReq` of ISO 15118-2 carries no reason, so there the code stays in the vehicle. The ISO 15118-20 one does carry a reason:
+
+| Element | Type | Use |
+| --- | --- | --- |
+| `EVTerminationCode` | URN, at most 80 characters | a code that uniquely identifies the reason |
+| `EVTerminationExplanation` | text, at most 160 characters | the reason in words |
+
+The document defines no codes yet. A note announces them for later revisions, and allows other documents to define codes of their own as URNs in their own namespace. This is the one place where a standard message lets the vehicle tell the station that the meter is the reason. An example that fits both limits:
+
+```
+EVTerminationCode         urn:<namespace>:EVTerminationCode:MeteringDeviation
+EVTerminationExplanation  meter 12400 Wh, vehicle 11850 Wh, band +-310 Wh at k=2, off by k=3.5
+```
+
+Three limits come with it:
+
+- **It is said once, by ending.** The code rides on the last request of the session. A vehicle cannot use it and keep charging.
+- **Nobody has to keep it.** Nothing obliges the station to log or forward the code, and OCPP has no field for it (Section 11.4).
+- **Stopping costs the driver.** A car that needs the energy may prefer a doubtful kilowatt-hour to none. When discharging, the arithmetic reverses. The vehicle is then the seller, and stopping delivery to a buyer whose meter under-counts is the natural reaction.
+
+**When to do what.** The bands are those of Section 8.3, the patterns those of Section 8.4.
+
+| Finding | During the session | Afterwards |
+| --- | --- | --- |
+| Within k = 2 | nothing | recorded in the report |
+| Between k = 2 and k = 3, or a slow drift | keep charging and confirming; request `MeterInfo` in every loop | in the report, and to the fleet estimate (Section 10) |
+| Beyond k = 3: a fixed factor, a fixed amount, a missing phase | show it to the driver with the offer to stop; when discharging, stop by default | the report with its verdict, to the eMSP and, where wanted, to the authority |
+| Register jump, a foreign session, energy before the first current | stop: the record no longer belongs to this session | the same, with the station's signed records attached |
+| A deviation growing with the square of the current | stop: contact resistance is a safety finding (Section 12) | to the operator as a fault |
+
+In every case where it stops, the vehicle sends the termination code with the figures.
+
+**Outside the session.** The paths that reach someone who can act:
+
+| Path | Reaches | State |
+| --- | --- | --- |
+| Display, then the charging report (Section 9) | the driver | the prototype shows both counters and their difference, without a verdict yet |
+| `POST …/report` over the Internet service (Section 11.2) | the station, which counter-signs | a proposal of this paper |
+| Vehicle, OEM backend, eMSP | the party that bills the contract the vehicle signed with | no standard path. The OCPI CDR carries the station's signed data, but we found no OCPI message for disputing a CDR. |
+| A request to the verification authority | legal metrology | in Germany a *Befundprüfung* (§ 39 MessEG), which anyone with a justified interest in the measurement can request; the fleet route is Section 10 |
+| The report in the Chargy format | existing transparency software | Section 9.2 |
+
+**What would close the gap.** Extension 3 of Section 11.3 lets the vehicle disagree without stopping. With its own measurement inside the signed receipt, "received X" becomes "received X, measured Y", and the station holds both from the moment of the charge loop on. Until then, a defined `MeteringDeviation` code for `EVTerminationCode` would at least give the one existing carrier a meaning every station can read. Section 11.3 lists it.
+
+**In the prototype.** Our stack can encode both elements of the ISO 15118-20 `SessionStopReq`, but neither our vehicles nor our station fill or read them yet. The comparator that would decide to stop does not exist yet either (Section 6.2).
 
 ## 9. The vehicle's charging report
 
@@ -455,7 +527,11 @@ ISO 15118-2 has the same seams in a smaller size: `ServiceDetail` with tighter p
 2. **The vehicle reports its measurement.** An optional `EVMeterInfo` in the `ChargeLoopReq`: energy at the inlet and into the battery, per direction. Today only ISO 15118-20 AC states any power of the vehicle's own at all (`EVPresentActivePower`); DC states only the voltage.
 3. **The receipt covers both views.** `SignedMeteringData` takes `EVMeterInfo` and the hash of the charging report, and `MeteringConfirmationRes` carries the station's counter-signature. "Received" becomes "received X, measured Y myself, and both know it".
 
-Two clarifications belong with them: what `MeterSignature` signs, and a length limit that fits the curves of ISO 15118-20.
+Three clarifications belong with them:
+
+- what `MeterSignature` signs;
+- a length limit that fits the curves of ISO 15118-20;
+- a defined `EVTerminationCode` for a metering deviation, so that a vehicle that stops over the meter can say so in a form every station reads (Section 8.6).
 
 The way there leads through the standard's working group, or first through an open VAS convention. A running implementation with interoperability evidence is the best argument for it.
 
@@ -498,6 +574,16 @@ Steps 1 and 2 are built. They went into the stack with [WWCP\_ISO15118#55](https
 - **Live result.** The station program was started with its clock 90 seconds ahead. The Charging page showed the station clock 89.9 s ahead with a warning, the meter clock in step, and 935 Wh on both sides. This is the case Section 6.1 anticipates: the station's two clocks disagreeing with each other.
 
 **Readings side by side.** Every `MeterInfo`, in ISO 15118-2 and -20, is paired with what the vehicle's own `EvMeter` counted in the same iteration. Each reading is marked either "signed, not verified" or "unsigned". Verifying the meter's signature (step 2 of the chain) needs the record and the key from Stage 1, which do not exist yet.
+
+The simulated car's count is only partly its own:
+
+| Protocol, mode | What `EvMeter` counts | Independent of the station |
+| --- | --- | --- |
+| ISO 15118-20 AC | the active power the vehicle states | yes |
+| ISO 15118-2 DC | the vehicle's target voltage times its target current | yes, but a request rather than a measurement |
+| ISO 15118-20 DC | the vehicle's own voltage times the current the station reports | the voltage only. ISO 15118-20 DC gives the vehicle no field for a current it measured |
+
+So in ISO 15118-20 DC the simulated car cannot yet catch an error in the current. A real car can, because its battery system measures the current itself (Section 8.1). The simulator has to model that current from the battery rather than borrow it.
 
 **MeteringConfirmation, AC and DC.**
 
@@ -593,6 +679,8 @@ Sorted by usefulness, the obvious ones first.
 - How does the report reach the operator when OCPP has no field for it: as an extension, or past the station's backend?
 - How large is the auxiliary consumption really? There is no citable source, so it takes measurement series of our own.
 - Which octets does the signature of a `MeteringConfirmationReq` cover, and which curve do contract certificates carry in practice? The prototype had to choose both (Section 11.6). Only a second implementation can confirm the choice.
+- Who defines the `EVTerminationCode` for a metering deviation, and in which URN namespace: the ISO working group, IEC 61851-23, or a convention first (Section 8.6)? And does any station keep the code it receives?
+- How does a driver's dispute reach the CPO, when the vehicle's report goes to its eMSP and we found no OCPI message for disputing a CDR?
 
 ### 13.2 Next steps
 
@@ -605,8 +693,11 @@ Sorted by usefulness, the obvious ones first.
 - [x] Bidirectional sessions negotiated by the C#, Kotlin and Swift vehicles, AC and DC, recorded
 - [x] A session in which energy actually flows back, with `BPT_DischargedEnergyReadingWh` signed by the meter, so that the discharge comparison of Section 7 can run (DC and AC, Dynamic mode)
 - [x] The vehicle's Transparency view in a bidirectional session: set the vehicle's count against charged minus discharged, not the charged register alone (stack, app and EVCLI)
-- [ ] Send the discharge limits negative, as `[V2G20-1213]` and EVerest do, and read incoming ones by magnitude, since Josev and eVDriveFlow send them positive
-- [ ] Discharge against a second stack, and in Scheduled mode with a discharging schedule
+- [x] Send the discharge limits negative, as `[V2G20-1213]` and EVerest do, and read incoming ones by magnitude, since Josev and eVDriveFlow send them positive
+- [x] Discharge against a second stack: EVerest 2026.10.0, Dynamic mode, both directions
+- [ ] Discharge in Scheduled mode with a discharging schedule, and against Josev and eVDriveFlow
+- [ ] Our DC car: stop discharging at empty, and count the current from its own battery model instead of the station's answer
+- [ ] On a deviation beyond the band, stop with an `EVTerminationCode` and the figures, and let our station log what it receives (Section 8.6)
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
