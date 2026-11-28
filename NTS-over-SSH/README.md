@@ -277,7 +277,7 @@ What the client identity brings:
 
 ## 7. Mapping onto the OCPP v2.x Device Model (Proposal)
 
-The NTP Client Controller of section 3.2.4 of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper gets a fourth value of its variable `Mode`: `NTSSSH`. In this mode `ServerURL` names the SSH server that offers the NTS-KE subsystem, and `Versions` means what it means in mode `NTS`: the records that agree to the next protocols travel over SSH (section 5.4). `NTSKEServerPort`, `RootCAs`, `CertificatePins`, `RootPins`, `NoCertTimeCheckAfterReboot` and `CertificateFingerprint` do not apply, and the following variables are added:
+The NTP Client Controller of section 3.2.4 of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper has the value `NTSSSH` of its variable `Mode` for the key exchange of this paper. In this mode `ServerURL` names the SSH server that offers the NTS-KE subsystem, and `Versions` means what it means in mode `NTS`: the records that agree to the next protocols travel over SSH (section 5.4). `NTSKEServerPort`, `RootCAs`, `CertificatePins`, `RootPins`, `NoCertTimeCheckAfterReboot` and `CertificateFingerprint` do not apply, and the following variables are added:
 
 | Variable Name         | req/opt  | Mutability | Data Type | Default Value | Values List / Limits  | Description |
 |-----------------------|----------|------------|-----------|---------------|-----------------------|-------------|
@@ -485,7 +485,7 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 
 ## 11. Relation to Other White Papers
 
-- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): defines the NTS-KE and NTP phases used here (section 2), and the NTP Client Controller that section 7 extends by the mode `NTSSSH`, and the configuration keys of OCPP v1.6+SE that section 7.1 extends.
+- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): defines the NTS-KE and NTP phases used here (section 2), and the NTP Client Controller whose mode `NTSSSH` section 7 gives its variables, and the configuration keys of OCPP v1.6+SE that section 7.1 extends.
 - [OCPP over SSH](../OCPP-over-SSH/README.md): the station's SSH connection to an SSH peer, which section 8.3 and `SSHConnection` `Shared` open the subsystem on, and which OCPP is a channel of as well (its section 7.2).
 - [Critical Legal Time Services](../CriticalLegalTimeServices/README.md): the managed networks with trust zones of its section 4.2 are the environment this paper is written for.
 - [Secure Name Resolution for OCPP](../SecureDNS/README.md): pins, `OnPinMismatch` and trust on first use mean the same here. SSHFP records are only as trustworthy as the DNSSEC validation of the name resolution.
