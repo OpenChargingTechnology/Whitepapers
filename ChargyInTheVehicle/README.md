@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.7 (2026-11-27)
+**Version:** 0.8 (2026-11-28)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -53,6 +53,10 @@ Three things limit this:
 - **The receipt confirms receipt, not correctness.** The clause says explicitly that the vehicle does not thereby confirm the amount of energy for billing. A note concedes that the vehicle may be unable to verify `SigMeterReading` at all.
 
 The requirement with teeth is on the outbound side: under `[V2G2-902]` the `MeterInfo` must be the unaltered output of the meter. What exactly `SigMeterReading` signs, the standard does not say.
+
+**A receipt request without a record.** Neither `[V2G2-790]` (DC) nor `[V2G2-408]` (AC) makes the receipt depend on the asking response carrying a `MeterInfo`. EVerest's `EvseV2G` in release 2026.10.0 sends one only after the meter has published again, so a vehicle can be asked for a receipt with nothing new to sign. Our vehicle then signs the last `MeterInfo` it received. Until 27 November 2026 it skipped the receipt instead, and EVerest answered the next `PowerDeliveryReq` with `FAILED_SequenceError` ([run notes](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/blob/master/docs/interop-runs/2026-11-27-everest-2026.10.0-findings-live/notes.md)). The C# vehicle has answered it since then, the Kotlin and Swift vehicles since 28 November, and two recorded sessions hold all three to it, one with a signing meter and one without.
+
+The recording with a meter shows what this means behind the station. The station still books the withheld reading with its backend, so its OCPP record holds one signed reading the vehicle never saw and never signed a receipt over. In ISO 15118-2 the vehicle's receipts cover what the station chose to show it, not necessarily everything it bills.
 
 ## 3. ISO 15118-20: the vehicle may ask, the receipt gets richer
 
@@ -446,7 +450,7 @@ The way there leads through the standard's working group, or first through an op
 
 The report is only useful if it reaches the operator. For the station's meter values the path exists: OCPP has `SignedMeterValue` (in [2.1](https://raw.githubusercontent.com/mobilityhouse/ocpp/master/ocpp/v21/schemas/MeterValuesRequest.json) up to 32,768 characters, signing method and key optional), and the [OCPI CDR](https://raw.githubusercontent.com/ocpi/ocpi/release-2.2.1-bugfixes/mod_cdrs.asciidoc) carries `signed_data` with values of nature Start, End and Intermediate.
 
-For the vehicle's receipt or report there is nothing. The JSON schemas of OCPP 1.6, 2.0.1 and 2.1 contain no field for `MeteringReceipt`, `MeteringConfirmation` or a signature of the vehicle. What remains is `DataTransfer` and `customData`. The prose part of the specification was not checked. So today the car's signature ends at the station at the latest, even if the station verifies it.
+For the vehicle's receipt or report there is nothing. The JSON schemas of OCPP 1.6, 2.0.1 and 2.1 contain no field for `MeteringReceipt`, `MeteringConfirmation` or a signature of the vehicle. What remains is `DataTransfer` and `customData`. The prose part of the specification was not checked. So today the car's signature ends at the station at the latest, even if the station verifies it. Nor do the two records have to cover the same readings: in ISO 15118-2 a station can bill a reading it never showed the vehicle (Section 2).
 
 ### 11.5 The prototype: EVCLI
 
@@ -584,6 +588,7 @@ Sorted by usefulness, the obvious ones first.
 - [x] A recorded `MeteringConfirmation` session in the corpus, replayed by the Kotlin and Swift vehicles as well
 - [x] The same exchange over TLS (our station and vehicle), with every chain validated to its root
 - [x] Our station refuses a confirmation whose contract chain it rejected
+- [x] An ISO 15118-2 receipt asked for without a `MeterInfo`: signed over the last one by the C#, Kotlin and Swift vehicles, recorded with and without a signing meter
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
@@ -603,6 +608,7 @@ Own material:
 - Source trees in the interoperability rig: Josev `d645255`, everest-core 2026.10.0 `74845c57`, eVDriveFlow `60249c3`, iso15118-simulator-rs `fc51088`
 - The prototype: [WWCP\_ISO15118#55](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/55) and [EV#2](https://github.com/OpenChargingCloud/EV/pull/2), merged and pinned in EVCLI on 27 November 2026; the Charging page's confirmations, [EV#3](https://github.com/OpenChargingCloud/EV/pull/3), merged the same day
 - The recorded session, [EVSimulatorApp#46](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/46) and [ISO15118ConformanceTests#167](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/167), and the Kotlin and Swift vehicles, [EVSimulatorApp#47](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/47), merged on 27 November 2026
+- The ISO 15118-2 receipt without a record: the Kotlin and Swift vehicles, [EVSimulatorApp#50](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/50); the station's switch at a metered station, [WWCP\_ISO15118#59](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/59); the two recorded sessions, [EVSimulatorApp#52](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/52), [ISO15118ConformanceTests#177](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/177) and [#178](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/178), merged on 28 November 2026
 
 Read on the web on 26 November 2026:
 
