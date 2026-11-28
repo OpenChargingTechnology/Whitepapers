@@ -893,7 +893,7 @@ Nevertheless, detailed technical recommendations for securing this communication
 
 ## 6. NTP-over-TLS
 
-Chapter 7 of the [Technical Guideline (BSI TR-03109-5)](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11) of the German [Federal Office for Information Security](https://www.bsi.bund.de) describes how NTPv4 can be used in a proprietary ***NTP-over-TLS*** mode. Hereby the NTP client sends a normal NTPv4 request, but instead of using UDP transport it is sent within a TLS connection. The guideline specifies this for NTPv4 only. NTPv5 is carried in the same way, its messages in place of those of NTPv4, so that NTP-over-TLS needs no change of its own when NTPv5 comes. A client in mode `NTPTLS` with `Versions` `v5, v4` offers NTPv5 inside the TLS connection and keeps to NTPv4 with a gateway that does not take up the offer (section 3.2.4). Mode `NTPSSH` carries the same messages in a channel of an SSH connection instead of TLS, each behind a two-octet length, for servers that are reached over SSH rather than with an X.509 certificate ([NTS Key Establishment over SSH](../NTS-over-SSH/README.md), section 10).
+Chapter 7 of the [Technical Guideline (BSI TR-03109-5)](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11) of the German [Federal Office for Information Security](https://www.bsi.bund.de) describes how NTPv4 can be used in a proprietary ***NTP-over-TLS*** mode. Hereby the NTP client sends a normal NTPv4 request, but instead of using UDP transport it is sent within a TLS connection. The guideline specifies this for NTPv4 only. NTPv5 is carried on the same connections, each message behind a two-octet length, since its messages have no fixed size (section 6.1). A client in mode `NTPTLS` with `Versions` `v5, v4` offers NTPv5 inside the TLS connection and keeps to NTPv4 with a gateway that does not take up the offer (section 3.2.4). Mode `NTPSSH` carries the same messages in a channel of an SSH connection instead of TLS, each behind a two-octet length, for servers that are reached over SSH rather than with an X.509 certificate ([NTS Key Establishment over SSH](../NTS-over-SSH/README.md), section 10).
 
 - TLS-Port: 443 or other
 - The SMGW uses a TLS certificate using the X.509 v3 Extended Key Usage: [Time Stamping (OID 1.3.6.1.5.5.7.3.8)](https://oidref.com/1.3.6.1.5.5.7.3.8)
@@ -912,6 +912,27 @@ Chapter 7 of the [Technical Guideline (BSI TR-03109-5)](https://www.bsi.bund.de/
 https://datatracker.ietf.org/doc/rfc8633/)
   - Clients should respect rate-limit responses.
   - Vendors of embedded devices SHOULD include the ability to update the list of NTP servers.
+
+### 6.1 NTPv5 over TLS
+
+The guideline frames nothing: every message of NTP-over-TLS is the bare NTPv4 header of 48 octets, in both directions, and a receiver knows where one ends because all of them are that long. NTPv5 messages have no fixed size. As long as NTPv5 is an Internet-Draft, every request carries at least the Draft Identification extension field (§ 7.1 of the draft), and a response is as long as its request. So an NTPv5 message on a connection of NTP-over-TLS is preceded by its length, as it is in NTP over SSH ([NTS Key Establishment over SSH](../NTS-over-SSH/README.md), section 10.3):
+
+```
+uint16  length    big-endian: the length of the NTPv5 message, without these two octets
+byte[]  message   one NTPv5 message, exactly as it would be the payload of a UDP datagram
+```
+
+- **NTPv4 stays as the guideline has it**: 48 octets, without a length, without extension fields and without a MAC. A smart meter gateway that follows TR-03109-5 sees nothing new.
+- **The first octet tells the framing**, message by message. That of an NTPv4 message carries its version, 1 to 4, in the bits VN (octet 0, bits 3 to 5). That of a length below 2,048 is below 8, so its bits VN are 0, which no NTP message has. A receiver reads one octet: VN 0 makes it the first octet of a length, anything else the first octet of a 48-octet NTPv4 message.
+- **Lengths**: at least 48 octets, the size of the NTPv5 header, and at most 2,047, so that the first octet stays below 8. A server reads every length in that range. Nobody sends a longer message; a length outside the range is a protocol error.
+- **Only NTPv5 behind a length**: a framed message of another version, and a bare one of version 5, are protocol errors. A protocol error ends the connection without an answer, as does a message that is no client request.
+- **Answers in the framing of the request**: an NTPv5 response behind its length, an NTPv4 response bare. One connection may carry both, and that is what the negotiation of section 3.2.4 does: the offer of § 12 of the draft goes out in an NTPv4 request, and once the server echoes it the next request is NTPv5, on the same connection or on a new one.
+- **One write per message**: the length and the message go to the connection in one write, so that they travel in one TLS record.
+- **The offer and data minimization**: the reference timestamp is zero in a minimized request (Table 7.1 of the guideline). A client that offers NTPv5 sets it to the magic of § 12 of the draft instead. The magic is the same for every client and tells nothing about the one that sends it.
+- **Checking a response**: the rules REQ.TA.NTP.ProcessResponse of the guideline apply to NTPv5 in its own terms. The client cookie takes the place of the origin timestamp (.30), the flag *Unsynchronized* that of leap indicator 3 (.50) - the client does not set it in its request, so an unsynchronized server does not answer at all (§ 10 of the draft), and a response that carries it is ignored - and version 5 is accepted where NTPv5 was asked for (.51). An NTPv5 response must also pass the checks of § 9.4 of the draft, which include naming the client's draft. The 9 seconds of .10 and the 1,000 seconds of .110 are the same, and so is the maximum error, `rootdelay/2 + rootdisp`.
+- **Gateways of NTPv4 only**: what such a gateway makes of a framed message, the guideline does not say, and most will read 48 octets and fail. So `Versions` `v5` alone is not for smart meter gateways, and with `v5, v4` NTPv5 goes out only after the echo (section 3.2.4).
+
+*(Reference implementation: Norn's `NTSServer` answers NTPv5 on its `NTPOverTLSPort` where `NTPv5` is enabled and echoes the offer, and `NTPOverTLSClient` asks with `QueryNTPv5` and `QueryNegotiated`. The [NTS Conformance Tests](https://github.com/Vanaheimr/NTSConformanceTests) check both ends.)*
 
 
 
