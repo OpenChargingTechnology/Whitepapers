@@ -9,8 +9,9 @@ This white paper proposes to run the [Network Time Security Key Establishment (N
 - **Key binding without TLS**: why the SSH session identifier must not be used as key material, an SSH keying material exporter, and a simpler in-band key transport that also works behind an unmodified OpenSSH server.
 - **Trust anchors without X.509**: pinned host keys, SSH certificate authorities and SSHFP records, and client authorization through SSH public keys. Pinned host keys need no correct clock at all.
 - **A mapping onto the OCPP v2.x Device Model** as an extension of the *NTP Client Controller* of the [Secure Time Synchronization](../SecureTimeSync/README.md) white paper.
+- **NTP itself over SSH** (section 10): the subsystem `ntp@open.charging.cloud` carries NTPv4 and NTPv5 messages, each behind a two-octet length, for stations whose only way to their time server is their SSH connection. It needs no key exchange and no cookies, and costs some accuracy.
 
-*Status*: this is a draft for discussion. The NTS-KE server and client of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn) implement both options of key binding, on the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod); section 8.1 says what is implemented so far. The subsystem name, the record type and the device model variables are provisional. The record of section 5 is specified on its own in [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md), for the registration of its record type with IANA ([IANA-registration.md](IANA-registration.md)).
+*Status*: this is a draft for discussion. The NTS-KE server and client of [Vanaheimr Norn](https://github.com/Vanaheimr/Norn) implement both options of key binding, on the SSH stack of [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod); section 8.1 says what is implemented so far, and section 10.9 what of NTP over SSH. The subsystem name, the record type and the device model variables are provisional. The record of section 5 is specified on its own in [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md), for the registration of its record type with IANA ([IANA-registration.md](IANA-registration.md)).
 <!--  -->
 <!--  -->
 
@@ -466,7 +467,94 @@ The SSH profile is as secure as the verification of the host key and the negotia
 - **Forwarding**: the SSH listener of section 8.1 offers no agent, port or X11 forwarding at all, and a station login on the shared listener of section 8.3 gets none either; in the OpenSSH profile they are disabled for the account `ntske`. The session identifier thus reaches no foreign agent.
 
 
-## 10. Alternatives without SSH
+## 10. NTP over SSH
+
+The sections before carry the key exchange over SSH and leave NTP on UDP. Where a station has an SSH connection to its time server anyway, the NTP messages themselves can travel in it, as NTP-over-TLS of BSI TR-03109-5 carries them in a TLS connection (section 6 of [Secure Time Synchronization](../SecureTimeSync/README.md)) and [DNS over SSH](../DNS-over-SSH/README.md) carries DNS. The SSH connection then protects the time as NTS would: the host key authenticates the server, and the channel protects the integrity of every message. There is no key exchange, no cookie and no master key, and no UDP.
+
+### 10.1 What it is for
+
+- **UDP port 123 is out of reach**: the station's only way to its Local Controller or CSMS is its SSH connection, e.g. in a private APN that passes TCP only, behind a firewall that opens port 22 and nothing else, or behind a NAT whose UDP state does not outlast a poll interval.
+- **The connection is there anyway**: a station that carries OCPP over SSH (section 8.3) gets authenticated time from one more channel of that connection, and the server needs no NTS for it.
+- **Not where UDP works**: TCP and SSH add delay, and delay in one direction only, that UDP does not have (section 10.6). Where UDP port 123 is reachable, NTS with its key exchange over SSH (mode `NTSSSH`) gives the better time. NTP over SSH is a mode the CSMS configures for a server, never one a client falls back to by itself (section 10.7).
+
+### 10.2 The subsystem
+
+- **Name**: `ntp@open.charging.cloud`. As `dns@open.charging.cloud` of DNS over SSH, the name carries no version: the version of NTP is in every message, in the three bits VN of its first octet, 4 for NTPv4 and 5 for NTPv5, and a server answers each version as it does on UDP. An incompatible change of the byte stream of section 10.3 would get a new name.
+- **Not `ntske/1@open.charging.cloud`**: that subsystem carries one key exchange per channel and then ends (section 3.2). This one carries any number of NTP exchanges, for as long as the channel is open.
+- **Opening it**: as in section 3.2. The client opens a `session` channel, sends a `subsystem` request with the name and *want reply* set, and waits for the answer before it writes. A server that does not offer the subsystem to this login answers `SSH_MSG_CHANNEL_FAILURE`, and the client gives up: it never sends the request over UDP instead.
+- **User name**: the convention is `ntp`. On the shared listener of a charging infrastructure node the station logs in under its own identity (section 8.3).
+- **Registration**: as for DNS over SSH, the name stays private until a second, independent implementation exists. Then `ntp` is registered in the IANA registry *Connection Protocol Subsystem Names* (section 3.1).
+
+### 10.3 The byte stream
+
+From `SSH_MSG_CHANNEL_SUCCESS` on, the channel carries in both directions:
+
+```
+uint16  length    big-endian: the length of the message, without these two octets
+byte[]  message   one NTP message, exactly as it would be the payload of a UDP datagram
+```
+
+- **The client writes first.** The first two octets of the channel are the length of the first request.
+- **The message** is an NTPv4 packet of [RFC 5905](https://datatracker.ietf.org/doc/html/rfc5905), with extension fields of [RFC 7822](https://datatracker.ietf.org/doc/html/rfc7822) where it has any, or an NTPv5 message of [draft-ietf-ntp-ntpv5](https://datatracker.ietf.org/doc/draft-ietf-ntp-ntpv5/), unchanged.
+- **Why a length**: NTP messages do not delimit themselves. On UDP the datagram ends the message. An NTPv4 packet may end in a MAC whose presence RFC 7822 has the receiver infer from the length of what is left, and an NTPv5 message has no length field at all. DNS over TCP has the same two octets for the same reason.
+- **Lengths**: at least 48 octets, the size of the header of both versions, and at most 65,535. A server reads messages up to the largest datagram it would accept on UDP, and at least up to 1,280 octets, the smallest MTU of IPv6, which holds an NTS request with several cookie placeholders.
+- **SSH packets do not delimit messages**: a message may span several `SSH_MSG_CHANNEL_DATA`, and one of them may hold the end of a message and the start of the next. A reader reads lengths and messages from the stream, as in section 3.2 of DNS over SSH.
+- **One write per message**: the length and the message go to the channel in one write, so that they travel in one SSH packet and no other write comes in between. This also keeps the time between a timestamp and the message it describes short (section 10.6).
+
+### 10.4 Exchanges
+
+- **Every message as a datagram**: the server treats each message as a UDP datagram that arrived at its NTP port from the address of the SSH connection. It answers with what it would send back on UDP, each datagram as one message of the channel, or with nothing where it would send nothing. Every rule of RFC 5905, RFC 7822, [RFC 9769](https://datatracker.ietf.org/doc/html/rfc9769) and draft-ietf-ntp-ntpv5 applies unchanged: only client requests are answered, in NTPv4 those of mode 3; a request of another version, or of a draft the server does not implement, is not answered; a Kiss-o'-Death is sent where it would be sent on UDP. A server serves the subsystem with the code of its UDP listener.
+- **Plain requests**: a server that answers only NTS on UDP answers plain requests in this channel, as the channel authenticates and protects them as NTS would. A request with NTS extension fields is answered as on UDP, and gains nothing.
+- **One request at a time**: a client sends its next request once the response to its last one has arrived or the wait for it has ended. Unlike DNS over SSH, it does not pipeline: a request queued behind another would have its T1 to T4 measure the queue. The server answers the messages of a channel one after another, in the order they arrived.
+- **Matching**: the client matches a response to its request as on UDP: in NTPv4 by its origin timestamp (RFC 5905, section 8), in NTPv5 by the client cookie (draft-ietf-ntp-ntpv5-10, section 9.4). A response that does not match, e.g. the late answer to a request whose wait had ended, is passed over, and the channel stays open.
+- **Two responses**: where a server sends two datagrams in answer to one request, e.g. the signed second response of section 2.3 of Secure Time Synchronization, it sends two messages, in the same order.
+- **Rate limits**: they apply as on UDP. A server may count them by login rather than by address, since stations behind one NAT share an address but not a login. A client that receives a Kiss-o'-Death `RATE` lengthens its poll interval as on UDP, and does not open a further channel to get around it.
+- **Interleaved mode** (RFC 9769, section 8 of draft-ietf-ntp-ntpv5-10): as on UDP. A server keeps the state of the mode by address or by channel.
+- **NTPv5**: `v5, v4` in `Versions` has the client ask in NTPv4 and offer NTPv5 as section 12 of draft-ietf-ntp-ntpv5-10 describes, and change to NTPv5 once the server answers that it speaks it (section 3.2.4 of Secure Time Synchronization). In this channel the offer and the answer are as well protected as the time, so nobody on the way can remove the offer and keep the client on NTPv4.
+
+### 10.5 The end of a channel
+
+- **The client keeps the channel open** for as long as it polls the server: one channel per server and connection. It ends the channel with `SSH_MSG_CHANNEL_EOF` or `SSH_MSG_CHANNEL_CLOSE` when it stops asking that server.
+- **The server ends a channel** after an idle timeout, when it stops, or after a protocol error, with the channel request `exit-status`, `SSH_MSG_CHANNEL_EOF` and `SSH_MSG_CHANNEL_CLOSE`, as in section 3.2. The exit status is `0` for an idle timeout, a client's EOF and a server that stops, and `1` after a protocol error. An idle timeout is never shorter than 1,200 seconds, longer than the 1,024 seconds of the longest poll interval clients use by default.
+- **Protocol errors** end the channel: a length below 48, a length above what the server reads (section 10.3), and a message cut off by the end of the channel. A message of an acceptable length that is no NTP request the server answers is passed over, as on UDP, and the channel stays open.
+- **A channel ends, the connection stays.** Neither side ends the SSH connection because an NTP channel ended. A client opens a new channel at its next poll.
+
+### 10.6 Timestamps and accuracy
+
+- **The four timestamps** are those of RFC 5905. The client reads T1 right before it writes the request to the channel, or right after for NTPv5 and for the interleaved mode, which do not carry it in the request. It reads T4 once the whole response has been read. The server reads T2 once the last octet of the request has been read from the channel, before it parses it, and T3 right before it writes the response.
+- **No Nagle**: both ends set `TCP_NODELAY` on the TCP connection of SSH. Otherwise a response may wait for the acknowledgement of the request, and the client measures the delayed acknowledgement of the server's TCP stack, tens to hundreds of milliseconds, as network delay.
+- **What TCP and SSH add**: the encryption and MAC of each SSH packet, which costs both directions about alike; a window adjustment; a TCP segment that is lost and sent again, which costs one direction a retransmission timeout, 200 milliseconds or more; a key re-exchange of the connection, during which every channel waits; and, on a shared connection, a long OCPP message in another channel ahead of the response. Each of these shows as a longer delay of the one exchange it hits. The clock filter of RFC 5905, section 10, which prefers the sample with the shortest delay among the last eight, discards it as it discards a datagram held up in a queue, and a client of NTP over SSH must have such a filter.
+- **What remains**: SSH and TCP make the delay longer and its variation larger than on UDP. The offset is then as uncertain as half that delay, and its asymmetry is not known. A station that needs its best time uses NTS over UDP, and a station on a shared connection whose OCPP traffic disturbs the time opens a connection of its own for NTP (`SSHConnection` `Dedicated`).
+
+### 10.7 Device model
+
+The NTP Client Controller of section 3.2.4 of Secure Time Synchronization has the value `NTPSSH` of `Mode` for NTP over SSH.
+
+- **Variables of SSH**: `ServerURL` names the SSH server that offers the subsystem. `SSHPort`, `SSHUserName`, `SSHHostKeyPins`, `SSHHostCAs`, `SSHConnection`, `SSHClientPublicKey` and `SSHHostKeyFingerprint` of section 7 apply as in mode `NTSSSH`. The default of `SSHUserName` is `ntp` in this mode.
+- **Versions** means what it means in modes `NTP` and `NTPTLS`: `v4`, `v5`, or `v5, v4` with the offer of section 10.4.
+- **What does not apply**: `ServerPort`, `NTSKEServerURL`, `NTSKEServerPort`, `RootCAs`, `CertificatePins`, `RootPins`, `NoCertTimeCheckAfterReboot`, `MinRefresh`, `MaxRefresh`, `AEADAlgorithm`, `SignedResponses`, `CertificateFingerprint`, `LastKeyExchange` and `Cookies`.
+- **No fallback**: `Mode` is the protection. A client in mode `NTPSSH` whose channel cannot be opened counts the server as unreachable, and never asks it over UDP instead.
+- **OCPP v1.6+SE**: `ntp.<group>.mode` takes `NTPSSH`, and the keys `ntske.<group>.ssh…` of section 7.1 apply to servers of that mode as well.
+
+### 10.8 Security considerations
+
+- **The SSH connection**: everything of section 9 holds: the host key verified against a pin, an SSH CA or SSHFP with DNSSEC, strict KEX, and the algorithms named there.
+- **What the channel protects**: the content and the integrity of every message, in both directions, and which server answered. This is what NTS protects. Like NTS, it does not protect against an attacker on the path who delays the messages of one direction; RFC 8915, section 8.6 and RFC 7384 say the same of NTS.
+- **Authorization per subsystem**: `ntp@open.charging.cloud` is granted to a login as any other subsystem (section 8.3). A login granted NTS-KE does not get NTP over SSH by it, nor the other way round.
+- **Denial of service**: a channel holds state on the server for as long as it is open, which a UDP request does not. A server limits the NTP channels per connection, e.g. to two, and counts its rate limits per login.
+- **No amplification**: a response goes back on the authenticated channel it was asked on, never to an address the request names.
+- **Downgrade**: the mode is configured per server, not negotiated, and there is no fallback to UDP (section 10.7).
+
+### 10.9 Reference implementation
+
+*Implemented* in [Vanaheimr Norn](https://github.com/Vanaheimr/Norn), on the SSH stack of Hermod:
+
+- **Server**: the SSH listener of section 8.1 offers `ntp@open.charging.cloud` where it is told to (`NTPOverSSH`), beside `ntske/1@open.charging.cloud`. Its handler has the shape of section 8.3, so a node offers it on its shared listener as well. Every message goes through the code that answers a UDP datagram, as section 10.4 has it, with the address of the SSH connection for the rate limiter and the interleaved mode; a server of NTS alone answers plain requests in the channel, and echoes the offer of NTPv5 there. Channels are idle for 1,200 seconds before the server ends them, and a connection may have two open; the connection's own idle timeout is longer than the channel's.
+- **Client**: `NTPOverSSHChannel` opens the subsystem on an SSH connection it is handed, its own or one shared with OCPP, and reads the channel all the time, so that a late answer is passed over rather than taken for the next one. NTPv4, NTPv5 and the offer of NTPv5 in NTPv4 (`v5, v4`) run on it through the same code as on UDP, with the same checks of each response. A channel that has ended fails the query at once, and nothing is sent over UDP instead.
+- **Tests**: the [NTS Conformance Tests](https://github.com/Vanaheimr/NTSConformanceTests) frame and read the stream from the text of section 10.3, with their own NTPv4 and NTPv5 codecs. Against the server: both versions, also in one channel; a request written octet by octet, three in one write, one of 1,280 octets; lengths of 0, 1, 47 and 65,535 and a message cut off by the EOF, each ending the channel with exit status 1; the client's EOF with 0, after the answer; messages that are no requests passed over; the offer of NTPv5 echoed by a server that answers only NTS on UDP; the RATE kiss; a third channel on one connection; and T2 and T3 between T1 and T4. Against the client, a scripted SSH server: the framing of its requests, answers to other requests passed over, a late answer not taken for the next query, the change to NTPv5 on the echo, a refused subsystem, and a channel the server ended or broke with a length below 48.
+
+
+## 11. Alternatives without SSH
 
 The problem of a missing internal PKI can partly be solved within TLS as well, and interoperably. The SSH transport must be measured against this.
 
@@ -483,10 +571,11 @@ The problem of a missing internal PKI can partly be solved within TLS as well, a
 - Both approaches do not exclude each other. They share the same NTS-KE core and differ in the front end only.
 
 
-## 11. Relation to Other White Papers
+## 12. Relation to Other White Papers
 
-- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): defines the NTS-KE and NTP phases used here (section 2), and the NTP Client Controller whose mode `NTSSSH` section 7 gives its variables, and the configuration keys of OCPP v1.6+SE that section 7.1 extends.
+- [Secure Time Synchronization for OCPP](../SecureTimeSync/README.md): defines the NTS-KE and NTP phases used here (section 2), and the NTP Client Controller whose mode `NTSSSH` section 7 gives its variables and whose mode `NTPSSH` section 10.7, and the configuration keys of OCPP v1.6+SE that section 7.1 extends. Its section 6, NTP-over-TLS, is what section 10 does over SSH.
 - [OCPP over SSH](../OCPP-over-SSH/README.md): the station's SSH connection to an SSH peer, which section 8.3 and `SSHConnection` `Shared` open the subsystem on, and which OCPP is a channel of as well (its section 7.2).
+- [DNS over SSH](../DNS-over-SSH/README.md): the subsystem `dns@open.charging.cloud`, whose byte stream of a two-octet length and a message section 10.3 takes over for NTP, and whose name carries no version for the same reason.
 - [Critical Legal Time Services](../CriticalLegalTimeServices/README.md): the managed networks with trust zones of its section 4.2 are the environment this paper is written for.
 - [Secure Name Resolution for OCPP](../SecureDNS/README.md): pins, `OnPinMismatch` and trust on first use mean the same here. SSHFP records are only as trustworthy as the DNSSEC validation of the name resolution.
 - [Secure SSH Configuration](../SecureSSHConfiguration/README.md) (upcoming): the hardening of the SSH servers and clients of this paper.
@@ -694,6 +783,8 @@ The [tests of Hermod](https://github.com/Vanaheimr/Hermod/blob/master/HermodTest
 - Specify the SSH exporter of section 4.3 as an Internet-Draft of its own in the SSHM working group, independent of NTS. It is useful beyond NTS, and as cryptography of its own it needs an outside review most.
 - Discovery: whether a client may learn from the DNS that a server offers NTS-KE over SSH, and on which port.
 - Relation to the upcoming [NTS-over-OCPP](../NTS-over-OCPP/README.md) white paper.
+- NTP over SSH behind an unmodified OpenSSH server (section 10): a helper program as in section 8.4 that relays each message of the channel as a datagram to the NTP server on the same host and its answers back, so that chrony or ntpd serve the subsystem unchanged. T2 and T3 are then those of the NTP server, and the relay's time is part of the delay.
+- How much accuracy NTP over SSH costs against NTP and NTS over UDP (section 10.6), measured on a station network with a shared connection that carries OCPP.
 - Whether any scenario justifies a contribution of the client to the nonce of option A or the secret of option B, which adds nothing against outsiders as long as the server learns both keys anyway (sections 4.3 and 4.4). A method that takes one would carry it in the data of its entry in the request (section 5).
 - How the policies per client of section 6.2 are configured: groups of SSH identities, the NTP servers and cookie master keys of each group, and the commands of section 8.2 for them.
 - The path to standardization of the subsystem and the record: an Internet-Draft in the NTP working group; a specification of our own with IANA registrations only, i.e. the subsystem name through *Expert Review* (section 3.1) and the record type through *Specification Required* (section 5), neither of which needs an RFC; or the private name and record type alone. Proposed: a specification of our own first, with an early registration of the record type; its draft is [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md).
