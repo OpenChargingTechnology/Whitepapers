@@ -11,7 +11,8 @@ is: the request is what the entry means.
 
 The record is specified in [nts-ke-ssh-key-binding.md](nts-ke-ssh-key-binding.md), the
 specification of section 5 of the white paper [NTS Key Establishment over SSH](README.md).
-Until the assignment it uses the provisional value 16386 (`0x4002`) from the private range.
+Until the assignment it uses the provisional value 19970 (`0x4E02`) from the private range;
+until 2026-11-28 it used 16386 (`0x4002`), see Appendix C of the specification.
 
 
 ## Why this is possible without an RFC
@@ -79,7 +80,7 @@ not affect existing deployments.
 
 The specification has test vectors for both methods (Appendix A). Norn
 (https://github.com/Vanaheimr/Norn, AGPL-3.0) implements client and server
-with both methods; until the assignment it uses the value 16386 from the
+with both methods; until the assignment it uses the value 19970 from the
 private range.
 ```
 
@@ -102,6 +103,9 @@ the specification before they approve it.
   *Version 1.0*, as Specification Required asks for a permanent specification. `TBD` stays
   until the assignment. A later version that adds methods does not change the record type.
   The white paper, which the specification references, is still a draft for discussion.
+- **Version 1.1** (2026-11-28): the context of Section 5.1 now carries the Protocol ID of the
+  negotiated next protocol, as RFC 8915 has it, for NTPv5 (Section 5.4, Appendix A.4); the keys
+  for NTPv4 are unchanged. Submit 1.1, not 1.0.
 - ~~**The white paper is a normative reference of the specification, and its status line is
   out of date.**~~ Done 2026-11-10: the status line of [README.md](README.md) no longer reads
   that nothing is implemented, but that Norn implements both options on Hermod, as
@@ -120,7 +124,7 @@ the specification before they approve it.
 ## After the assignment
 
 The value assigned below is written `N`; on the wire the record starts with `0x8000 | N`,
-the type with the Critical Bit set (`8401` for 1025, instead of `c002` today).
+the type with the Critical Bit set (`8401` for 1025, instead of `ce02` today).
 
 1. **This file:** the status above set to *registered*, with the date, the ticket number and
    what the registry entry says.
@@ -129,9 +133,9 @@ the type with the Critical Bit set (`8401` for 1025, instead of `c002` today).
    Section 7 and Appendix B; Appendix C says that Norn uses `N`.
 3. **The white paper** ([README.md](README.md)): the record type of the table in section 5
    with its bullet on the private range, and the record type in A.2, both in the hex dumps
-   (`c002`) and in the captions (*record type 16386*).
+   (`ce02`) and in the captions (*record type 0x4E02*).
 4. **Norn**: `NTSKE_RecordTypes.SSHKeyBinding` and its entry in `Description()`
-   (`Norn/NTS-KE/Records/NTSKE_RecordTypes.cs`), and the tests that expect `c002`
+   (`Norn/NTS-KE/Records/NTSKE_RecordTypes.cs`), and the tests that expect `ce02`
    (`NornTests/NTS/NTSKE_SSH_Tests.cs`). The copy of Norn in ntswebui follows Norn.
 5. **The conformance suite** ([NTSConformanceTests](https://github.com/Vanaheimr/NTSConformanceTests)):
    `RawNtsKeRecordTypes.SshKeyBinding` and its comment
@@ -139,9 +143,9 @@ the type with the Critical Bit set (`8401` for 1025, instead of `c002` today).
    type, and the sentence on it in its README, in the same commit that moves `libs/Norn` to the
    Norn of step 4. The suite writes and reads the record with a codec of its own and drives
    Norn's server and client over SSH with it, so its gate fails as long as the two disagree.
-6. **The transition:** a client that sends 16386 to a server that knows only `N` is refused
+6. **The transition:** a client that sends 19970 to a server that knows only `N` is refused
    with *Unrecognized Critical Record*, as the record is critical. Where clients and servers
-   are not updated together, a server can accept 16386 as well for a while and answer with
+   are not updated together, a server can accept 19970 as well for a while and answer with
    the type the request used. Clients send only `N`. To be decided when Norn changes.
 
 [RFC 8126]: https://www.rfc-editor.org/rfc/rfc8126

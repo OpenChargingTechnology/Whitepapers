@@ -1,13 +1,13 @@
 # NTS-KE Record Type "SSH Key Binding"
 
-**Version 1.0**, 2026-11-10
+**Version 1.1**, 2026-11-28 (changes: Appendix D)
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · white paper: [NTS Key Establishment over SSH](README.md) · reference implementation: [Vanaheimr/Norn](https://github.com/Vanaheimr/Norn)
 
 This document specifies the NTS-KE record *SSH Key Binding* of section 5 of the white paper
 [NTS Key Establishment over SSH](README.md) as a specification of its own, so that IANA can
 register its record type from the range 1024–16383 ("Specification Required") of the registry
 "Network Time Security Key Establishment Record Types". Until then the record uses the
-provisional type 16386 (Appendix C); this document writes the type as **TBD**.
+provisional type 19970 (`0x4E02`, Appendix C); this document writes the type as **TBD**.
 
 Editor: Achim Friedland, GraphDefined GmbH.
 Stable URL: <https://github.com/OpenChargingTechnology/Whitepapers/blob/master/NTS-over-SSH/nts-ke-ssh-key-binding.md>
@@ -25,8 +25,9 @@ SSH user key.
 An SSH connection has no TLS exporter. This document defines the one NTS-KE record that NTS-KE
 over SSH adds, *SSH Key Binding*, which negotiates where the keying material comes from
 instead, and it specifies the key derivation of each method. Everything else is unchanged:
-the other records, the cookies, and NTP itself. An NTP server cannot tell over which transport
-the keys inside a cookie were agreed.
+the other records, the cookies, and NTP itself, whichever next protocol the exchange agrees to
+(Section 5.4). An NTP server cannot tell over which transport the keys inside a cookie were
+agreed.
 
 
 ## 2. Conventions and Terminology
@@ -177,9 +178,9 @@ material. Where [RFC8915] calls the TLS exporter with a label, a context and a l
 over SSH calls `Exporter(label, context, L)` of the selected method, with
 
 - `label` = `"EXPORTER-network-time-security"` (US-ASCII, 30 octets),
-- `context` = the five octets of Section 5.1 of [RFC8915]: `0x0000` (NTPv4), the Numeric
-  Identifier of the negotiated AEAD algorithm, and `0x00` for the C2S key or `0x01` for the
-  S2C key,
+- `context` = the five octets of Section 5.1 of [RFC8915]: the Protocol ID of the negotiated
+  next protocol (`0x0000` for NTPv4, Section 5.4), the Numeric Identifier of the negotiated
+  AEAD algorithm, and `0x00` for the C2S key or `0x01` for the S2C key,
 - `L` = the key length of the negotiated AEAD algorithm.
 
 Both methods of this document are HKDF-Expand (Section 2.3 of [RFC5869]) under a pseudorandom
@@ -245,6 +246,20 @@ are the output length of SHA-256, the minimum length of a pseudorandom key for H
 with SHA-256.
 
 Appendix A.2 has test vectors.
+
+### 5.4. Next Protocols
+
+The Protocol ID of the context is the one of the NTS Next Protocol Negotiation record of the
+response, as in Section 5.1 of [RFC8915]: `0x0000` where the exchange agreed to NTPv4, and the
+Protocol ID of another next protocol where it agreed to that one. Neither method changes
+anything else for another next protocol: the records that agree to it travel over SSH as they
+do over TLS, beside the SSH Key Binding record, and the cookies stay opaque to the client.
+
+NTPv5 [NTPv5] takes over the NTS-KE records of NTPv4 under a Protocol ID of its own, `0x8001`
+in drafts, and has a client of a draft name its draft in the non-critical record `0x4001`. Over
+SSH this is the same exchange as over TLS, and both methods derive the keys under the context
+`0x8001 || AEAD id || 0x00` or `0x01`. Keys of one context are no keys of the other, so a cookie
+issued for one next protocol does not authenticate the other. Appendix A.4 has test vectors.
 
 
 ## 6. Security Considerations
@@ -329,6 +344,8 @@ document; new methods are added by a later version of it.
 
 ### 8.2. Informative References
 
+- **[NTPv5]** Lichvar, M. and T. Mizrahi, "Network Time Protocol Version 5", Work in
+  Progress, Internet-Draft, draft-ietf-ntp-ntpv5-10, October 2026.
 - **[RFC4254]** Ylonen, T. and C. Lonvick, Ed., "The Secure Shell (SSH) Connection
   Protocol", RFC 4254, January 2006.
 - **[RFC8126]** Cotton, M., Leiba, B., and T. Narten, "Guidelines for Writing an IANA
@@ -459,6 +476,36 @@ PRK             = a27b86e7a70a029cba778d6f738d952696d6d8361b95103dd84ae9df6af063
 | AES-128-GCM-SIV (30) | 16 | `fd8733d215d9d3a79f0d95b86884ed28` | `f7fe123370cdd2ed478906c34bd6d7b8` |
 | AES-256-GCM-SIV (31) | 32 | `05d23579f0905080af0243173053808adad6d276ed0560a9fe64ef714b690554` | `d72234762b25d744d00016818b8f23ad65d1ac5c85009d1ada6215046c73ebcc` |
 
+### A.4. Another Next Protocol: NTPv5
+
+The inputs of A.2 and A.3.2 under the context of NTPv5 in drafts (Section 5.4). Only the first
+two octets of the context differ from A.1, and every key differs from A.2 and A.3.2.
+
+`info` for AES-SIV-CMAC-256 (Numeric Identifier 15), C2S key:
+
+```
+0000001e                                                          length of label (30)
+4558504f525445522d6e6574776f726b2d74696d652d7365637572697479      "EXPORTER-network-time-security"
+00000005                                                          length of context (5)
+8001000f00                                                        NTPv5 (draft), algorithm 15, C2S
+```
+
+Method `0x0002`, with the `nts_ke_secret` of A.2:
+
+| AEAD algorithm | L | C2S key | S2C key |
+|---|---|---|---|
+| AES-SIV-CMAC-256 (15) | 32 | `764c1248ad0bc5b9b166ca1503a3819851b32ead61f5d024ad27648ccec8ff2b` | `d4194d2b81e7f47b505df60147ca271cdc8b709523accab3bb4c4be1674cea54` |
+| AES-128-GCM-SIV (30) | 16 | `f5268d5c1ce1eefd50db2c93735b9559` | `f3493b68b3619827f91436f2cd253552` |
+| AES-256-GCM-SIV (31) | 32 | `665de0df5b17c3cb5f06856ff803a0c9fde7557138d9ebd2e52dc6ac619a616e` | `0d4f6f61b16ed755a29786b96cbb90a6ec51c3a95332e221a2f71800e67ade32` |
+
+Method `0x0001`, with the `exporter_secret`, `exporter_nonce` and PRK of A.3.2:
+
+| AEAD algorithm | L | C2S key | S2C key |
+|---|---|---|---|
+| AES-SIV-CMAC-256 (15) | 32 | `20ce9d781187cadb3131fb54e611d5720361c6568c465f9a7836070052a4fca6` | `34168036ba9d89f00e76ae45fe452299133fbe22cdba3b7da27b0d30ee589335` |
+| AES-128-GCM-SIV (30) | 16 | `79b0a7e1b3652d742ee0815aa0ce4243` | `a1a5dd3bcfa6967be84be3a642c2fc6f` |
+| AES-256-GCM-SIV (31) | 32 | `e4a61c99232b67a6bf99f460332e24a6220b8ad37e4d149fc9bbf5c70007dc40` | `ca73a3f8c6a8de86996751e60b75a8ec0fd5b969adaa9517957ca589e10e36ec` |
+
 
 ## Appendix B. Encoding Examples
 
@@ -502,7 +549,24 @@ This appendix is informative.
   exporter against A.3.1. A Norn client offers `0x0001` only
   where its SSH stack gives it the exporter. Behind the `ssh -s` of OpenSSH it offers `0x0002`
   alone. A Norn server selects `0x0001` only on connections of Hermod's SSH server. As of
-  2026-11-09: Norn 962d4c6, Hermod 57c6add.
+  2026-11-09: Norn 962d4c6, Hermod 57c6add. Since 2026-11-28 (Norn 16ad4d9) it also agrees to
+  NTPv5 in drafts, over SSH as over TLS, with the keys of Section 5.4.
+- **NTSConformanceTests** (<https://github.com/Vanaheimr/NTSConformanceTests>): recomputes the
+  vectors of Appendix A with a key derivation of its own, written from Section 5, and runs key
+  exchanges over SSH against Norn's server with method `0x0002`, for NTPv4 and NTPv5, with keys
+  it derives itself.
 
-Before the registration, Norn used the provisional value 16386 (`0x4002`) from the Private or
-Experimental Use range. Implementations of this document use only the value assigned by IANA.
+Before the registration, Norn uses the provisional value 19970 (`0x4E02`) from the Private or
+Experimental Use range. Until 2026-11-28 it used 16386 (`0x4002`), and gave it up when the first
+values of that range turned out to be the ones others take first: the drafts of NTPv5 send
+record `0x4001`, and drafts of the NTS pool used `0x4000` to `0x4005`. Implementations of this
+document use only the value assigned by IANA.
+
+
+## Appendix D. Changes
+
+- **1.1** (2026-11-28): the context of Section 5.1 carries the Protocol ID of the negotiated
+  next protocol, as Section 5.1 of [RFC8915] has it, instead of a fixed `0x0000`; for NTPv4 the
+  keys are those of 1.0. New Section 5.4 and Appendix A.4 for NTPv5. The provisional record type
+  of Appendix C is 19970.
+- **1.0** (2026-11-10): first version.
