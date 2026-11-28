@@ -41,7 +41,7 @@ The NTS-KE phase establishes a secure channel to derive cryptographic keys and p
 The client, an OCPP Charging Station or an OCPP Local Controller, initiates a TLS v1.3 connection to the NTS-KE server and ensures the server’s identity by validating its certificate, mitigating MITM risks. Which root certification authorities (root CAs) are used to validate the server certificate is a configuration option. For security reasons this should not be the entire World Wide Web root CA bundle used within web browsers.
 
 Then the client sends an NTS-KE request message, which includes:
-- The protocol it wants keys for, NTPv4 (NTS Next Protocol Negotiation).
+- The protocols it wants keys for, NTPv4 and, where it is configured to, NTPv5 (NTS Next Protocol Negotiation, `Versions`, section 3.2.4).
 - Supported cryptographic algorithms (e.g., AES-SIV-CMAC for message authentication).
 - Optionally the NTP server and port it would prefer (NTPv4 Server Negotiation and NTPv4 Port Negotiation, [RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915) §4.1.7 and §4.1.8).
 - Optional parameters, such as a request for an additional digital signed NTP response.
@@ -49,7 +49,7 @@ Then the client sends an NTS-KE request message, which includes:
 The NTS-KE request carries no nonce. Protection against replay belongs to the NTS-protected NTP phase, where every request carries a Unique Identifier extension field (RFC 8915 §5.3).
 
 #### Key Derivation
-A set of cryptographic keys for Client-to-Server (C2S) and Server-to-Client (S2C) encryption will be derived from the key material of the TLS connection and later be used to encrypt and authenticate the NTP communication via an [Authenticated Encryption with Associated Data (AEAD)](https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)) algorithm. This method is based on TLS 1.3 exporter mechanism, as defined in [RFC 8446](https://datatracker.ietf.org/doc/html/rfc8446), using `EXPORTER-network-time-security` as constant.
+A set of cryptographic keys for Client-to-Server (C2S) and Server-to-Client (S2C) encryption will be derived from the key material of the TLS connection and later be used to encrypt and authenticate the NTP communication via an [Authenticated Encryption with Associated Data (AEAD)](https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)) algorithm. This method is based on TLS 1.3 exporter mechanism, as defined in [RFC 8446](https://datatracker.ietf.org/doc/html/rfc8446), using `EXPORTER-network-time-security` as constant. The keys for NTPv5 are derived as those for NTPv4, with the Protocol ID `0` in the exporter context: the NTPv5 draft does not say otherwise, and chrony-ntp5, the implementation of one of its authors, derives them so.
 
 Some NTS-KE servers also support a non-standardized way to generate both keys at the server and include them in the NTS-KE response. Supporting this feature can be an option for TLS libraries that do not support the key-exporter functions.
 
@@ -57,6 +57,7 @@ Some NTS-KE servers also support a non-standardized way to generate both keys at
 #### NTS-KE Response:
 The server responds with:
 - Confirmation of the selected cryptographic algorithm.
+- The protocols the cookies may be used for, a subset of those the client asked for. Where these are several, the client chooses (section 3.2.4).
 - Multiple opaque NTS-KE cookies, which encapsulates server state as the NTS-KE server discards all state after the TLS session closes and all further communication
 relies purely on the client to store cookies containing key material or references to it.
 - The NTS client stores these cookies within a secure storage.
@@ -72,7 +73,7 @@ The NTS-protected NTP phase uses the keys and cookies obtained from NTS-KE to se
 #### NTS-Protected NTP Request
 
 The client sends an NTP packet to the specified NTP server, augmented with NTS extensions:
-- The packet includes a standard NTPv4 header with timestamp fields.
+- The packet includes a standard NTPv4 header with timestamp fields, or the NTPv5 header where NTPv5 was agreed on. The NTS extension fields are the same for both.
 - An unique identifier extensions to prevent replay attacks.
 - An NTS cookie, which allows the server to retrieve session state without maintaining per-client data.
 - An NTS authenticator extension, using the C2S key to compute a message authentication code (MAC) via authenticated encryption (e.g., AES-SIV-CMAC).
@@ -215,7 +216,7 @@ A CSMS that does not know this paper knows only the standard component `ClockCtr
 
 - `NtpServerUri[k]` is the k-th enabled client of the legal group, written as `nts://` and its `ServerURL`, followed by `:` and its `NTSKEServerPort` when that is not 4460. Up to nine clients are shown. When fewer than nine are enabled, the next instance is reported with an empty value, so that a CSMS sees where a server can be added.
 - Setting `[k]` of an existing client replaces its `ServerURL`, and its `NTSKEServerPort` when the value names a port. The client keeps its id, its `Priority`, its `RootCAs` and `RootPins`, `OnPinMismatch` and `TrustOnFirstUse`. It loses its `CertificatePins`, which name a certificate of the old server.
-- Setting the first empty instance adds an enabled client with that server, in mode `NTSv4`, with the default ports and with the `Priority` of the last client, so that it counts towards the same quorum. Setting an instance beyond it is `Rejected`.
+- Setting the first empty instance adds an enabled client with that server, in mode `NTS` with `Versions` `v4`, with the default ports and with the `Priority` of the last client, so that it counts towards the same quorum. Setting an instance beyond it is `Rejected`.
 - Setting `[k]` to `""` removes the k-th client; the clients behind it move up one position.
 - Values are host names, IP addresses, or `nts://` followed by one of them and an optional `:port`. `ntp://` and every other scheme are `Rejected` with `reasonCode` `InvalidValue`: the legal group must not use NTP without NTS (`Mode`, section 3.2.4).
 - Every change of `NtpServerUri` is applied on its own, so a CSMS can use `IndependentRequests`. A change is `Rejected` when it would leave fewer enabled clients than `MinServers`.
@@ -292,17 +293,18 @@ The *Instance* of the component is the client id (section 3.2). A client is one 
 | Variable Name     | req/opt  | Mutability | Data Type  | Default Value | Values List / Limits | Description | Reference Implementation |
 |-------------------|----------|------------|------------|---------------|----------------------|-------------|--------------------------|
 | Enabled           | optional | rw         | boolean    | true          | -                    | Whether the client is asked. A disabled client keeps its configuration. | `servers[n].enabled` |
-| ServerURL         | required | rw         | string     | ""            | ≤ 253 characters     | The server to ask, as a host name or an IP address, not a URL. In mode *NTSv4* this is the NTS-KE server, unless *NTSKEServerURL* names another one. The NTP server is then the one the NTS-KE response names (NTPv4 Server Negotiation, RFC 8915 §4.1.7), or the address of the NTS-KE server when the response names none. In modes *NTPv4* and *NTPv4TLS* it is the NTP server. May depend on the device’s country or location. | `servers[n].hostname`, the NTS-KE server |
-| ServerPort        | optional | rw         | integer    | 123           | 1 … 65535            | The NTP port. In mode *NTSv4* the port the NTS-KE response names (NTPv4 Port Negotiation, RFC 8915 §4.1.8) takes precedence, and this value is only what the client asks for. | `servers[n].ntpPort` |
-| Mode              | optional | rw         | OptionList | `NTSv4`       | `NTPv4`, `NTSv4`, `NTPv4TLS` | `NTSv4`: NTS ([RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915)). `NTPv4TLS`: NTP over TLS to a smart meter gateway (section 6). `NTPv4`: NTP without any authentication. Clients of the legal group MUST NOT use `NTPv4`; other clients should not, unless further security measures protect it. The `valuesList` shall list only what the charging station supports. | `NTSv4` only |
+| ServerURL         | required | rw         | string     | ""            | ≤ 253 characters     | The server to ask, as a host name or an IP address, not a URL. In mode *NTS* this is the NTS-KE server, unless *NTSKEServerURL* names another one. The NTP server is then the one the NTS-KE response names (NTPv4 Server Negotiation, RFC 8915 §4.1.7), or the address of the NTS-KE server when the response names none. In modes *NTP* and *NTPTLS* it is the NTP server. May depend on the device’s country or location. | `servers[n].hostname`, the NTS-KE server |
+| ServerPort        | optional | rw         | integer    | 123           | 1 … 65535            | The NTP port. In mode *NTS* the port the NTS-KE response names (NTPv4 Port Negotiation, RFC 8915 §4.1.8) takes precedence, and this value is only what the client asks for. | `servers[n].ntpPort` |
+| Mode              | optional | rw         | OptionList | `NTS`         | `NTP`, `NTS`, `NTPTLS` | How the time is protected. `NTS`: NTS ([RFC 8915](https://datatracker.ietf.org/doc/html/rfc8915)). `NTPTLS`: NTP over TLS to a smart meter gateway (section 6). `NTP`: NTP without any authentication. Clients of the legal group MUST NOT use `NTP`; other clients should not, unless further security measures protect it. Which version of NTP is spoken is `Versions`. The `valuesList` shall list only what the charging station supports. | `NTS` only (*not implemented yet*: it still takes `NTSv4`, the value of earlier versions of this paper) |
+| Versions          | optional | rw         | SequenceList | `v4`        | `v5`, `v4`           | The versions of NTP the client may speak with this server, the preferred one first (see *NTP versions* below). In mode `NTS` they are the next protocols of the NTS-KE request. In mode `NTPTLS` only `v4` is accepted. | *not implemented yet*: `v4`; Norn, the client, speaks both (`AdvertiseNTPv5`) |
 | Priority          | optional | rw         | integer    | 0             | 0 … 255              | Clients with lower values are asked first. Clients with the same value are asked in parallel, and their answers must reach the quorum of the group on their own (section 3.2.3). | `servers[n].priority` |
 | DelayAsymmetry    | optional | rw         | decimal    | 0             | -                    | A correction applied to the offsets measured with this server, to compensate known stable asymmetries in network or processing delays. For example, if packets sent to the server were on average delayed by 100 microseconds more than packets sent back, the correction would be -0.05 (-50 microseconds). It is chrony's `offset`. Unit: `ms`. | `servers[n].delayAsymmetryMs`, at most 1000 either way |
 | DelayVarAsymmetry | optional | rw         | decimal    | 0             | -0.5 … 0.5           | Where a measurement whose delay is longer than the shortest of the last ones was held up: -0.5 all on the way to the server, +0.5 all on the way back, 0 half each, as the offset assumes. The offset is corrected by this value times the hold-up, the delay minus that shortest delay: a hold-up all on the way there made the offset too large by half of it. It is chrony's `asymmetry`. Use it only where the network is known to be asymmetric in this way. | `servers[n].delayVarAsymmetry`; the shortest of the last 16 delays of the server |
-| NTSKEServerURL    | optional | rw         | string     | ""            | ≤ 253 characters     | An NTS-KE server other than *ServerURL*, as a host name or an IP address. When it is set in mode *NTSv4*, the client asks this server for the keys and cookies, and asks for *ServerURL* as its NTP server (NTPv4 Server Negotiation in the request). The NTP server it then uses is still the one the NTS-KE response names, or the address of this NTS-KE server when the response names none (RFC 8915 §4.1.7). When it is empty, *ServerURL* is the NTS-KE server. | `servers[n].ntsKEHostname`; the request carries an NTPv4 Server Negotiation record naming `hostname`, over TLS and over SSH |
+| NTSKEServerURL    | optional | rw         | string     | ""            | ≤ 253 characters     | An NTS-KE server other than *ServerURL*, as a host name or an IP address. When it is set in mode *NTS*, the client asks this server for the keys and cookies, and asks for *ServerURL* as its NTP server (NTPv4 Server Negotiation in the request). The NTP server it then uses is still the one the NTS-KE response names, or the address of this NTS-KE server when the response names none (RFC 8915 §4.1.7). When it is empty, *ServerURL* is the NTS-KE server. | `servers[n].ntsKEHostname`; the request carries an NTPv4 Server Negotiation record naming `hostname`, over TLS and over SSH |
 | NTSKEServerPort   | optional | rw         | integer    | 4460          | 1 … 65535            | The NTS-KE port. | `servers[n].ntsKEPort` |
 | RootCAs           | optional | rw         | string     | ""            | ≤ 50 characters      | The `certificateGroup` of `NetworkTimeRootCertificate` root CAs (section 3.2.5) the certificate of the NTS-KE or NTP-over-TLS server must chain to. When it is not set, every `NetworkTimeRootCertificate` root CA may vouch for the server, and when there are none, the root CAs of the system (not recommended). | `servers[n].rootGroup`: the server is anchored at the roots of the store marked `ntsca-<group>` alone; a group has up to 24 letters, digits, '-' or '_' |
-| CertificatePins   | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints (64 hexadecimal digits, with or without colons) of the certificates the server may show. Only for *NTSv4* and *NTPv4TLS*. | `servers[n].certificates` |
-| RootPins          | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the root CA certificates the server's chain may end at. Only for *NTSv4* and *NTPv4TLS*. | `servers[n].roots` |
+| CertificatePins   | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints (64 hexadecimal digits, with or without colons) of the certificates the server may show. Only for *NTS* and *NTPTLS*. | `servers[n].certificates` |
+| RootPins          | optional | rw         | string     | ""            | comma separated, ≤ 16 | SHA-256 fingerprints of the root CA certificates the server's chain may end at. Only for *NTS* and *NTPTLS*. | `servers[n].roots` |
 | OnPinMismatch     | optional | rw         | OptionList | `Refuse`      | `Refuse`, `Record`, `Accept` | What a pin mismatch leads to. `Refuse`: the server is not used. `Record`: it is used, and the mismatch is entered in the secure metrological log as evidence. `Accept`: it is used, and the mismatch is entered in the log of the group. | `servers[n].onMismatch`; every mismatch of a time server is entered in the metrological log |
 | TrustOnFirstUse   | optional | rw         | OptionList | `None`        | `None`, `Root`, `Certificate` | Whether the client learns a root pin or a certificate pin from the first certificate the server is believed with. When a pin of that kind is set already, nothing is learned. | `servers[n].trustOnFirstUse` |
 | NoCertTimeCheckAfterReboot | optional | rw | boolean  | false         | -                    | Whether the *notBefore* and *notAfter* checks of NTS-KE and NTP-over-TLS server certificates can be skipped for the first time sync request per server immediately after a reboot, as the device might have started with a wrong internal time, e.g. due to not having an RTC or backup battery. | *not implemented* |
@@ -314,8 +316,16 @@ The *Instance* of the component is the client id (section 3.2). A client is one 
 | CertificateFingerprint | optional | ro    | string     | ""            | -                    | The SHA-256 fingerprint of the certificate the server showed at its last NTS-KE handshake. | last key exchange |
 | LastKeyExchange   | optional | ro         | dateTime   | -             | -                    | When the last NTS-KE handshake with this server succeeded. | last key exchange |
 | Cookies           | optional | ro         | integer    | 0             | -                    | The number of unused NTS cookies the client holds for this server. | `cookies` |
+| NegotiatedVersion | optional | ro         | string     | ""            | `v5`, `v4` or empty  | The version of NTP the client spoke with this server at its last exchange that got an answer. Empty before the first one. Can be monitored. | *not implemented yet* |
 
 In earlier versions of this paper, `MinInterval`, `MaxInterval`, `Preflight` and `ErrorLogging` were variables of each client. A quorum needs the clients of a group to be asked in the same round, so they are variables of the group now (section 3.2.3).
+
+**NTP versions.** `Versions` is a `SequenceList`: unlike the lists of section 3.2, its values are those of its `valuesList`, and their order is a preference. The client never speaks a later version of it where an earlier one is to be had.
+- In mode `NTS` the client sends one NTS-KE request whose NTS Next Protocol Negotiation record lists the versions in the order of `Versions`: `0x8001` for `v5` (the value of the drafts) and `0` for `v4`. The server answers with those it issues cookies for, a subset of them (RFC 8915 §4.1.2), and the client speaks the first version of `Versions` among them. When the server agrees to none, the key exchange has failed (stage `KeyExchange`, section 3.2.7). The NTS-KE runs over TLS, so its answer is authenticated: a server that agrees to `v4` only has decided so, and nobody on the way can have decided it for it.
+- In mode `NTP`, `v4` makes the client speak NTPv4, and `v5` NTPv5. `v5, v4` makes it ask in NTPv4, offer NTPv5 as section 12 of the draft describes it, and change to NTPv5 once the server answers that it speaks it; when NTPv5 then gets no answers, it goes back to NTPv4. Anybody on the way can remove the offer, so in this mode the version is protected no better than the time.
+- NTPv5 is an Internet-Draft ([draft-ietf-ntp-ntpv5](https://datatracker.ietf.org/doc/draft-ietf-ntp-ntpv5/)). Which draft a client implements is a property of its firmware, not of its configuration: a server that implements another draft does not answer it (section 7.1 of the draft), and the client counts it as a server that did not answer. Over NTS the draft is known before that: the client names its draft in the NTS-KE request (record type `0x4001`, section 11 of the draft), and the server agrees to `0x8001` only for a draft it implements. As long as NTPv5 is not an RFC, `v5` is meant for trials with servers known to implement the same draft.
+
+In earlier versions of this paper `Mode` took `NTPv4`, `NTSv4` and `NTPv4TLS`, and so named the version of NTP together with the protection, as did `ntp.<group>.mode` of section 3.3. A list of such values would have let a client fall back from NTS to NTP without any authentication, which an attacker can bring about by blocking the NTS-KE port. The two are separate now: `Mode` is the protection and `Versions` the version, and no value of `Versions` changes the protection. The old values are no longer accepted.
 
 **Pins.** `CertificatePins` and `RootPins` narrow what `RootCAs` allows and never widen it. When *trust on first use* learns a pin, the value of `CertificatePins` or `RootPins` changes without a request of the CSMS; a CSMS that wants to know sets a `Delta` monitor on them. Pins, `OnPinMismatch` and `TrustOnFirstUse` mean the same as for name servers in the [Secure Name Resolution](../SecureDNS/README.md) white paper (section 2.3). As there, a fingerprint is the SHA-256 hash of the whole certificate, not of its public key.
 
@@ -476,7 +486,7 @@ Rounds come when they are due (section 3.2.3), and the read-only variables of se
 |requestId|M|integer|Number *(Integer)*|Chosen by the CSMS. The *NotifyNetworkTimeResultRequest* carries it.|
 |client|M|string[50]|String|The client to test: an instance of `NTPClientController`.|
 
-- The charging station asks the client what a round would ask it, with the settings of the client (`Mode`, ports, `NTSKEServerURL`, `RootCAs`, pins, `AEADAlgorithm`) and the `Timeout` of its group, and reports every step as it happened: name resolution, connection, server authentication, key exchange and time request. A server that fails does so at one of these, and which one is the whole of what somebody needs to know.
+- The charging station asks the client what a round would ask it, with the settings of the client (`Mode`, `Versions`, ports, `NTSKEServerURL`, `RootCAs`, pins, `AEADAlgorithm`) and the `Timeout` of its group, and reports every step as it happened: name resolution, connection, server authentication, key exchange and time request. A server that fails does so at one of these, and which one is the whole of what somebody needs to know.
 - Only clients of the charging station can be tested: a mistyped name would otherwise be a key exchange with whoever answers to it. A server that is to be added is added as a disabled client first (section 3.2.5), and tested before it is enabled: disabled clients are tested as well. A client of a disabled group is not. A group that is switched off asks nobody, not even for a test, so that switching it off is a promise that nothing goes out on its behalf.
 - A test is no round. `LastCheck`, `LastOffset`, `ErrorsInARow`, `Limited` and `LegalTime` stay as they are, no `SettingSystemTime` is reported, and the clock is neither set nor verified by it.
 - Its key exchange is one of the client, though: the certificate is judged and pins are learned on first use as at any other key exchange, and a refusal is reported as there (sections 3.2.4 and 3.2.6). The charging station MAY keep the cookies it obtains for the client; `LastKeyExchange`, `CertificateFingerprint` and `Cookies` then show them.
@@ -568,12 +578,12 @@ Durations and offsets are decimal seconds, as the variables of section 3.2.3. An
 |-------|-------------------|
 | `Configuration` | the settings of the client: what is asked, where, on which ports |
 | `NameResolution` | the name of the server and the addresses it resolves to |
-| `Connection` | the TCP connection to the NTS-KE or NTP-over-TLS server, or the SSH connection in mode `NTSv4SSH` ([NTS-KE over SSH](../NTS-over-SSH/README.md)) |
+| `Connection` | the TCP connection to the NTS-KE or NTP-over-TLS server, or the SSH connection in mode `NTSSSH` ([NTS-KE over SSH](../NTS-over-SSH/README.md)) |
 | `ServerAuthentication` | the TLS handshake, the certificate chain, `RootCAs` and pins, or the SSH host key |
 | `KeyExchange` | the NTS-KE records: AEAD algorithm, cookies, and the NTP server and port they name |
 | `TimeRequest` | the (NTS-protected) NTP request and its answer |
 
-A client in mode `NTPv4` has no steps of the stages `Connection` to `KeyExchange`.
+A client in mode `NTP` has no steps of the stages `Connection` to `KeyExchange`.
 
 **Example.** A CSMS asks the legal group, and one of its three servers does not answer:
 
@@ -644,7 +654,7 @@ The following tables map the configuration of section 3.2 onto OCPP v1.6+SE conf
 
 If a CSL (comma separated list) configuration setting is shorter than expected, e.g. the `ntp.legal.ports` list is shorter than the `ntp.legal.servers` list, the last value in the list is applied to all remaining items (here: servers). Empty entries are filled with the previous value, starting from the default value. Lists that are longer than expected will result in an error.
 
-Servers and ports mean what they mean in section 3.2.4. In mode *NTSv4* the NTS-KE servers are those of `ntske.<group>.servers`, or those of `ntp.<group>.servers` when it is empty. The NTP server finally used is the one the NTS-KE response names.
+Servers and ports mean what they mean in section 3.2.4. In mode *NTS* the NTS-KE servers are those of `ntske.<group>.servers`, or those of `ntp.<group>.servers` when it is empty. The NTP server finally used is the one the NTS-KE response names.
 
 A *ChangeConfiguration.req* changes one key at a time, so changes cannot be bundled as with `ACID` (section 3.2.5). A charging station SHALL therefore validate each key against the configuration as it would be after the change, and SHALL answer `Rejected` when the result would be inconsistent, e.g. fewer servers than `ntp.legal.minServers`. A CSMS has to change keys in an admissible order: add servers before it raises `minServers`, and lower `minServers` before it removes servers. In OCPP v1.6 `Rejected` carries no reason. The logging rules of section 3 apply unchanged: every change of a key of the legal group is an entry in the secure metrological log.
 
@@ -652,7 +662,8 @@ A *ChangeConfiguration.req* changes one key at a time, so changes cannot be bund
 - The keys of this section are answered from the node's groups, and a change of one is made as the OCPP v2.x variables it stands for are changed, with the same checks and the same log entry. A list is per server, in the order of the configuration.
 - New servers in `ntp.<group>.servers` take the settings of the last server, but none of its pins.
 - As the node checks at one interval, `minInterval` and `maxInterval` each set it.
-- `mode` takes `NTSv4`, and `NTSv4SSH` of [NTS Key Establishment over SSH](../NTS-over-SSH/README.md), whose section 7.1 makes it a list per server and adds the keys of SSH.
+- `mode` takes `NTS`, and `NTSSSH` of [NTS Key Establishment over SSH](../NTS-over-SSH/README.md), whose section 7.1 makes it a list per server and adds the keys of SSH (*not implemented yet*: it still takes `NTSv4` and `NTSv4SSH`, the values of earlier versions of this paper).
+- *Not implemented yet* are `ntp.<group>.versions` and `ntp.<group>.negotiatedVersion`: every server is asked in NTPv4.
 - `ntp.timeAdjustmentReportingThreshold` is `ClockCtrlr.TimeAdjustmentReportingThreshold`, the threshold of the legal group; an empty value reports no offset.
 - `ntske.<group>.aead` is a list like the others, except that an empty entry is a server that offers both algorithms, not the one before it.
 - Not implemented are `ntp.reboot.*`. `ntp.<group>.signedResponses` is the group's: `true` where every client of the group asks, and set on every one.
@@ -675,7 +686,9 @@ The global key `ntp.enabled` of earlier versions of this paper is replaced by `n
 | ntp.legal.enabled | required | rw          | Boolean    | true          | -              | Whether the legal group is asked. See `NTPClientGroupController.Enabled`. |
 | ntp.legal.servers | optional | rw          | CSL String | ""            | "ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de" | The legally recognized time servers, which may vary depending on the device’s country or location. See `NTPClientController.ServerURL`. |
 | ntp.legal.ports   | optional | rw          | CSL String | "123"         | "123, 125"     | The NTP ports, per server. |
-| ntp.legal.mode    | required | rw          | String     | "NTSv4"       | -              | `NTSv4` or `NTPv4TLS`. `NTPv4` MUST NOT be used for the legal group. See `NTPClientController.Mode`. |
+| ntp.legal.mode    | required | rw          | String     | "NTS"         | -              | `NTS` or `NTPTLS`. `NTP` MUST NOT be used for the legal group. See `NTPClientController.Mode`. |
+| ntp.legal.versions | optional | rw         | CSL String | "v4"          | "v5 v4, v4"    | The versions of NTP, per server; within the entry of a server separated by spaces, the preferred one first: `v5`, `v4`. In the example the first server is offered NTPv5 and NTPv4, the others NTPv4 only. See `NTPClientController.Versions`. |
+| ntp.legal.negotiatedVersion | optional | r | CSL String | ""            | "v5, v4, v4"   | The version of NTP each server was spoken with at its last exchange that got an answer, per server; empty for a server not answered yet. See `NTPClientController.NegotiatedVersion`. |
 | ntp.legal.priority | optional | rw         | CSL String | "0"           | "0, 0, 10"     | The priority, per server: servers with lower values are asked first, servers with the same value in parallel (section 3.2.3). |
 | ntp.legal.delayAsym | optional | rw        | CSL String | "0"           | "0, -0.05"     | The delay asymmetry correction, per server, in milliseconds. See `NTPClientController.DelayAsymmetry`. |
 | ntp.legal.delayVarAsym | optional | rw     | CSL String | "0"           | "+0.5, 0, -0.5" | See `NTPClientController.DelayVarAsymmetry`, per server. |
@@ -690,7 +703,7 @@ The global key `ntp.enabled` of earlier versions of this paper is replaced by `n
 | ntp.legal.authority | optional | rw        | String     | ""            | "PTB"          | Who stands behind the time of the legal group. Without it the time is not legal time. See `NTPClientGroupController.LegalTimeAuthority`. |
 | ntp.legal.tolerance | optional | rw        | Decimal    | 1             | 0.5            | How far the station's own clock may be from the time of the legal group and still be legal time, in seconds. See `NTPClientGroupController.LegalTimeTolerance`. |
 | ntp.legal.maxAge  | optional | rw          | Integer    | 3600          | 3600           | How old the last round that produced a time may be and still be legal time, in seconds. See `NTPClientGroupController.LegalTimeMaxAge`. |
-| ntske.legal.servers | optional | rw        | CSL String | ""            | "ntske1.example.org, ntske2.example.org" | The NTS-KE servers, per server. When empty and the mode is NTSv4, the servers of `ntp.legal.servers` are used. See `NTPClientController.NTSKEServerURL`. |
+| ntske.legal.servers | optional | rw        | CSL String | ""            | "ntske1.example.org, ntske2.example.org" | The NTS-KE servers, per server. When empty and the mode is NTS, the servers of `ntp.legal.servers` are used. See `NTPClientController.NTSKEServerURL`. |
 | ntske.legal.ports | optional | rw          | CSL String | "4460"        | "4460, 4461"   | The NTS-KE ports, per server. |
 | ntp.legal.rootCAs | optional | rw          | CSL String | ""            | "legalTimeCA1, legalTimeCA1, legalTimeCA2" | The `certificateGroup` of `NetworkTimeRootCertificate` root CAs, per server. In the example the first two servers must chain to `legalTimeCA1`, the third to `legalTimeCA2`. When not set, every `NetworkTimeRootCertificate` root CA may vouch for the server, and when there are none, the root CAs of the system *(not recommended)*! |
 | ntske.legal.certificatePins.*n* | optional | rw | CSL String | "" | "41C7…3F61"  | The certificate pins of the *n*-th server, numbered from 1 in the order of `ntp.legal.servers`. See `NTPClientController.CertificatePins`. |
@@ -713,7 +726,7 @@ The local group uses the keys of section 3.3.2 with `local` in place of `legal`,
 |---------------|----------|---------------|------------|---------------|----------------|-------------|
 | ntp.local.enabled | required | rw          | Boolean    | false         | -              | Whether the local group is asked. |
 | ntp.local.servers | optional | rw          | CSL String | ""            | "lc1.local, lc2.local" | Local time servers, e.g. running on OCPP Local Controllers, that shall be used as a shared local time source for use cases like *local load management*, for which having a consistent local time across devices is more important than having legal time accuracy. |
-| ntp.local.mode    | required | rw          | String     | "NTSv4"       | -              | `NTSv4`, `NTPv4TLS` or `NTPv4`. `NTPv4` should not be used unless further security measures protect it. |
+| ntp.local.mode    | required | rw          | String     | "NTS"         | -              | `NTS`, `NTPTLS` or `NTP`. `NTP` should not be used unless further security measures protect it. |
 | ntp.local.maxInterval | optional | rw      | Integer    | 3600          | 60             | The longest time between two rounds, in seconds. |
 | ntp.local.errorLogging | optional | rw     | Integer    | 5             | 10             | The number of consecutive failed rounds that leads to an entry in the security log. When a round produces a time again, another entry is added. |
 | ntp.local.maxErrors | optional | rw        | Integer    | 50            | 100            | The number of consecutive failed rounds that leads to a stop of the load management feature and an entry in the security log. When a round produces a time again, another entry is added. |
@@ -724,7 +737,7 @@ The local group uses the keys of section 3.3.2 with `local` in place of `legal`,
 ```
 ntp.legal.enabled     =  true
 ntp.legal.servers     = "ptbtime1.ptb.de, ptbtime2.ptb.de, ptbtime3.ptb.de"
-ntp.legal.mode        = "NTSv4"
+ntp.legal.mode        = "NTS"
 ntp.legal.rootCAs     = "legalTimeCA"
 ntp.legal.minServers  =  2
 ntp.legal.authority   = "PTB"
@@ -880,7 +893,7 @@ Nevertheless, detailed technical recommendations for securing this communication
 
 ## 6. NTP-over-TLS
 
-Chapter 7 of the [Technical Guideline (BSI TR-03109-5)](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11) of the German [Federal Office for Information Security](https://www.bsi.bund.de) describes how NTPv4 can be used in a proprietary ***NTP-over-TLS*** mode. Hereby the NTP client sends a normal NTPv4 request, but instead of using UDP transport it is sent within a TLS connection.
+Chapter 7 of the [Technical Guideline (BSI TR-03109-5)](https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03109/TR-03109-5_Detailspezifikationen.pdf?__blob=publicationFile&v=11) of the German [Federal Office for Information Security](https://www.bsi.bund.de) describes how NTPv4 can be used in a proprietary ***NTP-over-TLS*** mode. Hereby the NTP client sends a normal NTPv4 request, but instead of using UDP transport it is sent within a TLS connection. There is no NTP-over-TLS for NTPv5, so a client in mode `NTPTLS` takes `Versions` `v4` only (section 3.2.4).
 
 - TLS-Port: 443 or other
 - The SMGW uses a TLS certificate using the X.509 v3 Extended Key Usage: [Time Stamping (OID 1.3.6.1.5.5.7.3.8)](https://oidref.com/1.3.6.1.5.5.7.3.8)
@@ -923,7 +936,7 @@ national solution for Germany.
 - [Critical Legal Time Services](../CriticalLegalTimeServices/README.md): the rationale of this paper. It explains why legal time must fail closed, why several servers must agree, and what a provider of legal time should publish for its clients: a signed policy, DNS records and a status API. Its `quorum.clients` corresponds to `MinServers` and `MaxDeviation` of the NTP Client Group Controller, and its managed networks (section 4.2) are the environment in which the configuration of this paper is communicated via OCPP.
 - [Secure Name Resolution for OCPP](../SecureDNS/README.md): NTS-KE servers are found by name, so time synchronization is only as trustworthy as name resolution. Its components are named alike, and pins, `OnPinMismatch` and trust on first use mean the same there.
 - [Safe & Secure Device Model Updates](../SafeAndSecureDeviceModelUpdates/README.md): the `ACID` and `BASE` *DataConsistencyModel* and the conditional updates used in section 3.2.5.
-- [NTS Key Establishment over SSH](../NTS-over-SSH/README.md) (draft): NTS-KE as an SSH subsystem for managed networks without an X.509 PKI of their own. It keeps the NTS-protected NTP of section 2.2 unchanged and proposes a mode `NTSv4SSH` for the NTP Client Controller of section 3.2.4.
+- [NTS Key Establishment over SSH](../NTS-over-SSH/README.md) (draft): NTS-KE as an SSH subsystem for managed networks without an X.509 PKI of their own. It keeps the NTS-protected NTP of section 2.2 unchanged and proposes a mode `NTSSSH` for the NTP Client Controller of section 3.2.4.
 - [Advanced Diagnostics for OCPP](../AdvancedDiagnostics/README.md): its diagnostic tool *TestNetworkTimeSecure* is the pair of requests of section 3.2.7, and its diagnostic agents are among those who send them.
 - [Signed OCPP Messages](../SignedMessages/README.md): who may send the requests of section 3.2.7, under the permission `nts:run`.
 
