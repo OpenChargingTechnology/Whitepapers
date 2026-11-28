@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.9 (2026-11-28)
+**Version:** 0.10 (2026-11-28)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -100,7 +100,7 @@ No third-party stack has the complete chain, and none has the ISO 15118-20 confi
 Three observations:
 
 - **Everyone has a different half.** Josev verifies a receipt for a record it never sends itself. EVerest's old module sends the record and drops the receipt into an empty function, which we measured on the wire.
-- **Nobody but us sends the meter's signature.** And ours is a simulator convention (`"V2G-METER-1"`, protocol byte, SessionID, MeterID, reading, time), not a legal-metrology format.
+- **Nobody but us sends the meter's signature.** And ours is a simulator convention (`"V2G-METER-1"`, protocol byte, SessionID, MeterID, reading, time), not a legal-metrology format. A bidirectional meter signs `"V2G-METER-2"`, which adds the discharged register.
 - **ISO 15118-20 is almost empty.** Only Josev and we answer the vehicle's request, Josev with a fixed simulator value. EVerest reads `MeterInfoRequested` and answers byte-identically whether asked or not (control run of 10 August 2026). Release 2026.10.0 still sets the element in none of its -20 charge-loop states.
 
 Our own stack already has two building blocks for what follows: `SigningMeter` on the station side, and `EvMeter`, a counter of the vehicle's own that is never fed from the station's answer.
@@ -204,7 +204,16 @@ ISO 15118-20 already separates the directions: `MeterInfo` has `ChargedEnergyRea
 
 So Chargy in the Vehicle treats a bidirectional session as two measurements with opposite roles. The charging report states both directions separately, each with its own comparison, and for the discharge direction it is the seller's delivery note. A vehicle owner who sells energy without one is trusting the customer's scale.
 
-**Where our prototype stands.** All three of our stack's vehicles negotiate the bidirectional services, AC and DC. The C# one has done so for some time; the Kotlin and Swift ones have since 28 November 2026, held by recorded sessions. But in every one of those sessions the energy still flows into the vehicle. Our station never asks for a discharge and never reports `BPT_DischargedEnergyReadingWh`. So the discharge direction this section is about has not run in our stack yet, and its comparison is untested.
+**Where our prototype stands.** Since 28 November 2026 energy flows back in our stack. All three of its vehicles, C#, Kotlin and Swift, negotiate the bidirectional services, AC and DC. In Dynamic mode our station now discharges them:
+- **DC:** the station serves the current, and sends it negative (−100 A in the recording).
+- **AC:** the station asks with a negative target power (−11 kW). The vehicle follows from the next charge loop on, as `[V2G20-1825]` requires, and reports the power it gives back.
+
+The station's meter keeps the two directions in two registers. In a bidirectional session it signs both together, so the discharged figure is as signed as the charged one, and a reading with it stripped no longer verifies. Two recorded sessions hold this, one DC and one AC. In both, every vehicle's own count equals charged minus discharged, so the comparison this section asks for runs in both directions.
+
+Three things are still open:
+- **Scheduled mode,** where the vehicle names the setpoint and the station would offer a discharging schedule.
+- **A second stack.** None has discharged against ours yet.
+- **The vehicle's Transparency view.** It still sets its count against the charged register alone, so in a discharge session it would show a difference where there is none.
 
 ## 8. Comparing against the battery system
 
@@ -582,6 +591,7 @@ Sorted by usefulness, the obvious ones first.
 - How does the report reach the operator when OCPP has no field for it: as an extension, or past the station's backend?
 - How large is the auxiliary consumption really? There is no citable source, so it takes measurement series of our own.
 - Which octets does the signature of a `MeteringConfirmationReq` cover, and which curve do contract certificates carry in practice? The prototype had to choose both (Section 11.6). Only a second implementation can confirm the choice.
+- Are the discharge *limits* signed negative? `[V2G20-1213]` reads as if every parameter used for discharging is, limits included. Our stack and eVDriveFlow's vehicle send the limits as positive magnitudes, and EVerest accepts ours, while the flows are negative as required. So the prototype kept that practice.
 
 ### 13.2 Next steps
 
@@ -592,7 +602,9 @@ Sorted by usefulness, the obvious ones first.
 - [x] Our station refuses a confirmation whose contract chain it rejected
 - [x] An ISO 15118-2 receipt asked for without a `MeterInfo`: signed over the last one by the C#, Kotlin and Swift vehicles, recorded with and without a signing meter
 - [x] Bidirectional sessions negotiated by the C#, Kotlin and Swift vehicles, AC and DC, recorded
-- [ ] A session in which energy actually flows back, with `BPT_DischargedEnergyReadingWh` signed by the meter, so that the discharge comparison of Section 7 can run
+- [x] A session in which energy actually flows back, with `BPT_DischargedEnergyReadingWh` signed by the meter, so that the discharge comparison of Section 7 can run (DC and AC, Dynamic mode)
+- [ ] The vehicle's Transparency view in a bidirectional session: set the vehicle's count against charged minus discharged, not the charged register alone
+- [ ] Discharge against a second stack, and in Scheduled mode with a discharging schedule
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
@@ -614,6 +626,7 @@ Own material:
 - The recorded session, [EVSimulatorApp#46](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/46) and [ISO15118ConformanceTests#167](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/167), and the Kotlin and Swift vehicles, [EVSimulatorApp#47](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/47), merged on 27 November 2026
 - The ISO 15118-2 receipt without a record: the Kotlin and Swift vehicles, [EVSimulatorApp#50](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/50); the station's switch at a metered station, [WWCP\_ISO15118#59](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/59); the two recorded sessions, [EVSimulatorApp#52](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/52), [ISO15118ConformanceTests#177](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/177) and [#178](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/178), merged on 28 November 2026
 - Bidirectional sessions in the Kotlin and Swift vehicles: [EVSimulatorApp#67](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/67) and the recorder, [ISO15118ConformanceTests#179](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/179), merged on 28 November 2026
+- Energy that flows back, with a meter that signs both registers: [WWCP\_ISO15118#60](https://github.com/OpenChargingCloud/WWCP_ISO15118/pull/60), [EVSimulatorApp#77](https://github.com/OpenChargingCloud/EVSimulatorApp/pull/77) and [ISO15118ConformanceTests#180](https://github.com/OpenChargingCloud/ISO15118ConformanceTests/pull/180), merged on 28 November 2026
 
 Read on the web on 26 November 2026:
 
