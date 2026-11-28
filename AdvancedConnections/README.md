@@ -13,4 +13,5 @@ Resilient and high-available connections are established through redundant endpo
   - Server public keys for security
   - Information how many concurrent connections are allowed for connection pooling
 - Concurrent Connection Pools
+  - Over SSH: channels of one connection per login, or a connection per channel (see [EVQI Transport](../EVQITransport/README.md), section 4.9)
   - Shall some connections be dedicated to certain protocol functions, e.g. RFID Auth/RemoteStarts within EV roaming over a dedicated connection pool for lowest latency and to avoid head-of-the-line blockings?

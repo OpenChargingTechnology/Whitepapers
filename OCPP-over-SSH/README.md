@@ -622,7 +622,9 @@ a probation ran out, the station closes the SSH connection itself.
   [SFTP for Logfile Uploads and Firmware Downloads](../SFTP-FileTransfers/README.md).
 - **EVQI channels.** [EVQI Transport](../EVQITransport/README.md) runs further OCPP channels
   (bulk, privileged, …) as further WebSocket connections or HTTP/2 and HTTP/3 streams. Over SSH
-  they would be further channels of the same subsystem; the HELLO would carry the channel's class.
+  they are further channels of the same subsystem, of this connection or of one of their own, and
+  the HELLO carries the channel's class: SSH as the fourth binding of EVQI's channel sessions, in
+  that paper's section 4.9.
 
 ### 7.3 The component `SSHPeerController`
 

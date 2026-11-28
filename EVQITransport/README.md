@@ -1,6 +1,6 @@
 # EVQI Transport: Multi-Channel Communication between Charging Stations and CSMS
 
-**Version 0.2, Draft**, 2026-11-10
+**Version 0.3, Draft**, 2026-11-28
 [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) · [OpenChargingTechnology/Whitepapers](https://github.com/OpenChargingTechnology/Whitepapers) · reference implementations: [Vanaheimr/Hermod](https://github.com/Vanaheimr/Hermod) (transport), [OpenChargingCloud/WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) (OCPP), [OpenChargingCloud/ChargingStation](https://github.com/OpenChargingCloud/ChargingStation) (station)
 
 This document describes the transport layer of
@@ -59,29 +59,34 @@ specification admits as much: frequent large SEND messages "may cause a delay fo
 
 **The proposal.** A *channel session* (`IChannelSession`) bundles several named *channels*
 (`IChannel`) between one charging station and one CSMS. Every channel is a complete OCPP-J
-WebSocket (RFC 6455 framing) with its own priority and its own CALL slot. It runs over one of
-three bindings:
+connection with its own priority and its own CALL slot: a WebSocket (RFC 6455 framing) over the
+three HTTP bindings, a message channel of [OCPP over SSH](../OCPP-over-SSH/README.md) over the
+fourth:
 
 | Binding | A channel is | Transport connections per station |
 |---|---|---|
 | **HTTP/1.x** | its own TCP+TLS connection (RFC 6455) | one per channel |
 | **HTTP/2** | its own stream via Extended CONNECT (RFC 8441) | one per role/certificate domain |
 | **HTTP/3** | its own QUIC stream via Extended CONNECT (RFC 9220) | one per role/certificate domain |
+| **SSH** | its own channel with the subsystem `ocpp@open.charging.cloud` (RFC 4254, §6.5) | one per login (key or certificate); optionally one per channel (section 4.9) |
 
 **WebTransport** is treated as a separate research track (chapter 3): structurally the best fit,
 but still a draft and not OCPP-J compatible.
 
 **The load-bearing decisions:**
 
-1. **The control channel is today's OCPP-J WebSocket, unchanged.** Everything else is used only
-   after a capability negotiation, which keeps the system fully backward compatible.
+1. **The control channel is today's OCPP connection, unchanged:** the OCPP-J WebSocket, or the
+   OCPP channel of a station that speaks OCPP over SSH. Everything else is used only after a
+   capability negotiation, which keeps the system fully backward compatible.
 2. **The synchronicity rule is per connection** (Part 4, §4.1.1: "this rule is per OCPP-J
    connection"). Every channel therefore has its own outstanding CALL. Message IDs already have
    to be unique across all connections of the same charging station identity (§4.1.4): the
    specification already allows for several connections per identity.
 3. **Privileges are bound to the TLS connection.** HTTP/2 (RFC 8740) and QUIC (RFC 9001, §4.4)
    forbid client authentication after the handshake. A channel with elevated privileges therefore
-   always needs its own TLS connection with its own role certificate. That is intended: firmware
+   always needs its own TLS connection with its own role certificate. SSH is no different: a
+   connection authenticates one login, once (RFC 4252), so a privileged channel over SSH needs an
+   SSH connection of its own with its own key or certificate. That is intended: firmware
    updates run over an explicit, time-limited *on-demand channel*, not over the everyday
    WebSocket, and they are logged separately and tamper-evidently.
 4. **Messages are signed by default.** Future OCPP messages use
@@ -187,6 +192,9 @@ The following points are normative (OCPP 2.1 Edition 2, Part 4; OCPP-J 1.6):
 ---
 
 ## 2. Transport options: HTTP/1.x, HTTP/2, HTTP/3
+
+The fourth binding, SSH, is not an HTTP option and carries no WebSocket; it is described with the
+channel sessions in section 4.9.
 
 ### 2.1 HTTP/1.x + RFC 6455: one connection per channel
 
@@ -412,8 +420,8 @@ framing, channels accepted on both sides).
 | **Channel session** | the logical association of one station identity with one CSMS endpoint; spans one or more transport connections; has a lifecycle and a reconnect policy |
 | **Channel** | named, bidirectional, message-oriented (RFC 6455 semantics); ordered and reliable within itself; its own CALL slot |
 | **Channel class** | `Control`, `Realtime`, `Bulk`, `Privileged`; determines priority, lifetime, role and reconnect behaviour |
-| **Binding** | HTTP/1.x, HTTP/2, HTTP/3 (later WebTransport) |
-| **Certificate domain** | the pair of endpoint and client certificate (= role); exactly one transport connection for HTTP/2 and HTTP/3; channels of different domains **never** share a connection |
+| **Binding** | HTTP/1.x, HTTP/2, HTTP/3, SSH (later WebTransport) |
+| **Certificate domain** | the pair of endpoint and client certificate (= role); exactly one transport connection for HTTP/2 and HTTP/3; over SSH the pair of endpoint and login - the key or SSH certificate the connection authenticated with; channels of different domains **never** share a connection |
 
 ### 4.2 Channel classes
 
@@ -436,7 +444,7 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Channels
 {
 
     public enum ChannelClass      { Control, Realtime, Bulk, Privileged }
-    public enum TransportBinding  { HTTP1, HTTP2, HTTP3, WebTransport }
+    public enum TransportBinding  { HTTP1, HTTP2, HTTP3, SSH, WebTransport }
     public enum ChannelCloseScope { Channel, Connection, Session }
 
     /// <summary>RFC 9218: urgency 0 (highest) to 7, default 3.</summary>
@@ -520,14 +528,14 @@ namespace org.GraphDefined.Vanaheimr.Hermod.Channels
 
 ### 4.4 Semantics per binding
 
-| | HTTP/1.x | HTTP/2 | HTTP/3 | WebTransport (later) |
-|---|---|---|---|---|
-| Channel = | TCP+TLS connection + upgrade | Extended CONNECT stream | Extended CONNECT stream | bidirectional stream in a session |
-| Session = | group of connections held together by a session token | connection(s) per certificate domain + token | as HTTP/2 | WT session |
-| Priority | local throttling, otherwise TCP fairness | RFC 9218 in both directions + PRIORITY_UPDATE | QUIC sender urgency + PRIORITY_UPDATE | stream urgency (missing in Hermod) |
-| Loss on channel A disturbs channel B | no | yes | no | no |
-| Server opens a channel | only on request via the control channel | as HTTP/1.x | as HTTP/1.x | native |
-| Limits per connection | – | `SETTINGS_MAX_CONCURRENT_STREAMS` | `MAX_STREAMS` | WT stream limits |
+| | HTTP/1.x | HTTP/2 | HTTP/3 | SSH (section 4.9) | WebTransport (later) |
+|---|---|---|---|---|---|
+| Channel = | TCP+TLS connection + upgrade | Extended CONNECT stream | Extended CONNECT stream | `session` channel + subsystem request | bidirectional stream in a session |
+| Session = | group of connections held together by a session token | connection(s) per certificate domain + token | as HTTP/2 | connection(s) per login + token in the HELLO | WT session |
+| Priority | local throttling, otherwise TCP fairness | RFC 9218 in both directions + PRIORITY_UPDATE | QUIC sender urgency + PRIORITY_UPDATE | none on the wire; local scheduling by the sender, flow-control window per channel | stream urgency (missing in Hermod) |
+| Loss on channel A disturbs channel B | no | yes | no | yes over one connection, no with a connection per channel | no |
+| Server opens a channel | only on request via the control channel | as HTTP/1.x | as HTTP/1.x | as HTTP/1.x | native |
+| Limits per connection | – | `SETTINGS_MAX_CONCURRENT_STREAMS` | `MAX_STREAMS` | the server's sessions per connection (Hermod: `MaxSessions`, 10) | WT stream limits |
 
 ### 4.5 Discussion: where the abstraction leaks
 
@@ -623,7 +631,75 @@ having several back ends at once is in section 11.6.
 
 **Per binding:** with `http/1.1` every channel is a TCP and TLS connection of its own, which also
 allows a different client certificate per channel. With `h2` and `h3` the channels are streams of
-one connection per certificate domain (section 4.1).
+one connection per certificate domain (section 4.1). Over SSH the channels share one connection
+per login, or take one of their own (section 4.9) - the station chooses per channel.
+
+### 4.9 SSH as a binding
+
+[OCPP over SSH](../OCPP-over-SSH/README.md) carries OCPP on a channel of an SSH connection, under
+the subsystem `ocpp@open.charging.cloud` and with a framing of its own (that paper's chapter 3).
+Its section 7.2 already foresees EVQI's further channels as further channels of the same
+subsystem. This section makes that a binding of the channel session, next to the three HTTP ones.
+
+**What a channel is.** A `session` channel on which the station asks for the subsystem, followed
+by HELLO, WELCOME and the messages. Every channel is one OCPP connection with its own CALL slot, as
+over every other binding; nothing in the framing multiplexes (that paper's section 3.1). The
+station opens every channel. Where the CSMS wants one, it asks over the control channel, as with
+HTTP (section 4.5, point 4).
+
+**Two shapes, chosen per channel:**
+
+| Shape | Transport connections | Loss on channel A disturbs B | For |
+|---|---|---|---|
+| **Shared** (the default) | one SSH connection per login; every channel of that login is a channel of it | yes, as with HTTP/2 | the everyday channels: one key exchange and one authentication, on the connection that also carries SFTP, NTS-KE and DNS (that paper's section 7.2) |
+| **Own connection** | one SSH connection per channel | no, as with HTTP/1.x | a `Realtime` channel that must not wait behind a lost segment of a bulk transfer; every `Privileged` channel, which needs a login of its own anyway (section 0, decision 3) |
+
+A session may mix both: `Control` and `Bulk` on the shared connection, `Realtime` on one of its own.
+
+**On the wire.** The conventions of section 4.6 go into the HELLO, whose properties beyond the
+subprotocols are the application's (that paper's section 3.3), where the HTTP bindings use headers.
+Proposed names (section 15):
+
+| HTTP binding | SSH binding |
+|---|---|
+| `EVQI-Session: <token>` | HELLO `evqiSession` - for correlation only, as there: every connection authenticates itself and must yield the same identity |
+| `EVQI-Channel: <name>; class=<class>; repr=<cbor\|json>` | HELLO `evqiChannel`: `{ "name": …, "class": …, "repr": "cbor" \| "json" }` |
+| `EVQI-Ticket: <ticket>` | HELLO `evqiTicket`, privileged channels only |
+| `Sec-WebSocket-Protocol` | HELLO `subprotocols`; every channel the OCPP version of the control channel |
+| a channel endpoint of its own (section 4.6) | the same subsystem; the HELLO's `evqiChannel` tells a further channel from the control channel |
+
+**Identity and security.** The identity is the SSH login, or the node a HELLO `networkingNodeId`
+names where the login may act for it (that paper's section 4.1). In `IChannelSecurity` the peer is
+proven by its host key or SSH host certificate, not by an X.509 certificate, so `PeerCertificate`
+stays empty; which role an SSH login or user certificate carries is open (section 15).
+`ExportKeyingMaterial` is available on every SSH connection, through the
+[SSH Keying Material Exporter](../SSHKeyExporter/README.md), where TLS needs a stack that offers it
+(section 2.5).
+
+**Newest wins, again.** A server that keeps only the newest connection of an identity drops the
+control channel at the first further channel (section 4.5, point 6). Over SSH that is the
+`Register` of `WWCPSshServer` (section 12.1). Further channels are therefore opened only after the
+capability negotiation, and the server registers them per channel, as for the HTTP bindings.
+
+**Liveness and reconnect.** One `keepalive@openssh.com` per connection covers all of its channels,
+as one HTTP/2 `PING` does. The message layer's PING per channel shows that the channel's peer is
+still reading. A lost shared connection takes all its channels with it
+(`ChannelCloseScope.Connection`), and each comes back by the policy of its class (section 8.2).
+REFUSED with `retryAfter` is the server's hint (section 8.3); `connection-exists` is the refusal
+of chapter 12.
+
+**What Hermod has** (section 13.1):
+
+- `IMessageConnection` is the type a WebSocket and an SSH message channel share (`Transport` says
+  which), so a channel can sit on either.
+- `SshMessageClient` connects in both shapes above: over a connection of its own, or as one more
+  channel of an `SshSharedConnection`. In both cases it reconnects with the WebSocket client's
+  reconnect policy and waits for a `retryAfter`, and its `HelloProperties` carry the properties
+  above.
+- On the server, `SshMessageServer`, and `SshServer.Subsystems`, which decides per session - by
+  key, certificate and the credential's restrictions - whether a subsystem is served.
+
+What is missing is in section 13.2 (H-11).
 
 ---
 
@@ -1170,12 +1246,16 @@ Consequences:
 - **WWCP_OCPP:** the `OCPPCommCtrlr` variables exist but are not read anywhere; Hermod's default
   policy runs instead. The random part differs: OCPP adds `[0, RandomRange]`, Hermod multiplies by
   ±20 %. OCPP conformance needs an additive mode in the policy.
+- **Hermod over SSH:** `SshMessageClient` takes the same `WebSocketClientReconnectPolicy`. Every
+  attempt is a new SSH connection, or a new channel of a shared one. A REFUSED without `retryAfter`
+  is final, one with it is retried after that many seconds at the earliest
+  ([OCPP over SSH](../OCPP-over-SSH/README.md), section 6.2).
 
 ### 8.2 Policy per channel class
 
 | Class | When to reconnect | Back-off | Particulars |
 |---|---|---|---|
-| `Control` | always | exactly OCPP §5.4 (`OCPPCommCtrlr` variables; mirrored as configuration keys for 1.6) | binding fallback H3 → H2 → H1 after N failures |
+| `Control` | always | exactly OCPP §5.4 (`OCPPCommCtrlr` variables; mirrored as configuration keys for 1.6) | binding fallback H3 → H2 → H1 after N failures; an `ssh://` endpoint stays SSH |
 | `Realtime` | once the control channel is up and negotiated, random delay 0–5 s | like Control, capped | skipped while no streams are configured |
 | `Bulk` | only while a transfer is pending | like Control | resume from the last acknowledged offset |
 | `Privileged` | never automatically | at most 3 retries within the ticket's validity | then a new ticket is required |
@@ -1186,13 +1266,17 @@ Consequences:
   - `503` or `429` with `Retry-After` on the upgrade or CONNECT.
   - WebSocket close 1013 ("Try Again Later"), optionally with a waiting time in the reason text.
   - `GOAWAY` (HTTP/2, HTTP/3) for an orderly drain before a restart.
+  - Over SSH: REFUSED with `retryAfter` in place of `Retry-After`, and CLOSE `1013` as over a
+    WebSocket.
 
   The client waits `max(own back-off, server hint)` plus its own random part, capped.
 - **Restart storms:** after a CSMS restart the random part spreads the reconnects. The server also
   admits gradually (token bucket) and randomizes its `Retry-After` values, so that rejected
   stations do not all return in the same second.
 - **Liveness:** WebSocket ping (`WebSocketPingInterval`) per channel with HTTP/1.x. With HTTP/2 or
-  HTTP/3 one `PING` or QUIC keepalive per connection covers all channels. Note: Hermod's HTTP/2
+  HTTP/3 one `PING` or QUIC keepalive per connection covers all channels, and over SSH one
+  `keepalive@openssh.com` per connection, with the message layer's PING per channel where a
+  channel's own peer has to be shown alive (section 4.9). Note: Hermod's HTTP/2
   server closes a connection after 120 s without inbound frames, so without keepalive a quiet
   channel dies; QUIC has a 30 s idle timeout, likewise without keepalive by default.
 - **Queues:** transaction messages buffered while offline stay on the control channel, in order.
@@ -2254,6 +2338,7 @@ Styx `master`. W-1 as of WWCP_Core `5efb78cc` and WWCP_OCPP `b13c9ffe`.
 | DNS | SRV/SVCB/HTTPS/TLSA, DoT, DoH, DNSSEC validator |
 | PKI / RBAC | `PKIFactory` with `AdditionalExtension`; Modbus/TLS roles (extension, extraction, authorization, audit hook) |
 | CBOR / COSE (Styx) | Metrological CBOR (tag 44252); COSE Sign1/Sign, countersignatures, Encrypt0/Encrypt, Mac0/Mac, keys and thumbprints, RFC 9864 algorithms, brainpool, ML-DSA, ECDH-ES with HKDF, ChaCha20-Poly1305 |
+| SSH (as of Hermod `3e29981b`) | client and server with subsystems of one's own (`SshServer.Subsystems`, decided per session; `SSHClient.OpenSubsystem`); the message protocol of OCPP over SSH (`SshMessageClient`, `SshMessageServer`) behind the transport-neutral `IMessageConnection`; one connection shared by several channels (`SshSharedConnection`); reconnect with `WebSocketClientReconnectPolicy` and REFUSED `retryAfter`; SSH user and host certificates; the keying material exporter; audit events |
 
 ### 13.2 Hermod: gaps for EVQI
 
@@ -2269,6 +2354,7 @@ Styx `master`. W-1 as of WWCP_Core `5efb78cc` and WWCP_OCPP `b13c9ffe`.
 | H-8 | Reconnect: close code 1013 not treated specially; no additive (OCPP-conformant) jitter mode |
 | H-9 | DNS: no SRV failover and no fallback on an empty answer; HTTPS RR not used to choose the connection; SvcParams untyped (and wrongly encoded in the JSON path); no Happy Eyeballs, no serve-stale, no ECH |
 | H-10 | No audit log for TLS/WebSocket (only EventSources and the SSH audit); no TPM/PKCS#11 binding |
+| H-11 | SSH binding (section 4.9): the HELLO properties `evqiSession`, `evqiChannel` and `evqiTicket` are a proposal that neither side reads yet; nothing chooses the shape (shared or own connection) per channel; how the channel multiplexer orders the sends of several channels on one connection - the only prioritization this binding has - is not measured |
 
 ### 13.3 WWCP_OCPP / WWCP_Core: available
 
@@ -2310,6 +2396,10 @@ What an OCPP connection needs before `h2` and `h3` can carry it (sections 2.5 an
 Until Hermod's own assessment changes (phases A and C of chapter 14), `http/1.1` stays the production
 binding. `h2` and `h3` are for test benches.
 
+The SSH binding needs none of this table: OCPP over SSH already runs through WWCP
+(`WWCPSshClient`, `WWCPSshServer`) on Hermod's `IMessageConnection`. What its further channels need
+is H-11 and the channel-session layer of phase B (work package B4).
+
 ---
 
 ## 14. Work plan
@@ -2346,6 +2436,7 @@ with IANA (tag 44252), COSE in Styx.
 | B1 | `IChannelSession`/`IChannel`, channel classes, `ChannelCloseInfo`, event adapter for WWCP | M | API review, tests against a fake binding |
 | B2 | HTTP/1.x binding: connection group, session token, lifecycle (control channel fails → session fails) | M | integration tests: channel loss, session replacement, reconnect |
 | B3 | Session policy: reconnect per class (section 8.2), station limits (section 9.2) | S | tests for connection count and back-off sequence |
+| B4 | SSH binding (section 4.9): channels as subsystem channels of a shared connection per login, or of a connection of their own; `evqiSession`/`evqiChannel`/`evqiTicket` in the HELLO; registration per channel on the server (H-11, R7) | M | B2's integration tests over SSH; a `Realtime` channel on a connection of its own stays on time during a bulk transfer with packet loss, and one on the shared connection does not |
 
 ### Phase C: HTTP/2 and HTTP/3 bindings
 
@@ -2561,6 +2652,17 @@ version.
 27. **Place:** chapters 11 and 12 of this paper, not a paper of their own. They were drafted on
     2026-11-09 as *Multi-Homed OCPP: Parallel Connections to Several Back Ends*.
 
+**The SSH binding** (section 4.9), added on 2026-11-28:
+
+28. **HELLO properties:** `evqiSession`, `evqiChannel` and `evqiTicket` (proposed), or one object
+    `evqi` holding all three?
+29. **Shape by default:** every channel on the shared connection of its login (proposed), with a
+    connection of its own only for `Privileged` and where the station asks for one - or `Realtime`
+    always on its own?
+30. **Roles over SSH:** where an SSH login or user certificate carries its role (section 6.3) - an
+    extension of the SSH certificate, the principals, or the access rules of
+    [OCPP over SSH](../OCPP-over-SSH/README.md), section 5.4?
+
 ---
 
 ## 16. References
@@ -2587,6 +2689,8 @@ version.
 - RFC 2782 DNS SRV · RFC 6335 IANA service names · RFC 8305 Happy Eyeballs v2 · RFC 8767 Serve-Stale
 - RFC 7838 HTTP Alternative Services · RFC 7301 TLS ALPN · RFC 7595 URI schemes · RFC 7515 JWS
 - RFC 9110 HTTP Semantics (409 Conflict, 429 Too Many Requests, `Retry-After`)
+- RFC 4251 SSH Protocol Architecture (§6 names) · RFC 4252 SSH Authentication Protocol ·
+  RFC 4254 SSH Connection Protocol (§6.5 subsystems)
 - RFC 8949 CBOR (§4.2.1 deterministic encoding) · RFC 9052 COSE · RFC 9338 COSE Countersignatures ·
   RFC 9679 COSE Key Thumbprint · RFC 9864 Fully-Specified Algorithms for JOSE and COSE
 
@@ -2604,6 +2708,8 @@ version.
 - [Metrological CBOR (CBOR tag 44252)](../MetrologicalCBOR/README.md) and
   [A signed metrological record, end to end](../MetrologicalCBOR/tag-44252-signed-example.md)
 - [Resilient, high-available and pooled parallel Connections](../AdvancedConnections/README.md)
+- [OCPP over SSH](../OCPP-over-SSH/README.md), the protocol the SSH binding carries (section 4.9),
+  and the [SSH Keying Material Exporter](../SSHKeyExporter/README.md)
 - [TLS Client/Server Configuration for OCPP v2.x](../TLSConfiguration/README.md)
 - [OCPP 2.x Firmware Updates with Software Separation](../FirmwareUpdateSeparation/README.md)
 - [Secure Time Synchronization for OCPP v1.6 and v2.x](../SecureTimeSync/README.md)
@@ -2616,8 +2722,8 @@ version.
 **Implementations:**
 
 - [Vanaheimr Hermod](https://github.com/Vanaheimr/Hermod): `Hermod/HTTP1/WebSocket`,
-  `Hermod/HTTP2`, `Hermod/HTTP3`, `Hermod/QUIC`, `Hermod/DNS`, `Hermod/Modbus/SunSpec`,
-  `Hermod/PKI`
+  `Hermod/HTTP2`, `Hermod/HTTP3`, `Hermod/QUIC`, `Hermod/SSH` (with `Hermod/SSH/Messaging`),
+  `Hermod/Messaging`, `Hermod/DNS`, `Hermod/Modbus/SunSpec`, `Hermod/PKI`
 - [Vanaheimr Styx](https://github.com/Vanaheimr/Styx): `Styx/Illias/CBOR`, `Styx/Illias/COSE`
 - [OpenChargingCloud WWCP_OCPP](https://github.com/OpenChargingCloud/WWCP_OCPP) and
   [WWCP_Core](https://github.com/OpenChargingCloud/WWCP_Core) (networking nodes)
