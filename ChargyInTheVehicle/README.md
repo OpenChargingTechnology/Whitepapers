@@ -2,7 +2,7 @@
 
 **Status:** Concept paper, draft for discussion.
 
-**Version:** 0.12 (2026-11-28)
+**Version:** 0.13 (2026-11-28)
 
 **Point of contact:** Achim Friedland, GraphDefined GmbH
 
@@ -12,7 +12,7 @@
 
 ISO 15118 carries the charging station's meter readings to the vehicle and lets the vehicle acknowledge them with a signature. Both parts of the standard even reserve a field for the meter's own signature. In practice the chain is complete in none of the five stacks examined: each implements a different half, and none had the ISO 15118-20 confirmation as a working flow. Our stack now has one as a prototype, recorded as a test session and answered by its Kotlin and Swift vehicles too, but so far checked only against itself.
 
-The vehicle's receipt is also only an acknowledgement of receipt. The car signs the station's number, not its own measurement. And the driver sees none of it. A vehicle that finds the number cannot be right has one standard move: stop charging, and give the reason in a termination code for which no value has been defined yet (Section 8.6).
+The vehicle's receipt is also only an acknowledgement of receipt. The car signs the station's number, not its own measurement. And the driver sees none of it. A vehicle that finds the number cannot be right has one standard move: stop charging, and give the reason in a termination code for which no value has been defined yet (Section 8.6). Our prototype does exactly that, with a code of its own.
 
 This paper therefore proposes **Chargy in the Vehicle**. Before energy flows, the vehicle compares its clock with the station's and the meter's. During charging it verifies the signed meter readings live and compares them with the measurements of its own battery system, using the meter's digital calibration certificate. At the end it issues its own signed charging report.
 
@@ -342,7 +342,7 @@ EVTerminationExplanation  meter 12400 Wh, vehicle 11850 Wh, band +-310 Wh at k=2
 Three limits come with it:
 
 - **It is said once, by ending.** The code rides on the last request of the session. A vehicle cannot use it and keep charging.
-- **Nobody has to keep it.** Nothing obliges the station to log or forward the code, and OCPP has no field for it (Section 11.4).
+- **Nobody has to keep it.** Nothing obliges the station to log or forward the code. OCPP 2.1 does have a place for it, though not in the transaction: its device model gives the `ConnectedEV` component a variable `ChargingState`, described as the `EVTerminationCode` to signal an error condition. A station could report the vehicle's reason to its backend there. We know of none that does, and nothing ties the variable to the transaction it ended.
 - **Stopping costs the driver.** A car that needs the energy may prefer a doubtful kilowatt-hour to none. When discharging, the arithmetic reverses. The vehicle is then the seller, and stopping delivery to a buyer whose meter under-counts is the natural reaction.
 
 **When to do what.** The bands are those of Section 8.3, the patterns those of Section 8.4.
@@ -369,7 +369,7 @@ In every case where it stops, the vehicle sends the termination code with the fi
 
 **What would close the gap.** Extension 3 of Section 11.3 lets the vehicle disagree without stopping. With its own measurement inside the signed receipt, "received X" becomes "received X, measured Y", and the station holds both from the moment of the charge loop on. Until then, a defined `MeteringDeviation` code for `EVTerminationCode` would at least give the one existing carrier a meaning every station can read. Section 11.3 lists it.
 
-**In the prototype.** Our stack can encode both elements of the ISO 15118-20 `SessionStopReq`, but neither our vehicles nor our station fill or read them yet. The comparator that would decide to stop does not exist yet either (Section 6.2).
+**In the prototype.** Built on 28 November 2026, with a fixed limit standing in for the band, see Section 11.6.
 
 ## 9. The vehicle's charging report
 
@@ -649,6 +649,26 @@ Each port replays the session byte for byte. Each also verifies the confirmation
 
 This is agreement among ports of one design, not a second implementation. It shows that the choice of signed bytes is reproducible, not that it is right. The three open choices above stay open.
 
+**Stopping over the meter.** Since 28 November 2026 the vehicle acts on what it sees, in the one way Section 8.6 found open to it. A fixed limit stands in for the band of Section 8.3: a fraction of the station's figure, never less than a floor in watt-hours. It knows nothing of losses, so it has to be set wide enough to leave them room.
+
+| Where | What |
+| --- | --- |
+| Vehicle | `--stop-on-meter-deviation 5` (5 %, never under 10 Wh; `5:200` for a 200 Wh floor). Every station reading is compared with the vehicle's own count of the same iteration, net in a bidirectional session. The first that strays further ends the charging after that iteration, with `Terminate` even where a pause was asked for. Confirmations the station asks for are still answered (`[V2G20-1084]`). |
+| ISO 15118-20 | the `SessionStopReq` carries `EVTerminationCode` `urn:openchargingcloud:EVTerminationCode:MeteringDeviation`, our URN until one is defined, and in `EVTerminationExplanation` the four figures, for instance "meter 880 Wh, vehicle 800 Wh, difference 80 Wh, beyond 44 Wh" |
+| ISO 15118-2 | the vehicle stops the same way and keeps the reason itself: its `SessionStopReq` has no field for one |
+| Station | `--meter-scale 1.10`, a meter that misreads by that factor and signs what it misread, so the signature still verifies. The station prints the code and the explanation it received. |
+| Kotlin and Swift vehicles | stop the same way in ISO 15118-20 and send the same bytes |
+| EVCLI | the same switch as the session setting `stopOnMeterDeviation`. The Charging page says the vehicle ended the charging over the station's meter, with the four figures, and whether it told the station so (ISO 15118-20) or kept the reason itself (ISO 15118-2) |
+
+**Test results.**
+
+- **Live runs.** The stack's station and vehicle programs ran over TCP with a meter reading 10 % high. In both protocols the vehicle stopped at the first reading, 880 Wh against its own 800. The ISO 15118-20 station printed the code and the explanation word for word.
+- **Recorded session.** `iso20-dc-eim-meter-deviation` holds the exchange. The C#, Kotlin and Swift vehicles replay it byte for byte, the explanation included. That text is therefore the contract between the three, which is why it carries whole watt-hours only, rounded the same way by hand in each.
+- **Sabotage.** With the stop removed, the stack's tests and the Kotlin replay fail.
+- **Not tested.** No other stack has received the code.
+
+One limit is our own: in ISO 15118-20 DC, the simulated car's count borrows the station's current (see "Readings side by side" above). A meter that misreads what flows through it, as here, is caught. A station whose meter and reported current are wrong by the same factor would pass, because the car would count the same error.
+
 ## 12. Further ideas
 
 Sorted by usefulness, the obvious ones first.
@@ -679,7 +699,7 @@ Sorted by usefulness, the obvious ones first.
 - How does the report reach the operator when OCPP has no field for it: as an extension, or past the station's backend?
 - How large is the auxiliary consumption really? There is no citable source, so it takes measurement series of our own.
 - Which octets does the signature of a `MeteringConfirmationReq` cover, and which curve do contract certificates carry in practice? The prototype had to choose both (Section 11.6). Only a second implementation can confirm the choice.
-- Who defines the `EVTerminationCode` for a metering deviation, and in which URN namespace: the ISO working group, IEC 61851-23, or a convention first (Section 8.6)? And does any station keep the code it receives?
+- Who defines the `EVTerminationCode` for a metering deviation, and in which URN namespace: the ISO working group, IEC 61851-23, or a convention first (Section 8.6)? Our prototype uses `urn:openchargingcloud:EVTerminationCode:MeteringDeviation` until then. And does any station keep the code it receives, for instance in OCPP 2.1's `ConnectedEV.ChargingState`?
 - How does a driver's dispute reach the CPO, when the vehicle's report goes to its eMSP and we found no OCPI message for disputing a CDR?
 
 ### 13.2 Next steps
@@ -697,7 +717,9 @@ Sorted by usefulness, the obvious ones first.
 - [x] Discharge against a second stack: EVerest 2026.10.0, Dynamic mode, both directions
 - [ ] Discharge in Scheduled mode with a discharging schedule, and against Josev and eVDriveFlow
 - [ ] Our DC car: stop discharging at empty, and count the current from its own battery model instead of the station's answer
-- [ ] On a deviation beyond the band, stop with an `EVTerminationCode` and the figures, and let our station log what it receives (Section 8.6)
+- [x] On a deviation beyond a limit, stop with an `EVTerminationCode` and the figures, and let our station log what it receives (Section 8.6): C#, Kotlin and Swift, recorded
+- [ ] The same against the band of Section 8.3 rather than a fixed limit, once the comparator exists
+- [ ] Report a vehicle's reason to the backend, e.g. as OCPP 2.1's `ConnectedEV.ChargingState`
 - [x] Show the confirmations on EVCLI's Charging page
 - [ ] Write down the transparency VAS and the three HTTP paths as a convention, and implement them
 - [ ] Extend `SigningMeter` to OCMF and let `ChargyCore.TS` verify against it
